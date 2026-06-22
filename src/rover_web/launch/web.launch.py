@@ -13,6 +13,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('bind_address', default_value='0.0.0.0'),
         DeclareLaunchArgument('port', default_value='8765'),
+        DeclareLaunchArgument('command_topic', default_value='/cmd_vel'),
         Node(
             package='rover_web',
             executable='web_gateway_node',
@@ -23,6 +24,7 @@ def generate_launch_description():
                 {
                     'bind_address': LaunchConfiguration('bind_address'),
                     'port': LaunchConfiguration('port'),
+                    'command_topic': LaunchConfiguration('command_topic'),
                     'web_root': str(web_share / 'web'),
                 },
             ],

@@ -219,10 +219,14 @@ def launch_setup(context):
         ))
 
     if use_web:
+        web_command_topic = '/cmd_vel_teleop' if use_mux else '/cmd_vel'
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('rover_web'), 'launch', 'web.launch.py'
             ])),
+            launch_arguments={
+                'command_topic': web_command_topic,
+            }.items(),
         ))
 
     localization = Path(

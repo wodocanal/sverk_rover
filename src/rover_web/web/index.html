@@ -1,57 +1,329 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rover Web</title>
+  <meta name="theme-color" content="#d66a1f">
+  <title>Sverh Rover Console</title>
   <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
-  <main class="hero">
-    <div class="hero-card">
-      <p class="eyebrow">Raspberry Pi Rover</p>
-      <h1>Hello, world!</h1>
-      <p class="message">
-        Новый веб-интерфейс для ровера запущен. Это чистый стартовый экран,
-        доступный с других устройств в локальной сети.
-      </p>
-      <div class="status-row">
-        <span class="label">Status</span>
-        <span class="badge">Online</span>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <p class="eyebrow">Sverh Rover</p>
+        <h1>Console</h1>
+        <p class="sidebar-copy">Управление, ROS и видео в одном месте.</p>
       </div>
-      <div class="status-row">
-        <span class="label">Endpoint</span>
-        <code id="origin-label">loading…</code>
-      </div>
-      <div class="status-row">
-        <span class="label">Hostname</span>
-        <code id="hostname-label">loading…</code>
-      </div>
-      <div class="status-row">
-        <span class="label">IPv4</span>
-        <code id="ip-label">loading…</code>
-      </div>
-    </div>
-  </main>
 
-  <script>
-    const originLabel = document.getElementById('origin-label');
-    const hostnameLabel = document.getElementById('hostname-label');
-    const ipLabel = document.getElementById('ip-label');
+      <nav class="sidebar-nav" aria-label="Главные страницы">
+        <button class="nav-tab active" data-page="system">
+          <span class="nav-kicker">01</span>
+          <span class="nav-title">Система</span>
+        </button>
+        <button class="nav-tab" data-page="ros">
+          <span class="nav-kicker">02</span>
+          <span class="nav-title">ROS State</span>
+        </button>
+        <button class="nav-tab" data-page="camera">
+          <span class="nav-kicker">03</span>
+          <span class="nav-title">Камера</span>
+        </button>
+        <button class="nav-tab" data-page="drive">
+          <span class="nav-kicker">04</span>
+          <span class="nav-title">Движение</span>
+        </button>
+      </nav>
 
-    originLabel.textContent = window.location.origin;
+      <div class="sidebar-foot">
+        <div class="sidebar-stat">
+          <span>Host</span>
+          <strong id="sidebar-hostname">—</strong>
+        </div>
+        <div class="sidebar-stat">
+          <span>Web</span>
+          <strong id="sidebar-endpoint">—</strong>
+        </div>
+      </div>
+    </aside>
 
-    fetch('/api/identity', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((payload) => {
-        hostnameLabel.textContent = payload.hostname || 'unknown';
-        const addresses = Array.isArray(payload.ip_addresses) ? payload.ip_addresses : [];
-        ipLabel.textContent = addresses.length ? addresses.join(', ') : 'not detected';
-      })
-      .catch(() => {
-        hostnameLabel.textContent = 'unavailable';
-        ipLabel.textContent = 'unavailable';
-      });
-  </script>
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Network Console</p>
+          <h2 id="page-title">Система</h2>
+        </div>
+        <div class="topbar-status">
+          <span class="pill" id="api-pill">API</span>
+          <span class="pill neutral" id="ros-pill">ROS</span>
+        </div>
+      </header>
+
+      <section class="page active" id="page-system">
+        <div class="hero-panel">
+          <div>
+            <p class="eyebrow">System Overview</p>
+            <h3>Базовое состояние платформы и сети</h3>
+          </div>
+          <button class="ghost-button" id="system-refresh">Обновить</button>
+        </div>
+
+        <div class="card-grid">
+          <article class="metric-card">
+            <span>Hostname</span>
+            <strong id="metric-hostname">—</strong>
+          </article>
+          <article class="metric-card">
+            <span>IPv4</span>
+            <strong id="metric-ip">—</strong>
+          </article>
+          <article class="metric-card">
+            <span>Uptime</span>
+            <strong id="metric-uptime">—</strong>
+          </article>
+          <article class="metric-card">
+            <span>CPU Temp</span>
+            <strong id="metric-temp">—</strong>
+          </article>
+          <article class="metric-card">
+            <span>Memory Free</span>
+            <strong id="metric-mem">—</strong>
+          </article>
+          <article class="metric-card">
+            <span>Disk Free</span>
+            <strong id="metric-disk">—</strong>
+          </article>
+          <article class="metric-card">
+            <span>ROS Topics</span>
+            <strong id="metric-topics">—</strong>
+          </article>
+          <article class="metric-card">
+            <span>ROS Services</span>
+            <strong id="metric-services">—</strong>
+          </article>
+        </div>
+
+        <div class="panel-grid system-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Status</p>
+                <h3>Сводка</h3>
+              </div>
+            </div>
+            <dl class="detail-list" id="system-summary"></dl>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Devices</p>
+                <h3>Обнаруженные устройства</h3>
+              </div>
+            </div>
+            <pre class="code-box" id="devices-box">Загрузка…</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-ros">
+        <div class="hero-panel">
+          <div>
+            <p class="eyebrow">ROS Graph</p>
+            <h3>Ноды, топики, сервисы и взаимодействие с ними</h3>
+          </div>
+          <button class="ghost-button" id="ros-refresh">Обновить граф</button>
+        </div>
+
+        <div class="card-grid compact-cards">
+          <article class="metric-card compact">
+            <span>Nodes</span>
+            <strong id="ros-nodes-count">—</strong>
+          </article>
+          <article class="metric-card compact">
+            <span>Topics</span>
+            <strong id="ros-topics-count">—</strong>
+          </article>
+          <article class="metric-card compact">
+            <span>Services</span>
+            <strong id="ros-services-count">—</strong>
+          </article>
+          <article class="metric-card compact">
+            <span>Image Topics</span>
+            <strong id="ros-image-count">—</strong>
+          </article>
+        </div>
+
+        <div class="panel-grid ros-grid">
+          <article class="panel list-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Nodes</p>
+                <h3>Ноды</h3>
+              </div>
+            </div>
+            <input id="nodes-filter" class="text-input" placeholder="Фильтр нод">
+            <div class="scroll-list" id="nodes-list"></div>
+          </article>
+
+          <article class="panel list-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Topics</p>
+                <h3>Топики</h3>
+              </div>
+            </div>
+            <input id="topics-filter" class="text-input" placeholder="Фильтр топиков">
+            <div class="scroll-list" id="topics-list"></div>
+          </article>
+
+          <article class="panel detail-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Topic Inspect</p>
+                <h3 id="topic-detail-title">Выбери топик</h3>
+              </div>
+              <button class="ghost-button" id="topic-refresh">Обновить</button>
+            </div>
+            <dl class="detail-list" id="topic-meta"></dl>
+            <div class="form-block">
+              <label for="topic-payload">JSON для публикации</label>
+              <textarea id="topic-payload" class="code-input" rows="10"></textarea>
+            </div>
+            <div class="button-row">
+              <button class="ghost-button" id="topic-template">Шаблон</button>
+              <button id="topic-publish">Опубликовать</button>
+            </div>
+            <div class="status-note" id="topic-action-status">Выбери топик, чтобы посмотреть данные.</div>
+            <pre class="code-box" id="topic-latest-message">Нет данных.</pre>
+          </article>
+
+          <article class="panel list-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Services</p>
+                <h3>Сервисы</h3>
+              </div>
+            </div>
+            <input id="services-filter" class="text-input" placeholder="Фильтр сервисов">
+            <div class="scroll-list" id="services-list"></div>
+          </article>
+
+          <article class="panel detail-panel wide">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Service Call</p>
+                <h3 id="service-detail-title">Выбери сервис</h3>
+              </div>
+              <button class="ghost-button" id="service-refresh">Обновить</button>
+            </div>
+            <dl class="detail-list" id="service-meta"></dl>
+            <div class="form-block">
+              <label for="service-request">JSON запроса</label>
+              <textarea id="service-request" class="code-input" rows="10"></textarea>
+            </div>
+            <div class="button-row">
+              <button class="ghost-button" id="service-template">Шаблон</button>
+              <button id="service-call">Вызвать</button>
+            </div>
+            <div class="status-note" id="service-action-status">Выбери сервис, чтобы подготовить вызов.</div>
+            <pre class="code-box" id="service-response">Нет ответа.</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-camera">
+        <div class="hero-panel">
+          <div>
+            <p class="eyebrow">Camera</p>
+            <h3>Изображение с камеры и выбор источника</h3>
+          </div>
+          <button class="ghost-button" id="camera-refresh-topics">Обновить источники</button>
+        </div>
+
+        <div class="panel-grid camera-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Source</p>
+                <h3>Источник изображения</h3>
+              </div>
+            </div>
+            <label for="camera-topic-select">Image topic</label>
+            <select id="camera-topic-select" class="text-input"></select>
+            <div class="button-row">
+              <button id="camera-connect">Подключить</button>
+            </div>
+            <dl class="detail-list" id="camera-meta"></dl>
+            <div class="status-note" id="camera-status">Выбери image topic.</div>
+          </article>
+
+          <article class="panel camera-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Live Preview</p>
+                <h3>Поток изображения</h3>
+              </div>
+            </div>
+            <div class="camera-frame-wrap">
+              <img id="camera-frame" alt="Camera stream preview">
+              <div class="camera-empty" id="camera-empty">Изображение ещё не получено.</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-drive">
+        <div class="hero-panel">
+          <div>
+            <p class="eyebrow">Drive</p>
+            <h3>Управление ровером в реальном времени</h3>
+          </div>
+          <button class="danger-button" id="drive-stop">STOP</button>
+        </div>
+
+        <div class="panel-grid drive-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Keyboard</p>
+                <h3>WASD + Q/E</h3>
+              </div>
+            </div>
+            <div class="drive-pad">
+              <button class="drive-key" data-key="KeyQ">Q</button>
+              <button class="drive-key" data-key="KeyW">W</button>
+              <button class="drive-key" data-key="KeyE">E</button>
+              <button class="drive-key" data-key="KeyA">A</button>
+              <button class="drive-key" data-key="KeyS">S</button>
+              <button class="drive-key" data-key="KeyD">D</button>
+            </div>
+            <p class="status-note">W/S: вперёд и назад. A/D: влево и вправо. Q/E: вращение. При потере фокуса отправляется нулевая команда.</p>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Command</p>
+                <h3>Параметры движения</h3>
+              </div>
+            </div>
+            <label for="linear-speed">Скорость X <output id="linear-speed-output"></output></label>
+            <input id="linear-speed" type="range" min="0.05" max="0.35" step="0.01">
+            <label for="lateral-speed">Скорость Y <output id="lateral-speed-output"></output></label>
+            <input id="lateral-speed" type="range" min="0.05" max="0.35" step="0.01">
+            <label for="angular-speed">Скорость вращения <output id="angular-speed-output"></output></label>
+            <input id="angular-speed" type="range" min="0.05" max="1.50" step="0.01">
+            <dl class="detail-list" id="drive-meta"></dl>
+            <pre class="code-box" id="drive-preview">linear.x: 0.00
+linear.y: 0.00
+angular.z: 0.00</pre>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/assets/app.js"></script>
 </body>
 </html>

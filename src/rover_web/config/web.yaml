@@ -2,3 +2,11 @@ web_gateway_node:
   ros__parameters:
     bind_address: 0.0.0.0
     port: 8765
+    command_topic: /cmd_vel
+    drive_command_timeout_sec: 0.25
+    default_linear_speed_mps: 0.18
+    default_lateral_speed_mps: 0.16
+    default_angular_speed_radps: 0.70
+    max_linear_speed_mps: 0.35
+    max_lateral_speed_mps: 0.35
+    max_angular_speed_radps: 1.50

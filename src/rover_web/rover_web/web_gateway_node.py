@@ -1,57 +1,255 @@
 #!/usr/bin/env python3
-"""Minimal LAN-accessible web server for the rover."""
+"""Web gateway for rover status, ROS inspection, camera preview and drive."""
 
 from __future__ import annotations
 
+from array import array
+from dataclasses import dataclass
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from ament_index_python.packages import get_package_share_directory
+import cv2
+from geometry_msgs.msg import Twist
+import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from rosidl_runtime_py.convert import message_to_ordereddict
+from rosidl_runtime_py.set_message import set_message_fields
+from rosidl_runtime_py.utilities import get_message, get_service
+from sensor_msgs.msg import CompressedImage, Image
+
+
+MAX_REQUEST_BYTES = 1_000_000
+IMAGE_TOPIC_TYPES = {
+    'sensor_msgs/msg/Image',
+    'sensor_msgs/msg/CompressedImage',
+}
 
 
 def current_ipv4_addresses() -> list[str]:
     addresses: list[str] = []
     try:
         output = subprocess.run(
-            ["hostname", "-I"],
+            ['hostname', '-I'],
             check=False,
             capture_output=True,
             text=True,
             timeout=0.5,
         ).stdout
         for candidate in output.split():
-            if ":" not in candidate and not candidate.startswith("127."):
+            if ':' not in candidate and not candidate.startswith('127.'):
                 addresses.append(candidate)
     except (OSError, subprocess.SubprocessError):
         pass
     return list(dict.fromkeys(addresses))
 
 
+def age_seconds(monotonic_timestamp: float) -> float | None:
+    if monotonic_timestamp <= 0.0:
+        return None
+    return max(0.0, time.monotonic() - monotonic_timestamp)
+
+
+def normalize_topic_name(name: str) -> str:
+    text = name.strip()
+    if not text:
+        raise ValueError('Topic name is required')
+    return text if text.startswith('/') else f'/{text}'
+
+
+def normalize_service_name(name: str) -> str:
+    text = name.strip()
+    if not text:
+        raise ValueError('Service name is required')
+    return text if text.startswith('/') else f'/{text}'
+
+
+def clamp(value: float, limit: float) -> float:
+    return max(-limit, min(limit, value))
+
+
+def sanitize_payload(value: Any, *, depth: int = 0, max_items: int = 64) -> Any:
+    if depth > 8:
+        return '...'
+
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, float) and not math.isfinite(value):
+            return str(value)
+        return value
+
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return f'<{len(value)} bytes>'
+
+    if isinstance(value, array):
+        return sanitize_payload(list(value), depth=depth + 1, max_items=max_items)
+
+    if isinstance(value, dict):
+        items = list(value.items())
+        output = {
+            str(key): sanitize_payload(item, depth=depth + 1, max_items=max_items)
+            for key, item in items[:max_items]
+        }
+        if len(items) > max_items:
+            output['__truncated__'] = f'{len(items) - max_items} more fields'
+        return output
+
+    if isinstance(value, (list, tuple)):
+        items = [
+            sanitize_payload(item, depth=depth + 1, max_items=max_items)
+            for item in value[:max_items]
+        ]
+        if len(value) > max_items:
+            items.append(f'... {len(value) - max_items} more items')
+        return items
+
+    if hasattr(value, 'tolist'):
+        return sanitize_payload(value.tolist(), depth=depth + 1, max_items=max_items)
+
+    return str(value)
+
+
+def make_message_template(message_type: type[Any]) -> dict[str, Any]:
+    return sanitize_payload(message_to_ordereddict(message_type()), max_items=24)
+
+
+def compressed_content_type(format_text: str) -> str:
+    lowered = format_text.lower()
+    if 'png' in lowered:
+        return 'image/png'
+    return 'image/jpeg'
+
+
+@dataclass
+class TopicWatch:
+    topic: str
+    type_name: str
+    msg_class: type[Any]
+    subscription: Any
+    last_message: Any = None
+    last_updated_monotonic: float = 0.0
+    message_count: int = 0
+    last_error: str | None = None
+    last_access_monotonic: float = 0.0
+
+
+@dataclass
+class ImageWatch:
+    topic: str
+    type_name: str
+    subscription: Any
+    frame_bytes: bytes | None = None
+    content_type: str = 'image/jpeg'
+    width: int = 0
+    height: int = 0
+    encoding: str = ''
+    message_count: int = 0
+    last_updated_monotonic: float = 0.0
+    last_error: str | None = None
+    last_access_monotonic: float = 0.0
+
+
+@dataclass
+class PublisherHandle:
+    topic: str
+    type_name: str
+    msg_class: type[Any]
+    publisher: Any
+
+
+@dataclass
+class ServiceHandle:
+    service: str
+    type_name: str
+    srv_class: type[Any]
+    client: Any
+
+
 class RoverWebGateway(Node):
     def __init__(self) -> None:
-        super().__init__("web_gateway_node")
+        super().__init__('web_gateway_node')
 
-        share = Path(get_package_share_directory("rover_web"))
-        self.declare_parameter("bind_address", "0.0.0.0")
-        self.declare_parameter("port", 8765)
-        self.declare_parameter("web_root", str(share / "web"))
+        share = Path(get_package_share_directory('rover_web'))
 
-        self.bind_address = str(self.get_parameter("bind_address").value)
-        self.port = int(self.get_parameter("port").value)
+        self.declare_parameter('bind_address', '0.0.0.0')
+        self.declare_parameter('port', 8765)
+        self.declare_parameter('web_root', str(share / 'web'))
+        self.declare_parameter('command_topic', '/cmd_vel')
+        self.declare_parameter('drive_command_timeout_sec', 0.25)
+        self.declare_parameter('default_linear_speed_mps', 0.18)
+        self.declare_parameter('default_lateral_speed_mps', 0.16)
+        self.declare_parameter('default_angular_speed_radps', 0.70)
+        self.declare_parameter('max_linear_speed_mps', 0.35)
+        self.declare_parameter('max_lateral_speed_mps', 0.35)
+        self.declare_parameter('max_angular_speed_radps', 1.50)
+        self.declare_parameter('runtime_dir', '/tmp/rover_devices')
+
+        self.bind_address = str(self.get_parameter('bind_address').value)
+        self.port = int(self.get_parameter('port').value)
         self.web_root = Path(
-            str(self.get_parameter("web_root").value)
+            str(self.get_parameter('web_root').value)
         ).expanduser().resolve()
+        self.command_topic = str(self.get_parameter('command_topic').value)
+        self.drive_command_timeout_sec = max(
+            0.1, float(self.get_parameter('drive_command_timeout_sec').value)
+        )
+        self.default_linear_speed = max(
+            0.05, float(self.get_parameter('default_linear_speed_mps').value)
+        )
+        self.default_lateral_speed = max(
+            0.05, float(self.get_parameter('default_lateral_speed_mps').value)
+        )
+        self.default_angular_speed = max(
+            0.05, float(self.get_parameter('default_angular_speed_radps').value)
+        )
+        self.max_linear_speed = max(
+            self.default_linear_speed,
+            float(self.get_parameter('max_linear_speed_mps').value),
+        )
+        self.max_lateral_speed = max(
+            self.default_lateral_speed,
+            float(self.get_parameter('max_lateral_speed_mps').value),
+        )
+        self.max_angular_speed = max(
+            self.default_angular_speed,
+            float(self.get_parameter('max_angular_speed_radps').value),
+        )
+        self.runtime_dir = Path(
+            str(self.get_parameter('runtime_dir').value)
+        ).expanduser()
+
         self.started_at = time.time()
+        self._lock = threading.RLock()
+        self._topic_watches: dict[tuple[str, str], TopicWatch] = {}
+        self._image_watches: dict[tuple[str, str], ImageWatch] = {}
+        self._publisher_cache: dict[tuple[str, str], PublisherHandle] = {}
+        self._service_client_cache: dict[tuple[str, str], ServiceHandle] = {}
+        self._latest_drive_command = Twist()
+        self._latest_drive_monotonic = 0.0
+        self._drive_active = False
+
+        self._cpu_last_total = 0
+        self._cpu_last_idle = 0
+        self._system_cache_monotonic = 0.0
+        self._system_cache: dict[str, Any] = {}
+        self._graph_cache_monotonic = 0.0
+        self._graph_cache: dict[str, Any] = {}
+
+        self.drive_publisher = self.create_publisher(Twist, self.command_topic, 10)
+        self.create_timer(0.05, self._drive_output_timer)
 
         handler = self._build_handler()
         self._http_server = ThreadingHTTPServer((self.bind_address, self.port), handler)
@@ -59,73 +257,827 @@ class RoverWebGateway(Node):
         self._http_server.gateway = self  # type: ignore[attr-defined]
         self._http_thread = threading.Thread(
             target=self._http_server.serve_forever,
-            name="rover-web-http",
+            name='rover-web-http',
             daemon=True,
         )
         self._http_thread.start()
 
         addresses = current_ipv4_addresses()
-        address_list = ", ".join(addresses) if addresses else "no IPv4 detected"
+        address_list = ', '.join(addresses) if addresses else 'no IPv4 detected'
         self.get_logger().info(
-            f"Rover web is serving on http://{self.bind_address}:{self.port} "
-            f"(LAN addresses: {address_list})"
+            f'Rover web listening on http://{self.bind_address}:{self.port} '
+            f'(LAN addresses: {address_list})'
         )
 
-    def _identity_payload(self) -> dict[str, object]:
-        return {
-            "ok": True,
-            "hostname": socket.gethostname(),
-            "ip_addresses": current_ipv4_addresses(),
-            "bind_address": self.bind_address,
-            "port": self.port,
-            "started_at": self.started_at,
+    def _topic_graph(self) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+        topic_types = {
+            name: list(types)
+            for name, types in self.get_topic_names_and_types()
         }
+        service_types = {
+            name: list(types)
+            for name, types in self.get_service_names_and_types()
+        }
+        return topic_types, service_types
+
+    def _resolve_topic_type(
+        self,
+        topic: str,
+        requested_type: str | None = None,
+    ) -> tuple[str, list[str]]:
+        topic_types, _ = self._topic_graph()
+        available_types = topic_types.get(topic, [])
+        if requested_type:
+            return requested_type, available_types
+        if not available_types:
+            raise ValueError(f'No ROS type is currently visible for topic {topic}')
+        return available_types[0], available_types
+
+    def _resolve_service_type(
+        self,
+        service: str,
+        requested_type: str | None = None,
+    ) -> tuple[str, list[str]]:
+        _, service_types = self._topic_graph()
+        available_types = service_types.get(service, [])
+        if requested_type:
+            return requested_type, available_types
+        if not available_types:
+            raise ValueError(f'No ROS type is currently visible for service {service}')
+        return available_types[0], available_types
+
+    def _message_summary(self, message: Any) -> Any:
+        return sanitize_payload(message_to_ordereddict(message))
+
+    def _ensure_topic_watch(self, topic: str, type_name: str) -> TopicWatch:
+        key = (topic, type_name)
+        with self._lock:
+            existing = self._topic_watches.get(key)
+            if existing is not None:
+                existing.last_access_monotonic = time.monotonic()
+                return existing
+
+            msg_class = get_message(type_name)
+
+            def callback(message: Any) -> None:
+                with self._lock:
+                    watch = self._topic_watches.get(key)
+                    if watch is None:
+                        return
+                    watch.last_updated_monotonic = time.monotonic()
+                    watch.message_count += 1
+                    watch.last_error = None
+                    try:
+                        watch.last_message = self._message_summary(message)
+                    except Exception as exc:
+                        watch.last_message = {
+                            'summary_error': f'{type(exc).__name__}: {exc}'
+                        }
+                        watch.last_error = str(exc)
+
+            subscription = self.create_subscription(
+                msg_class,
+                topic,
+                callback,
+                10,
+            )
+            watch = TopicWatch(
+                topic=topic,
+                type_name=type_name,
+                msg_class=msg_class,
+                subscription=subscription,
+                last_access_monotonic=time.monotonic(),
+            )
+            self._topic_watches[key] = watch
+            return watch
+
+    def _reshape_raw_image(
+        self,
+        message: Image,
+        *,
+        channels: int,
+    ) -> np.ndarray:
+        expected_row_size = int(message.width * channels)
+        if message.step < expected_row_size:
+            raise ValueError('Image step is smaller than expected row size')
+
+        data = np.frombuffer(message.data, dtype=np.uint8)
+        expected_bytes = int(message.step * message.height)
+        if data.size < expected_bytes:
+            raise ValueError('Image payload is shorter than expected')
+
+        rows = data[:expected_bytes].reshape((message.height, message.step))
+        cropped = rows[:, :expected_row_size]
+        if channels == 1:
+            return cropped.reshape((message.height, message.width))
+        return cropped.reshape((message.height, message.width, channels))
+
+    def _encode_image_message(self, message: Image) -> tuple[bytes, str, int, int, str]:
+        encoding = message.encoding.lower()
+        if encoding == 'bgr8':
+            frame = self._reshape_raw_image(message, channels=3)
+        elif encoding == 'rgb8':
+            frame = cv2.cvtColor(
+                self._reshape_raw_image(message, channels=3),
+                cv2.COLOR_RGB2BGR,
+            )
+        elif encoding == 'mono8':
+            frame = self._reshape_raw_image(message, channels=1)
+        elif encoding == 'bgra8':
+            frame = cv2.cvtColor(
+                self._reshape_raw_image(message, channels=4),
+                cv2.COLOR_BGRA2BGR,
+            )
+        elif encoding == 'rgba8':
+            frame = cv2.cvtColor(
+                self._reshape_raw_image(message, channels=4),
+                cv2.COLOR_RGBA2BGR,
+            )
+        else:
+            raise ValueError(f'Unsupported image encoding: {message.encoding}')
+
+        ok, encoded = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
+        if not ok:
+            raise ValueError('OpenCV could not encode frame as JPEG')
+        return (
+            encoded.tobytes(),
+            'image/jpeg',
+            int(message.width),
+            int(message.height),
+            message.encoding,
+        )
+
+    def _ensure_image_watch(self, topic: str, type_name: str) -> ImageWatch:
+        key = (topic, type_name)
+        with self._lock:
+            existing = self._image_watches.get(key)
+            if existing is not None:
+                existing.last_access_monotonic = time.monotonic()
+                return existing
+
+            if type_name == 'sensor_msgs/msg/Image':
+
+                def callback(message: Image) -> None:
+                    with self._lock:
+                        watch = self._image_watches.get(key)
+                        if watch is None:
+                            return
+                        watch.last_access_monotonic = time.monotonic()
+                        watch.last_updated_monotonic = time.monotonic()
+                        watch.message_count += 1
+                        try:
+                            (
+                                watch.frame_bytes,
+                                watch.content_type,
+                                watch.width,
+                                watch.height,
+                                watch.encoding,
+                            ) = self._encode_image_message(message)
+                            watch.last_error = None
+                        except Exception as exc:
+                            watch.last_error = f'{type(exc).__name__}: {exc}'
+
+                subscription = self.create_subscription(
+                    Image,
+                    topic,
+                    callback,
+                    qos_profile_sensor_data,
+                )
+
+            elif type_name == 'sensor_msgs/msg/CompressedImage':
+
+                def callback(message: CompressedImage) -> None:
+                    with self._lock:
+                        watch = self._image_watches.get(key)
+                        if watch is None:
+                            return
+                        watch.last_access_monotonic = time.monotonic()
+                        watch.last_updated_monotonic = time.monotonic()
+                        watch.message_count += 1
+                        watch.frame_bytes = bytes(message.data)
+                        watch.content_type = compressed_content_type(message.format)
+                        watch.width = 0
+                        watch.height = 0
+                        watch.encoding = message.format or 'compressed'
+                        watch.last_error = None
+
+                subscription = self.create_subscription(
+                    CompressedImage,
+                    topic,
+                    callback,
+                    qos_profile_sensor_data,
+                )
+
+            else:
+                raise ValueError(f'Unsupported image topic type: {type_name}')
+
+            watch = ImageWatch(
+                topic=topic,
+                type_name=type_name,
+                subscription=subscription,
+                last_access_monotonic=time.monotonic(),
+            )
+            self._image_watches[key] = watch
+            return watch
+
+    def _ensure_publisher(self, topic: str, type_name: str) -> PublisherHandle:
+        key = (topic, type_name)
+        with self._lock:
+            existing = self._publisher_cache.get(key)
+            if existing is not None:
+                return existing
+            msg_class = get_message(type_name)
+            publisher = self.create_publisher(msg_class, topic, 10)
+            handle = PublisherHandle(
+                topic=topic,
+                type_name=type_name,
+                msg_class=msg_class,
+                publisher=publisher,
+            )
+            self._publisher_cache[key] = handle
+            return handle
+
+    def _ensure_service_client(self, service: str, type_name: str) -> ServiceHandle:
+        key = (service, type_name)
+        with self._lock:
+            existing = self._service_client_cache.get(key)
+            if existing is not None:
+                return existing
+            srv_class = get_service(type_name)
+            client = self.create_client(srv_class, service)
+            handle = ServiceHandle(
+                service=service,
+                type_name=type_name,
+                srv_class=srv_class,
+                client=client,
+            )
+            self._service_client_cache[key] = handle
+            return handle
+
+    def _system_summary(self) -> dict[str, Any]:
+        now = time.monotonic()
+        with self._lock:
+            if now - self._system_cache_monotonic < 0.5 and self._system_cache:
+                return dict(self._system_cache)
+
+        temperature_c = None
+        try:
+            raw = Path('/sys/class/thermal/thermal_zone0/temp').read_text().strip()
+            temperature_c = int(raw) / 1000.0
+        except (OSError, ValueError):
+            pass
+
+        memory_total = None
+        memory_available = None
+        try:
+            values: dict[str, int] = {}
+            for line in Path('/proc/meminfo').read_text().splitlines():
+                key, value = line.split(':', 1)
+                values[key] = int(value.strip().split()[0]) * 1024
+            memory_total = values.get('MemTotal')
+            memory_available = values.get('MemAvailable')
+        except (OSError, ValueError, IndexError):
+            pass
+
+        disk_total = disk_free = None
+        try:
+            usage = shutil.disk_usage('/')
+            disk_total = usage.total
+            disk_free = usage.free
+        except OSError:
+            pass
+
+        load_1 = load_5 = load_15 = None
+        try:
+            load_1, load_5, load_15 = os.getloadavg()
+        except OSError:
+            pass
+
+        uptime_sec = None
+        try:
+            uptime_sec = float(Path('/proc/uptime').read_text().split()[0])
+        except (OSError, ValueError, IndexError):
+            uptime_sec = max(0.0, time.time() - self.started_at)
+
+        payload = {
+            'ok': True,
+            'hostname': socket.gethostname(),
+            'ip_addresses': current_ipv4_addresses(),
+            'bind_address': self.bind_address,
+            'port': self.port,
+            'started_at': self.started_at,
+            'uptime_sec': uptime_sec,
+            'temperature_c': temperature_c,
+            'memory_total_bytes': memory_total,
+            'memory_available_bytes': memory_available,
+            'disk_total_bytes': disk_total,
+            'disk_free_bytes': disk_free,
+            'load_average': {
+                'one_min': load_1,
+                'five_min': load_5,
+                'fifteen_min': load_15,
+            },
+            'command_topic': self.command_topic,
+            'drive_command_timeout_sec': self.drive_command_timeout_sec,
+            'drive_defaults': {
+                'linear_x': self.default_linear_speed,
+                'linear_y': self.default_lateral_speed,
+                'angular_z': self.default_angular_speed,
+            },
+            'drive_limits': {
+                'linear_x': self.max_linear_speed,
+                'linear_y': self.max_lateral_speed,
+                'angular_z': self.max_angular_speed,
+            },
+            'devices': self._devices_payload(),
+            'ros': self._graph_counts(),
+        }
+        with self._lock:
+            self._system_cache_monotonic = now
+            self._system_cache = dict(payload)
+        return payload
+
+    def _graph_counts(self) -> dict[str, int]:
+        graph = self._graph_payload()
+        return {
+            'nodes': len(graph['nodes']),
+            'topics': len(graph['topics']),
+            'services': len(graph['services']),
+            'image_topics': len(graph['image_topics']),
+        }
+
+    def _devices_payload(self) -> dict[str, Any]:
+        path = self.runtime_dir / 'devices.json'
+        try:
+            value = json.loads(path.read_text(encoding='utf-8'))
+            return {
+                'available': isinstance(value, dict),
+                'path': str(path),
+                'devices': value if isinstance(value, dict) else {},
+            }
+        except (OSError, json.JSONDecodeError):
+            return {'available': False, 'path': str(path), 'devices': {}}
+
+    def _graph_payload(self) -> dict[str, Any]:
+        now = time.monotonic()
+        with self._lock:
+            if now - self._graph_cache_monotonic < 0.5 and self._graph_cache:
+                return dict(self._graph_cache)
+
+        topic_types, service_types = self._topic_graph()
+        nodes = [
+            {
+                'name': name,
+                'namespace': namespace,
+                'full_name': f'{namespace.rstrip("/")}/{name}'.replace('//', '/'),
+            }
+            for name, namespace in sorted(self.get_node_names_and_namespaces())
+        ]
+        topics = []
+        image_topics = []
+        for name, types in sorted(topic_types.items()):
+            entry = {
+                'name': name,
+                'types': types,
+                'publishers': self.count_publishers(name),
+                'subscribers': self.count_subscribers(name),
+                'is_image': any(item in IMAGE_TOPIC_TYPES for item in types),
+            }
+            topics.append(entry)
+            if entry['is_image']:
+                image_topics.append(entry)
+
+        services = [
+            {
+                'name': name,
+                'types': types,
+            }
+            for name, types in sorted(service_types.items())
+        ]
+
+        payload = {
+            'ok': True,
+            'nodes': nodes,
+            'topics': topics,
+            'services': services,
+            'image_topics': image_topics,
+        }
+        with self._lock:
+            self._graph_cache_monotonic = now
+            self._graph_cache = dict(payload)
+        return payload
+
+    def inspect_topic(self, topic_name: str, type_name: str | None = None) -> dict[str, Any]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, available_types = self._resolve_topic_type(topic, type_name)
+        if resolved_type in IMAGE_TOPIC_TYPES:
+            watch = self._ensure_image_watch(topic, resolved_type)
+            return {
+                'ok': True,
+                'kind': 'image',
+                'topic': topic,
+                'type': resolved_type,
+                'available_types': available_types,
+                'publishers': self.count_publishers(topic),
+                'subscribers': self.count_subscribers(topic),
+                'message_count': watch.message_count,
+                'age_sec': age_seconds(watch.last_updated_monotonic),
+                'frame_url': f'/api/camera/frame?topic={topic}',
+                'width': watch.width,
+                'height': watch.height,
+                'encoding': watch.encoding,
+                'last_error': watch.last_error,
+            }
+
+        watch = self._ensure_topic_watch(topic, resolved_type)
+        return {
+            'ok': True,
+            'kind': 'message',
+            'topic': topic,
+            'type': resolved_type,
+            'available_types': available_types,
+            'publishers': self.count_publishers(topic),
+            'subscribers': self.count_subscribers(topic),
+            'message_count': watch.message_count,
+            'age_sec': age_seconds(watch.last_updated_monotonic),
+            'last_error': watch.last_error,
+            'template': make_message_template(watch.msg_class),
+            'latest_message': watch.last_message,
+        }
+
+    def publish_topic(
+        self,
+        topic_name: str,
+        payload: dict[str, Any],
+        type_name: str | None = None,
+    ) -> dict[str, Any]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, _ = self._resolve_topic_type(topic, type_name)
+        if resolved_type in IMAGE_TOPIC_TYPES:
+            raise ValueError('Publishing image topics from the web UI is not supported yet')
+
+        handle = self._ensure_publisher(topic, resolved_type)
+        message = handle.msg_class()
+        if not isinstance(payload, dict):
+            raise ValueError('Topic payload must be a JSON object')
+        set_message_fields(message, payload)
+        handle.publisher.publish(message)
+        return {
+            'ok': True,
+            'topic': topic,
+            'type': resolved_type,
+        }
+
+    def inspect_service(
+        self,
+        service_name: str,
+        type_name: str | None = None,
+    ) -> dict[str, Any]:
+        service = normalize_service_name(service_name)
+        resolved_type, available_types = self._resolve_service_type(service, type_name)
+        handle = self._ensure_service_client(service, resolved_type)
+        return {
+            'ok': True,
+            'service': service,
+            'type': resolved_type,
+            'available_types': available_types,
+            'ready': bool(handle.client.service_is_ready()),
+            'request_template': make_message_template(handle.srv_class.Request),
+        }
+
+    def call_service(
+        self,
+        service_name: str,
+        request_payload: dict[str, Any],
+        type_name: str | None = None,
+    ) -> dict[str, Any]:
+        service = normalize_service_name(service_name)
+        resolved_type, _ = self._resolve_service_type(service, type_name)
+        handle = self._ensure_service_client(service, resolved_type)
+
+        if not isinstance(request_payload, dict):
+            raise ValueError('Service request must be a JSON object')
+
+        if not handle.client.wait_for_service(timeout_sec=1.5):
+            raise RuntimeError(f'Service {service} is not available')
+
+        request = handle.srv_class.Request()
+        set_message_fields(request, request_payload)
+
+        started = time.monotonic()
+        future = handle.client.call_async(request)
+        deadline = started + 3.0
+        while not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not future.done():
+            raise RuntimeError(f'Service call timed out for {service}')
+
+        response = future.result()
+        if response is None:
+            raise RuntimeError(f'Service {service} returned no response')
+
+        return {
+            'ok': True,
+            'service': service,
+            'type': resolved_type,
+            'duration_sec': time.monotonic() - started,
+            'response': sanitize_payload(message_to_ordereddict(response)),
+        }
+
+    def camera_topics(self) -> dict[str, Any]:
+        graph = self._graph_payload()
+        return {'ok': True, 'topics': graph['image_topics']}
+
+    def camera_status(
+        self,
+        topic_name: str,
+        type_name: str | None = None,
+    ) -> dict[str, Any]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, available_types = self._resolve_topic_type(topic, type_name)
+        if resolved_type not in IMAGE_TOPIC_TYPES:
+            raise ValueError(f'Topic {topic} is not an image topic')
+        watch = self._ensure_image_watch(topic, resolved_type)
+        return {
+            'ok': True,
+            'topic': topic,
+            'type': resolved_type,
+            'available_types': available_types,
+            'width': watch.width,
+            'height': watch.height,
+            'encoding': watch.encoding,
+            'message_count': watch.message_count,
+            'age_sec': age_seconds(watch.last_updated_monotonic),
+            'frame_ready': watch.frame_bytes is not None,
+            'last_error': watch.last_error,
+            'frame_url': f'/api/camera/frame?topic={topic}',
+        }
+
+    def camera_frame(
+        self,
+        topic_name: str,
+        type_name: str | None = None,
+    ) -> tuple[bytes, str]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, _ = self._resolve_topic_type(topic, type_name)
+        watch = self._ensure_image_watch(topic, resolved_type)
+        if watch.frame_bytes is None:
+            raise RuntimeError(f'No frame received yet from {topic}')
+        return watch.frame_bytes, watch.content_type
+
+    def drive_payload(self) -> dict[str, Any]:
+        with self._lock:
+            latest = self._latest_drive_command
+            active = self._drive_active
+            timestamp = self._latest_drive_monotonic
+        return {
+            'ok': True,
+            'command_topic': self.command_topic,
+            'timeout_sec': self.drive_command_timeout_sec,
+            'defaults': {
+                'linear_x': self.default_linear_speed,
+                'linear_y': self.default_lateral_speed,
+                'angular_z': self.default_angular_speed,
+            },
+            'limits': {
+                'linear_x': self.max_linear_speed,
+                'linear_y': self.max_lateral_speed,
+                'angular_z': self.max_angular_speed,
+            },
+            'active': active,
+            'age_sec': age_seconds(timestamp),
+            'last_command': {
+                'linear_x': float(latest.linear.x),
+                'linear_y': float(latest.linear.y),
+                'angular_z': float(latest.angular.z),
+            },
+        }
+
+    def set_drive_command(self, linear_x: float, linear_y: float, angular_z: float) -> dict[str, Any]:
+        command = Twist()
+        command.linear.x = clamp(float(linear_x), self.max_linear_speed)
+        command.linear.y = clamp(float(linear_y), self.max_lateral_speed)
+        command.angular.z = clamp(float(angular_z), self.max_angular_speed)
+        with self._lock:
+            self._latest_drive_command = command
+            self._latest_drive_monotonic = time.monotonic()
+        return {
+            'ok': True,
+            'command': {
+                'linear_x': command.linear.x,
+                'linear_y': command.linear.y,
+                'angular_z': command.angular.z,
+            },
+        }
+
+    def stop_drive(self) -> dict[str, Any]:
+        return self.set_drive_command(0.0, 0.0, 0.0)
+
+    def _drive_output_timer(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            fresh = now - self._latest_drive_monotonic <= self.drive_command_timeout_sec
+            command = self._latest_drive_command
+            was_active = self._drive_active
+            self._drive_active = fresh
+
+        if fresh:
+            self.drive_publisher.publish(command)
+        elif was_active:
+            self.drive_publisher.publish(Twist())
+
+    def _serve_static_file(self, request_path: str) -> tuple[bytes, str]:
+        relative_path = 'index.html' if request_path in ('', '/') else request_path.lstrip('/')
+        candidate = os.path.normpath(os.path.join(str(self.web_root), relative_path))
+        if os.path.commonpath([str(self.web_root), candidate]) != str(self.web_root):
+            raise PermissionError('Forbidden')
+        path = Path(candidate)
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(f'{request_path} not found')
+        content_type, _ = mimetypes.guess_type(str(path))
+        return path.read_bytes(), content_type or 'application/octet-stream'
 
     def _build_handler(self):
         gateway = self
 
         class Handler(BaseHTTPRequestHandler):
-            server_version = "RoverHello/0.1"
+            server_version = 'RoverWeb/0.2'
 
             def do_GET(self) -> None:  # noqa: N802
-                if self.path == "/api/health":
-                    self._serve_json(gateway._identity_payload(), HTTPStatus.OK)
-                    return
-                if self.path == "/api/identity":
-                    self._serve_json(gateway._identity_payload(), HTTPStatus.OK)
-                    return
-                self._serve_static()
+                try:
+                    parsed = urlparse(self.path)
+                    path = parsed.path
+                    query = parse_qs(parsed.query)
 
-            def _serve_json(self, payload: dict[str, object], status: HTTPStatus) -> None:
-                body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                    if path == '/api/health':
+                        self._send_json(gateway._system_summary(), HTTPStatus.OK)
+                        return
+                    if path == '/api/system':
+                        self._send_json(gateway._system_summary(), HTTPStatus.OK)
+                        return
+                    if path == '/api/ros/graph':
+                        self._send_json(gateway._graph_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/ros/topic':
+                        topic = self._required_query(query, 'name')
+                        type_name = self._optional_query(query, 'type')
+                        self._send_json(
+                            gateway.inspect_topic(topic, type_name),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path == '/api/ros/service':
+                        service = self._required_query(query, 'name')
+                        type_name = self._optional_query(query, 'type')
+                        self._send_json(
+                            gateway.inspect_service(service, type_name),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path == '/api/camera/topics':
+                        self._send_json(gateway.camera_topics(), HTTPStatus.OK)
+                        return
+                    if path == '/api/camera/status':
+                        topic = self._required_query(query, 'topic')
+                        type_name = self._optional_query(query, 'type')
+                        self._send_json(
+                            gateway.camera_status(topic, type_name),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path == '/api/camera/frame':
+                        topic = self._required_query(query, 'topic')
+                        type_name = self._optional_query(query, 'type')
+                        frame_bytes, content_type = gateway.camera_frame(topic, type_name)
+                        self._send_bytes(frame_bytes, content_type, HTTPStatus.OK)
+                        return
+                    if path == '/api/drive':
+                        self._send_json(gateway.drive_payload(), HTTPStatus.OK)
+                        return
+
+                    body, content_type = gateway._serve_static_file(path)
+                    self._send_bytes(body, content_type, HTTPStatus.OK, cache=False)
+                except FileNotFoundError:
+                    self._send_error(HTTPStatus.NOT_FOUND, 'Not found')
+                except PermissionError:
+                    self._send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
+                except ValueError as exc:
+                    self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
+                except RuntimeError as exc:
+                    self._send_error(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
+                except Exception as exc:
+                    gateway.get_logger().error(f'GET {self.path} failed: {exc}')
+                    self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+
+            def do_POST(self) -> None:  # noqa: N802
+                try:
+                    parsed = urlparse(self.path)
+                    payload = self._read_json_body()
+                    if parsed.path == '/api/ros/topic/publish':
+                        topic = payload.get('topic')
+                        type_name = payload.get('type')
+                        message = payload.get('message', {})
+                        self._send_json(
+                            gateway.publish_topic(str(topic), message, type_name),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/ros/service/call':
+                        service = payload.get('service')
+                        type_name = payload.get('type')
+                        request_payload = payload.get('request', {})
+                        self._send_json(
+                            gateway.call_service(str(service), request_payload, type_name),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/drive/command':
+                        self._send_json(
+                            gateway.set_drive_command(
+                                float(payload.get('linear_x', 0.0)),
+                                float(payload.get('linear_y', 0.0)),
+                                float(payload.get('angular_z', 0.0)),
+                            ),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/drive/stop':
+                        self._send_json(gateway.stop_drive(), HTTPStatus.OK)
+                        return
+                    self._send_error(HTTPStatus.NOT_FOUND, 'Not found')
+                except json.JSONDecodeError:
+                    self._send_error(HTTPStatus.BAD_REQUEST, 'Invalid JSON')
+                except ValueError as exc:
+                    self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
+                except RuntimeError as exc:
+                    self._send_error(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
+                except Exception as exc:
+                    gateway.get_logger().error(f'POST {self.path} failed: {exc}')
+                    self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+
+            def _optional_query(
+                self,
+                query: dict[str, list[str]],
+                key: str,
+            ) -> str | None:
+                values = query.get(key)
+                if not values:
+                    return None
+                text = values[0].strip()
+                return text or None
+
+            def _required_query(self, query: dict[str, list[str]], key: str) -> str:
+                value = self._optional_query(query, key)
+                if value is None:
+                    raise ValueError(f'Missing query parameter: {key}')
+                return value
+
+            def _read_json_body(self) -> dict[str, Any]:
+                content_length = int(self.headers.get('Content-Length', '0'))
+                if content_length > MAX_REQUEST_BYTES:
+                    raise ValueError('Request body is too large')
+                raw = self.rfile.read(content_length) if content_length > 0 else b'{}'
+                decoded = json.loads(raw.decode('utf-8'))
+                if not isinstance(decoded, dict):
+                    raise ValueError('JSON body must be an object')
+                return decoded
+
+            def _send_json(self, payload: dict[str, Any], status: HTTPStatus) -> None:
+                body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
                 self.send_response(status)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Cache-Control', 'no-store')
                 self.end_headers()
                 self.wfile.write(body)
 
-            def _serve_static(self) -> None:
-                request_path = self.path.split("?", 1)[0]
-                relative_path = "index.html" if request_path in ("", "/") else request_path.lstrip("/")
-                candidate = os.path.normpath(os.path.join(str(gateway.web_root), relative_path))
-                if os.path.commonpath([str(gateway.web_root), candidate]) != str(gateway.web_root):
-                    self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
-                    return
-                path = Path(candidate)
-                if not path.exists() or not path.is_file():
-                    self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
-                    return
-
-                content_type, _ = mimetypes.guess_type(str(path))
-                payload = path.read_bytes()
-                self.send_response(HTTPStatus.OK)
+            def _send_bytes(
+                self,
+                payload: bytes,
+                content_type: str,
+                status: HTTPStatus,
+                *,
+                cache: bool = False,
+            ) -> None:
+                self.send_response(status)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', str(len(payload)))
                 self.send_header(
-                    "Content-Type",
-                    content_type or "application/octet-stream",
+                    'Cache-Control',
+                    'public, max-age=3600' if cache else 'no-store',
                 )
-                self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
+
+            def _send_error(self, status: HTTPStatus, message: str) -> None:
+                payload = {'ok': False, 'error': message}
+                body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(body)
 
             def log_message(self, format: str, *args) -> None:
                 return
@@ -133,6 +1085,10 @@ class RoverWebGateway(Node):
         return Handler
 
     def destroy_node(self) -> bool:
+        try:
+            self.drive_publisher.publish(Twist())
+        except Exception:
+            pass
         self._http_server.shutdown()
         self._http_server.server_close()
         self._http_thread.join(timeout=1.0)
@@ -148,8 +1104,9 @@ def main(args: list[str] | None = None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
