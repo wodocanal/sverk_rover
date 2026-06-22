@@ -1,57 +1,253 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rover Web</title>
-  <link rel="stylesheet" href="/assets/styles.css">
+  <meta name="theme-color" content="#16B8F3">
+  <title>СВЕРХ · Rover</title>
+  <link rel="stylesheet" href="/assets/styles.css?v=0.2.0">
 </head>
 <body>
-  <main class="hero">
-    <div class="hero-card">
-      <p class="eyebrow">Raspberry Pi Rover</p>
-      <h1>Hello, world!</h1>
-      <p class="message">
-        Новый веб-интерфейс для ровера запущен. Это чистый стартовый экран,
-        доступный с других устройств в локальной сети.
-      </p>
-      <div class="status-row">
-        <span class="label">Status</span>
-        <span class="badge">Online</span>
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="menu-toggle" id="menu-toggle" aria-label="Открыть меню">☰</button>
+      <div class="brand">
+        <span class="brand-mark">СВЕРХ</span>
+        <span class="brand-divider">·</span>
+        <strong id="robot-name">sverh-rover-0001</strong>
+        <span class="muted" id="robot-address">—</span>
       </div>
-      <div class="status-row">
-        <span class="label">Endpoint</span>
-        <code id="origin-label">loading…</code>
+      <div class="top-status">
+        <span class="status-pill unknown" id="ros-status">ROS</span>
+        <span class="status-pill" id="client-count">CLIENTS 0</span>
+        <button class="stop-button" id="global-stop">STOP</button>
       </div>
-      <div class="status-row">
-        <span class="label">Hostname</span>
-        <code id="hostname-label">loading…</code>
-      </div>
-      <div class="status-row">
-        <span class="label">IPv4</span>
-        <code id="ip-label">loading…</code>
-      </div>
-    </div>
-  </main>
+    </header>
 
-  <script>
-    const originLabel = document.getElementById('origin-label');
-    const hostnameLabel = document.getElementById('hostname-label');
-    const ipLabel = document.getElementById('ip-label');
+    <aside class="sidebar" id="sidebar">
+      <nav>
+        <button class="nav-item active" data-page="overview">Обзор</button>
+        <button class="nav-item" data-page="drive">Управление</button>
+        <button class="nav-item" data-page="routes">Маршруты</button>
+        <button class="nav-item" data-page="visualization">Визуализация</button>
+        <button class="nav-item" data-page="ros-explorer">ROS Explorer</button>
+        <button class="nav-item" id="nav-terminal" data-page="terminal">Терминал</button>
+        <button class="nav-item" data-page="diagnostics">Диагностика</button>
+        <button class="nav-item" data-page="settings">Настройки</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="connection-row"><span>Web gateway</span><span id="api-dot" class="dot unknown"></span></div>
+        <div class="connection-row"><span>rosbridge</span><span id="ros-dot" class="dot unknown"></span></div>
+      </div>
+    </aside>
 
-    originLabel.textContent = window.location.origin;
+    <main class="content">
+      <section class="page active" id="page-overview">
+        <div class="page-heading">
+          <div><h1>Обзор</h1><p>Состояние ровера и вычислительной платформы.</p></div>
+          <button class="secondary" id="overview-refresh">Обновить</button>
+        </div>
+        <div class="card-grid metrics-grid">
+          <article class="metric-card"><span>Позиция X</span><strong id="metric-x">—</strong><small>м</small></article>
+          <article class="metric-card"><span>Позиция Y</span><strong id="metric-y">—</strong><small>м</small></article>
+          <article class="metric-card"><span>Курс</span><strong id="metric-yaw">—</strong><small>°</small></article>
+          <article class="metric-card"><span>Скорость</span><strong id="metric-speed">—</strong><small>м/с</small></article>
+          <article class="metric-card"><span>CPU</span><strong id="metric-cpu">—</strong><small>%</small></article>
+          <article class="metric-card"><span>Температура</span><strong id="metric-temp">—</strong><small>°C</small></article>
+          <article class="metric-card"><span>RAM</span><strong id="metric-ram">—</strong><small>%</small></article>
+          <article class="metric-card"><span>Диск свободен</span><strong id="metric-disk">—</strong><small>ГБ</small></article>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <h2>Потоки данных</h2>
+            <div id="topic-health" class="status-list"></div>
+          </article>
+          <article class="panel">
+            <h2>Последняя диагностика</h2>
+            <div id="diagnostic-summary" class="status-list"></div>
+          </article>
+        </div>
+      </section>
 
-    fetch('/api/identity', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((payload) => {
-        hostnameLabel.textContent = payload.hostname || 'unknown';
-        const addresses = Array.isArray(payload.ip_addresses) ? payload.ip_addresses : [];
-        ipLabel.textContent = addresses.length ? addresses.join(', ') : 'not detected';
-      })
-      .catch(() => {
-        hostnameLabel.textContent = 'unavailable';
-        ipLabel.textContent = 'unavailable';
-      });
-  </script>
+      <section class="page" id="page-drive">
+        <div class="page-heading">
+          <div><h1>Ручное управление</h1><p>W/S — вперёд/назад, A/D — влево/вправо, Q/E — вращение, Space — STOP.</p></div>
+          <span class="warning-chip">Команды публикуются в <code id="drive-topic-label">/cmd_vel</code></span>
+        </div>
+        <div class="two-column drive-layout">
+          <article class="panel">
+            <h2>Клавиатура</h2>
+            <div class="keypad" id="keypad">
+              <button data-key="KeyQ">Q ↺</button><button data-key="KeyW">W ↑</button><button data-key="KeyE">E ↻</button>
+              <button data-key="KeyA">A ←</button><button data-key="KeyS">S ↓</button><button data-key="KeyD">D →</button>
+            </div>
+            <button class="stop-button wide" id="drive-stop">SPACE / STOP</button>
+            <p class="help-text">Команда существует только пока удерживается клавиша или кнопка. Потеря фокуса и скрытие вкладки вызывают нулевой Twist.</p>
+          </article>
+          <article class="panel">
+            <h2>Ограничения команды</h2>
+            <label>Линейная скорость <output id="linear-speed-output">0.15 м/с</output>
+              <input id="linear-speed" type="range" min="0.10" max="0.35" value="0.15" step="0.01">
+            </label>
+            <label>Угловая скорость <output id="angular-speed-output">0.25 рад/с</output>
+              <input id="angular-speed" type="range" min="0.10" max="1.00" value="0.25" step="0.01">
+            </label>
+            <div class="command-preview">
+              <span>Отправляемый Twist</span>
+              <pre id="drive-command">linear: x=0.000 y=0.000
+angular: z=0.000</pre>
+            </div>
+            <div id="drive-warning" class="notice hidden"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-routes">
+        <div class="page-heading">
+          <div><h1>Маршруты</h1><p>Создание и запуск маршрутов с замкнутым управлением по /odom.</p></div>
+          <button class="stop-button" id="route-stop">Остановить маршрут</button>
+        </div>
+
+        <div class="route-layout">
+          <article class="panel route-library">
+            <h2>Сохранённые маршруты</h2>
+            <div class="inline-form">
+              <select id="plan-select" aria-label="Маршрут"></select>
+              <button id="plan-refresh" class="secondary" title="Обновить список">↻</button>
+              <button id="plan-run">Запустить</button>
+            </div>
+            <div class="route-file-actions">
+              <label>Имя файла
+                <input id="plan-name" type="text" value="web_route.yaml" placeholder="my_route.yaml">
+              </label>
+              <button id="plan-new" class="secondary">Новый маршрут</button>
+              <button id="plan-save">Сохранить</button>
+            </div>
+            <details class="advanced-panel">
+              <summary>Параметры маршрута</summary>
+              <div class="form-grid compact-grid">
+                <label>Линейная скорость, м/с<input id="route-default-linear" type="number" value="0.18" min="0.10" max="0.35" step="0.01"></label>
+                <label>Скорость подхода, м/с<input id="route-default-approach" type="number" value="0.10" min="0.05" max="0.35" step="0.01"></label>
+                <label>Допуск позиции, м<input id="route-default-position-tolerance" type="number" value="0.07" min="0.01" max="0.50" step="0.01"></label>
+                <label>Угловая скорость, рад/с<input id="route-default-angular" type="number" value="0.32" min="0.10" max="1.00" step="0.01"></label>
+                <label>Допуск угла, °<input id="route-default-angle-tolerance" type="number" value="3" min="1" max="15" step="1"></label>
+                <label>Лимит шага, с<input id="route-default-time" type="number" value="45" min="5" max="180" step="1"></label>
+              </div>
+            </details>
+          </article>
+
+          <article class="panel route-builder-panel">
+            <div class="panel-heading-row">
+              <div><h2>Конструктор маршрута</h2><p>Добавляйте шаги и меняйте их порядок.</p></div>
+              <span class="step-count" id="route-step-count">0 шагов</span>
+            </div>
+            <div class="route-add-buttons">
+              <button data-add-step="move">+ Перемещение</button>
+              <button data-add-step="move_polar">+ По направлению</button>
+              <button data-add-step="turn">+ Поворот</button>
+              <button data-add-step="pause">+ Пауза</button>
+              <button data-add-step="return_to_start">+ Вернуться в начало</button>
+            </div>
+            <div id="route-step-list" class="route-step-list"></div>
+            <div id="route-empty" class="empty-state">Добавьте первый шаг маршрута.</div>
+          </article>
+        </div>
+
+        <div class="two-column route-bottom">
+          <article class="panel canvas-panel route-preview-panel">
+            <div class="panel-title-overlay">Предпросмотр маршрута</div>
+            <canvas id="route-preview-canvas" width="800" height="420"></canvas>
+            <div class="canvas-legend">Предпросмотр не учитывает фактическую погрешность движения.</div>
+          </article>
+          <article class="panel">
+            <h2>Вывод исполнителя</h2>
+            <pre class="log-box" id="motion-log">Исполнитель не запущен.</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-visualization">
+        <div class="page-heading">
+          <div><h1>Визуализация</h1><p>Текущая поза и 2D-траектория ровера в системе odom.</p></div>
+          <div class="inline-form visualization-controls">
+            <label>Масштаб <input id="viz-scale" type="range" min="40" max="300" value="120"></label>
+            <label class="check-label"><input id="viz-follow" type="checkbox" checked> Следовать за ровером</label>
+            <button class="secondary" id="viz-clear">Очистить след</button>
+          </div>
+        </div>
+        <div class="visualization-readout">
+          <span id="viz-position">Позиция: —</span>
+          <span id="viz-yaw">Курс: —</span>
+          <span id="viz-points">Точек: 0</span>
+        </div>
+        <article class="panel canvas-panel visualization-panel">
+          <canvas id="odom-canvas" width="1100" height="680"></canvas>
+          <div id="viz-empty" class="canvas-empty">Ожидание данных /odom…</div>
+          <div class="canvas-legend">X вперёд · Y влево · след ограничен 1500 точками</div>
+        </article>
+      </section>
+
+      <section class="page" id="page-ros-explorer">
+        <div class="page-heading">
+          <div><h1>ROS Explorer</h1><p>Просмотр сообщений ROS-топиков выбранного ровера.</p></div>
+          <button id="ros-refresh">Обновить список</button>
+        </div>
+        <div class="explorer-grid">
+          <article class="panel list-panel">
+            <label>Поиск топика<input id="topic-filter" placeholder="Например: imu, odom, diagnostics"></label>
+            <div id="topic-list" class="select-list"></div>
+          </article>
+          <article class="panel topic-viewer">
+            <div class="panel-heading-row">
+              <div>
+                <h2 id="selected-topic-title">Выберите топик</h2>
+                <p id="selected-topic-type">Клик по топику автоматически включает подписку.</p>
+              </div>
+              <span class="subscription-state" id="topic-subscription-state">НЕ ПОДПИСАН</span>
+            </div>
+            <label>Ограничение частоты вывода, мс
+              <input id="topic-throttle" type="number" value="100" min="0" max="10000" step="10">
+            </label>
+            <div class="topic-message-meta">
+              <span id="topic-message-count">Сообщений: 0</span>
+              <span id="topic-message-time">Последнее: —</span>
+            </div>
+            <pre class="message-box topic-message-box" id="topic-message">Нет данных.</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-terminal">
+        <div class="page-heading"><div><h1>Терминал</h1><p id="terminal-title">Shell пользователя pi на выбранном ровере.</p></div><button class="secondary" id="terminal-reload">Перезапустить iframe</button></div>
+        <div id="terminal-unavailable" class="notice hidden">Веб-терминал не настроен для этого запуска.</div>
+        <iframe id="terminal-frame" class="terminal-frame" title="Web terminal" src="about:blank"></iframe>
+      </section>
+
+      <section class="page" id="page-diagnostics">
+        <div class="page-heading"><div><h1>Диагностика</h1><p>Состояние подсистем, сообщения /diagnostics и журнал веб-интерфейса.</p></div><button class="secondary" id="diagnostics-refresh">Обновить</button></div>
+        <div class="diagnostic-health-grid">
+          <article class="health-card"><span>Моторы и одометрия</span><strong class="status-value" id="diagnostic-motor-status">—</strong><small id="diagnostic-motor-detail">Нет данных</small></article>
+          <article class="health-card"><span>IMU</span><strong class="status-value" id="diagnostic-imu-status">—</strong><small id="diagnostic-imu-detail">Нет данных</small></article>
+          <article class="health-card"><span>EKF /odom</span><strong class="status-value" id="diagnostic-odom-status">—</strong><small id="diagnostic-odom-detail">Нет данных</small></article>
+          <article class="health-card"><span>/diagnostics</span><strong class="status-value" id="diagnostic-topic-status">—</strong><small id="diagnostic-topic-detail">Нет данных</small></article>
+        </div>
+        <div class="two-column">
+          <article class="panel"><h2>/diagnostics</h2><div id="diagnostic-details" class="diagnostic-details"></div></article>
+          <article class="panel"><h2>Журнал действий</h2><div id="activity-list" class="activity-list"></div></article>
+        </div>
+      </section>
+
+      <section class="page" id="page-settings">
+        <div class="page-heading"><div><h1>Настройки</h1><p>Идентичность, конфигурация движения и параметры отображения.</p></div></div>
+        <div class="two-column">
+          <article class="panel"><h2>Идентичность</h2><pre id="identity-json" class="message-box">—</pre></article>
+          <article class="panel"><h2>Конфигурация движения</h2><pre id="config-json" class="message-box">—</pre><label class="check-label"><input type="checkbox" id="compact-mode"> Компактный интерфейс</label></article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+  <script type="module" src="/assets/app.js?v=0.2.0"></script>
 </body>
 </html>

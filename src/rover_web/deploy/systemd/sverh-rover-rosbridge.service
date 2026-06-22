@@ -1,0 +1,15 @@
+[Unit]
+Description=Sverh Rover rosbridge
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/sverk_rover
+Environment=ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+# Add Environment=ROS_DOMAIN_ID=<id> if this rover uses a non-default ROS domain.
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && source %h/sverk_rover/install/setup.bash && exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml address:=127.0.0.1 port:=9090 url_path:=/ max_message_size:=4000000 websocket_ping_interval:=10.0 websocket_ping_timeout:=30.0'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
