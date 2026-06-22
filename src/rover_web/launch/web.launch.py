@@ -65,6 +65,9 @@ def launch_setup(context):
     rosbridge_address = LaunchConfiguration('rosbridge_address').perform(context)
     rosbridge_port = int(LaunchConfiguration('rosbridge_port').perform(context))
     rosbridge_url_path = LaunchConfiguration('rosbridge_url_path').perform(context)
+    rosbridge_browser_path = LaunchConfiguration(
+        'rosbridge_browser_path'
+    ).perform(context)
     terminal_enabled = LaunchConfiguration('terminal_enabled').perform(context)
     terminal_url = LaunchConfiguration('terminal_url').perform(context)
     terminal_port = LaunchConfiguration('terminal_port').perform(context)
@@ -140,7 +143,8 @@ def launch_setup(context):
                 'command_topic': command_topic,
                 'rosbridge_url': rosbridge_url,
                 'rosbridge_port': active_rosbridge_port,
-                'rosbridge_path': rosbridge_url_path,
+                'rosbridge_path': rosbridge_browser_path,
+                'rosbridge_server_path': rosbridge_url_path,
                 'terminal_enabled': as_bool(terminal_enabled),
                 'terminal_url': terminal_url,
                 'terminal_port': int(terminal_port),
@@ -160,7 +164,7 @@ def generate_launch_description():
         DeclareLaunchArgument('port', default_value='8765'),
         DeclareLaunchArgument(
             'auto_port_fallback',
-            default_value='true',
+            default_value='false',
         ),
         DeclareLaunchArgument(
             'rover_config_file',
@@ -177,10 +181,14 @@ def generate_launch_description():
         DeclareLaunchArgument('rosbridge_address', default_value='127.0.0.1'),
         DeclareLaunchArgument('rosbridge_port', default_value='9090'),
         DeclareLaunchArgument('rosbridge_url_path', default_value='/'),
-        DeclareLaunchArgument('terminal_enabled', default_value='false'),
+        DeclareLaunchArgument(
+            'rosbridge_browser_path',
+            default_value='/rosbridge',
+        ),
+        DeclareLaunchArgument('terminal_enabled', default_value='true'),
         DeclareLaunchArgument('terminal_url', default_value=''),
         DeclareLaunchArgument('terminal_port', default_value='7681'),
-        DeclareLaunchArgument('terminal_path', default_value='/'),
+        DeclareLaunchArgument('terminal_path', default_value='/terminal/'),
         DeclareLaunchArgument('max_message_size', default_value='4000000'),
         DeclareLaunchArgument(
             'websocket_ping_interval',

@@ -1,5 +1,7 @@
 web_gateway_node:
   ros__parameters:
+    # Default deployment matches the old rover setup:
+    # nginx on :80 proxies to this gateway on 127.0.0.1:8765.
     bind_address: 127.0.0.1
     port: 8765
     plans_directory: ~/.local/share/sverh-rover-web/plans
@@ -12,11 +14,12 @@ web_gateway_node:
     web_command_timeout_sec: 0.20
     rosbridge_url: ''
     rosbridge_port: 9090
-    rosbridge_path: /
-    terminal_enabled: false
+    rosbridge_path: /rosbridge
+    rosbridge_server_path: /
+    terminal_enabled: true
     terminal_url: ''
     terminal_port: 7681
-    terminal_path: /
+    terminal_path: /terminal/
     odom_topic: /odom
     wheel_odom_topic: /wheel/odometry
     imu_topic: /imu/data
