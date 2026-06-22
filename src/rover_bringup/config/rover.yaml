@@ -1,0 +1,119 @@
+geometry:
+  wheel_radius_m: 0.03
+  wheel_width_m: 0.03
+  wheelbase_m: 0.135
+  track_width_m: 0.195
+  chassis_length_m: 0.22
+  chassis_width_m: 0.2
+  chassis_height_m: 0.06
+  imu_xyz:
+  - 0.0
+  - 0.0
+  - 0.06
+  imu_rpy:
+  - 0.0
+  - 0.0
+  - 0.0
+  lidar_xyz:
+  - 0.0
+  - 0.0
+  - 0.1
+  lidar_rpy:
+  - 0.0
+  - 0.0
+  - 3.141592653589793
+encoders:
+  encoder_lines: 11.0
+  reduction_ratio: 45.0
+  quadrature_factor: 4.0
+base_driver:
+  baudrate: 115200
+  cmd_vel_topic: /cmd_vel
+  motor_command_signs:
+  - 1
+  - -1
+  - -1
+  - 1
+  encoder_feedback_signs:
+  - 1
+  - -1
+  - -1
+  - 1
+  control_rate_hz: 50.0
+  command_timeout_sec: 0.5
+  feedback_timeout_sec: 0.35
+  max_wheel_speed_mps: 0.35
+  hold_position_on_zero_cmd: true
+  stale_brake_hold_sec: 0.35
+  max_accel_x_mps2: 0.8
+  max_decel_x_mps2: 1.2
+  max_accel_y_mps2: 0.6
+  max_decel_y_mps2: 0.9
+  max_accel_z_radps2: 2.0
+  max_decel_z_radps2: 3.0
+  max_jerk_x_mps3: 4.0
+  max_jerk_y_mps3: 3.0
+  max_jerk_z_radps3: 8.0
+wheel_odometry:
+  encoder_topic: /wheel/encoders
+  odometry_topic: /wheel/odometry
+  odom_frame_id: odom
+  base_frame_id: base_link
+  x_multiplier: 1.0
+  y_multiplier: 1.0
+  yaw_multiplier: 1.0
+  max_sample_gap_sec: 0.5
+  max_plausible_wheel_speed_mps: 1.5
+  pose_covariance_diagonal:
+  - 0.03
+  - 0.08
+  - 999.0
+  - 999.0
+  - 999.0
+  - 0.15
+  twist_covariance_diagonal:
+  - 0.02
+  - 0.06
+  - 999.0
+  - 999.0
+  - 999.0
+  - 0.12
+imu:
+  serial_device: /tmp/rover_devices/imu
+  baudrate: 921600
+  frame_id: imu_link
+  imu_topic: /imu/data
+  mag_topic: /imu/mag
+  euler_topic: /imu/euler
+  frame_count_topic: /imu/valid_frame_count
+  publish_rate_hz: 100.0
+  data_timeout_sec: 0.5
+  publish_sensor_orientation: false
+  axis_map:
+  - 0
+  - 1
+  - 2
+  axis_signs:
+  - 1
+  - 1
+  - 1
+  gyro_stddev_radps: 0.035
+  accel_stddev_mps2: 0.5
+  orientation_roll_pitch_stddev_rad: 0.1
+  orientation_yaw_stddev_rad: 0.35
+  magnetic_scale_tesla_per_lsb: 1.0e-07
+  magnetic_stddev_tesla: 8.0e-06
+lidar:
+  model: sllidar_c1
+  baudrate: 460800
+  probe_baudrates:
+  - 460800
+  - 115200
+  - 256000
+  - 1000000
+  frame_id: lidar_link
+  inverted: false
+  angle_compensate: true
+  scan_mode: Standard
+  scan_frequency: 10.0
+  range_min: 0.17
