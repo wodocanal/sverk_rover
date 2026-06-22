@@ -898,8 +898,14 @@ class RoverWebGateway(Node):
 
             def _serve_static(self, request_path: str) -> None:
                 relative = "index.html" if request_path in ("", "/") else unquote(request_path.lstrip("/"))
-                candidate = (gateway.web_root / relative).resolve()
-                if gateway.web_root not in candidate.parents and candidate != gateway.web_root:
+                candidate = Path(
+                    os.path.normpath(
+                        os.path.join(str(gateway.web_root), relative)
+                    )
+                )
+                if os.path.commonpath(
+                    [str(gateway.web_root), str(candidate)]
+                ) != str(gateway.web_root):
                     self._error(403, "Forbidden")
                     return
                 if not candidate.is_file():
