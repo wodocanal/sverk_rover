@@ -5,9 +5,21 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, LogInfo, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    IncludeLaunchDescription,
+    LogInfo,
+    OpaqueFunction,
+)
 from launch.events import Shutdown
-from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import (
+    Command,
+    FindExecutable,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -27,6 +39,7 @@ def launch_setup(context):
     use_imu = as_bool(LaunchConfiguration('use_imu').perform(context))
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
     use_camera = as_bool(LaunchConfiguration('use_camera').perform(context))
+    use_web = as_bool(LaunchConfiguration('use_web').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
     use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context))
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
@@ -205,6 +218,18 @@ def launch_setup(context):
             parameters=[camera_params],
         ))
 
+    if use_web:
+        web_command_topic = '/cmd_vel_teleop' if use_mux else '/cmd_vel'
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('rover_web'), 'launch', 'web.launch.py'
+            ])),
+            launch_arguments={
+                'rover_config_file': str(config_path),
+                'command_topic': web_command_topic,
+            }.items(),
+        ))
+
     localization = Path(
         get_package_share_directory('rover_localization')
     ) / 'config'
@@ -264,6 +289,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='false'),
+        DeclareLaunchArgument('use_web', default_value='false'),
         # Kept false for compatibility with the existing motion executor,
         # which publishes directly to /cmd_vel. Enable it for Nav2.
         DeclareLaunchArgument('use_twist_mux', default_value='false'),
