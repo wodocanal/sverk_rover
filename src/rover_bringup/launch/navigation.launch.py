@@ -17,6 +17,7 @@ def generate_launch_description():
 
     use_imu = LaunchConfiguration('use_imu')
     use_lidar = LaunchConfiguration('use_lidar')
+    use_camera = LaunchConfiguration('use_camera')
     use_sim_time = LaunchConfiguration('use_sim_time')
     discovery_mode = LaunchConfiguration('discovery_mode')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -29,6 +30,7 @@ def generate_launch_description():
         launch_arguments={
             'use_imu': use_imu,
             'use_lidar': use_lidar,
+            'use_camera': use_camera,
             'use_twist_mux': 'true',
             'use_sim_time': use_sim_time,
             'discovery_mode': discovery_mode,
@@ -49,6 +51,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
+        DeclareLaunchArgument('use_camera', default_value='false'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('discovery_mode', default_value='configured'),
         DeclareLaunchArgument('use_rviz', default_value='false'),

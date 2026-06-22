@@ -1,0 +1,10 @@
+usb_camera_node:
+  ros__parameters:
+    device: /dev/video0
+    image_topic: /camera/image_raw
+    frame_id: camera_optical_frame
+    width: 640
+    height: 480
+    fps: 30.0
+    use_mjpeg: true
+    reconnect_interval_sec: 2.0

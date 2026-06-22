@@ -12,6 +12,7 @@
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rover_device_manager</exec_depend>
   <exec_depend>rover_base_driver</exec_depend>
+  <exec_depend>rover_camera</exec_depend>
   <exec_depend>rover_wheel_odometry</exec_depend>
   <exec_depend>rover_imu</exec_depend>
   <exec_depend>rover_localization</exec_depend>

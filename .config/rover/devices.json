@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-06-18T18:54:43.957546+00:00",
+  "identity_strategy": "physical_usb_path",
+  "devices": {
+    "motor_controller": {
+      "device": "/dev/serial/by-path/platform-xhci-hcd.1-usb-0:2:1.0-port0",
+      "baudrate": 115200,
+      "protocol": "quad_md_ascii",
+      "profile": "quad_md",
+      "parameters": {},
+      "usb": {
+        "ID_MODEL": "USB_Serial",
+        "ID_MODEL_ID": "7522",
+        "ID_SERIAL": "1a86_USB_Serial",
+        "ID_VENDOR": "1a86",
+        "ID_VENDOR_ID": "1a86",
+        "ID_PATH": "platform-xhci-hcd.1-usb-0:2:1.0",
+        "ID_PATH_TAG": "platform-xhci-hcd_1-usb-0_2_1_0"
+      },
+      "setup_verification": "received Quad-MD $MAll/$MSPD feedback frame"
+    },
+    "imu": {
+      "device": "/dev/serial/by-path/platform-xhci-hcd.1-usb-0:1:1.0-port0",
+      "baudrate": 9600,
+      "protocol": "yahboom_0x55",
+      "profile": "yahboom_10_axis",
+      "parameters": {},
+      "usb": {
+        "ID_MODEL": "CP2102_USB_to_UART_Bridge_Controller",
+        "ID_MODEL_ID": "ea60",
+        "ID_SERIAL": "Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001",
+        "ID_SERIAL_SHORT": "0001",
+        "ID_VENDOR": "Silicon_Labs",
+        "ID_VENDOR_ID": "10c4",
+        "ID_PATH": "platform-xhci-hcd.1-usb-0:1:1.0",
+        "ID_PATH_TAG": "platform-xhci-hcd_1-usb-0_1_1_0"
+      },
+      "setup_verification": "Yahboom 0x55 frames verified: 20 frames, types 0x51,0x52,0x53,0x54"
+    },
+    "lidar": {
+      "device": "/dev/serial/by-path/platform-xhci-hcd.0-usb-0:1:1.0-port0",
+      "baudrate": 460800,
+      "protocol": "sllidar_serial",
+      "profile": "c1",
+      "parameters": {
+        "scan_mode": "Standard",
+        "range_min": 0.17,
+        "scan_frequency": 10.0,
+        "lidar_serial_number": "B020E1F8C9E09CD1A7E79BF52EF54D1D",
+        "firmware": "1.01",
+        "hardware_revision": 18,
+        "max_distance": 16.0
+      },
+      "usb": {
+        "ID_MODEL": "CP2102N_USB_to_UART_Bridge_Controller",
+        "ID_MODEL_ID": "ea60",
+        "ID_SERIAL": "Silicon_Labs_CP2102N_USB_to_UART_Bridge_Controller_d8aba244455aee11b59889dc8ffcc75d",
+        "ID_SERIAL_SHORT": "d8aba244455aee11b59889dc8ffcc75d",
+        "ID_VENDOR": "Silicon_Labs",
+        "ID_VENDOR_ID": "10c4",
+        "ID_PATH": "platform-xhci-hcd.0-usb-0:1:1.0",
+        "ID_PATH_TAG": "platform-xhci-hcd_0-usb-0_1_1_0"
+      },
+      "setup_verification": "official SLLIDAR SDK reported health OK; baudrate 460800, scan mode Standard"
+    }
+  }
+}

@@ -26,6 +26,7 @@ def launch_setup(context):
     discovery_mode = LaunchConfiguration('discovery_mode').perform(context)
     use_imu = as_bool(LaunchConfiguration('use_imu').perform(context))
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
+    use_camera = as_bool(LaunchConfiguration('use_camera').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
     use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context))
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
@@ -92,6 +93,8 @@ def launch_setup(context):
     })
     imu_params = dict(config['imu'])
     imu_params['use_sim_time'] = use_sim_time
+    camera_params = dict(config.get('camera', {}))
+    camera_params['use_sim_time'] = use_sim_time
 
     xacro_file = PathJoinSubstitution([
         FindPackageShare('rover_description'), 'urdf', 'rover.urdf.xacro'
@@ -193,6 +196,15 @@ def launch_setup(context):
             parameters=[lidar_params],
         ))
 
+    if use_camera:
+        actions.append(Node(
+            package='rover_camera',
+            executable='usb_camera_node',
+            name='usb_camera_node',
+            output='screen',
+            parameters=[camera_params],
+        ))
+
     localization = Path(
         get_package_share_directory('rover_localization')
     ) / 'config'
@@ -251,6 +263,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
+        DeclareLaunchArgument('use_camera', default_value='false'),
         # Kept false for compatibility with the existing motion executor,
         # which publishes directly to /cmd_vel. Enable it for Nav2.
         DeclareLaunchArgument('use_twist_mux', default_value='false'),
