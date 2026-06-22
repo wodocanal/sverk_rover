@@ -30,15 +30,6 @@ data_files = [
 data_files.extend(
     recursive_data_files('web', os.path.join('share', package_name, 'web'))
 )
-data_files.extend(
-    recursive_data_files('tools', os.path.join('share', package_name, 'tools'))
-)
-data_files.extend(
-    recursive_data_files('plans', os.path.join('share', package_name, 'plans'))
-)
-data_files.extend(
-    recursive_data_files('deploy', os.path.join('share', package_name, 'deploy'))
-)
 
 
 setup(
@@ -46,11 +37,11 @@ setup(
     version='0.1.0',
     packages=find_packages(),
     data_files=data_files,
-    install_requires=['setuptools', 'PyYAML'],
+    install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Rover Team',
     maintainer_email='maintainer@example.com',
-    description='Local web interface, gateway and route executor for the rover.',
+    description='Minimal web server for the rover UI.',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
