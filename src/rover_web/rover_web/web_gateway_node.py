@@ -119,12 +119,11 @@ class RoverWebGateway(Node):
         self.declare_parameter("web_command_timeout_sec", 0.20)
         self.declare_parameter("rosbridge_url", "")
         self.declare_parameter("rosbridge_port", 9090)
-        self.declare_parameter("rosbridge_path", "/rosbridge")
-        self.declare_parameter("rosbridge_server_path", "/")
-        self.declare_parameter("terminal_enabled", True)
+        self.declare_parameter("rosbridge_path", "/")
+        self.declare_parameter("terminal_enabled", False)
         self.declare_parameter("terminal_url", "")
         self.declare_parameter("terminal_port", 7681)
-        self.declare_parameter("terminal_path", "/terminal/")
+        self.declare_parameter("terminal_path", "/")
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("wheel_odom_topic", "/wheel/odometry")
         self.declare_parameter("imu_topic", "/imu/data")
@@ -149,9 +148,6 @@ class RoverWebGateway(Node):
         self.rosbridge_url = str(self.get_parameter("rosbridge_url").value).strip()
         self.rosbridge_port = int(self.get_parameter("rosbridge_port").value)
         self.rosbridge_path = str(self.get_parameter("rosbridge_path").value).strip() or "/"
-        self.rosbridge_server_path = (
-            str(self.get_parameter("rosbridge_server_path").value).strip() or "/"
-        )
         self.terminal_enabled = bool(self.get_parameter("terminal_enabled").value)
         self.terminal_url = str(self.get_parameter("terminal_url").value).strip()
         self.terminal_port = int(self.get_parameter("terminal_port").value)
@@ -443,7 +439,6 @@ class RoverWebGateway(Node):
                 "rosbridge_url": self.rosbridge_url,
                 "rosbridge_port": self.rosbridge_port,
                 "rosbridge_path": self.rosbridge_path,
-                "rosbridge_server_path": self.rosbridge_server_path,
                 "terminal_enabled": self.terminal_enabled,
                 "terminal_url": self.terminal_url,
                 "terminal_port": self.terminal_port,

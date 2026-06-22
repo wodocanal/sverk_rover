@@ -62,12 +62,11 @@ function defaultConfig() {
     web: {
       rosbridge_url: '',
       rosbridge_port: 9090,
-      rosbridge_path: '/rosbridge',
-      rosbridge_server_path: '/',
-      terminal_enabled: true,
+      rosbridge_path: '/',
+      terminal_enabled: false,
       terminal_url: '',
       terminal_port: 7681,
-      terminal_path: '/terminal/',
+      terminal_path: '/',
     },
   };
 }
@@ -97,33 +96,20 @@ function normalizePort(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function isLikelyReverseProxyOrigin() {
-  const port = location.port;
-  return port === '' || port === '80' || port === '443';
-}
-
 function resolveRosbridgeUrl() {
   const web = webConfig();
   const explicit = absoluteUrl(web.rosbridge_url, websocketScheme);
   if (explicit) return explicit;
-  const proxyPath = normalizePath(web.rosbridge_path, '/rosbridge');
-  if (proxyPath !== '/' && isLikelyReverseProxyOrigin()) {
-    return `${websocketScheme}//${location.host}${proxyPath}`;
-  }
   const port = normalizePort(web.rosbridge_port) ?? 9090;
-  return `${websocketScheme}//${currentHostname()}:${port}${normalizePath(web.rosbridge_server_path, '/')}`;
+  return `${websocketScheme}//${currentHostname()}:${port}${normalizePath(web.rosbridge_path, '/')}`;
 }
 
 function resolveTerminalUrl() {
   const web = webConfig();
   const explicit = absoluteUrl(web.terminal_url, location.protocol);
   if (explicit) return explicit;
-  const proxyPath = normalizePath(web.terminal_path, '/terminal/');
-  if (isLikelyReverseProxyOrigin()) {
-    return `${location.protocol}//${location.host}${proxyPath}`;
-  }
   const port = normalizePort(web.terminal_port) ?? 7681;
-  return `${location.protocol}//${currentHostname()}:${port}${proxyPath}`;
+  return `${location.protocol}//${currentHostname()}:${port}${normalizePath(web.terminal_path, '/')}`;
 }
 
 function terminalEnabled() {
@@ -154,7 +140,7 @@ function configureTerminal() {
 
   frame.removeAttribute('src');
   frame.classList.add('hidden');
-  notice.textContent = 'Веб-терминал не настроен для этого запуска. Для него нужен ttyd и путь /terminal/.';
+  notice.textContent = 'Веб-терминал не настроен для этого запуска. Для него нужен отдельный ttyd-сервис.';
   notice.classList.remove('hidden');
 
   if (state.page === 'terminal') {

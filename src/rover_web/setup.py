@@ -36,9 +36,6 @@ data_files.extend(
 data_files.extend(
     recursive_data_files('plans', os.path.join('share', package_name, 'plans'))
 )
-data_files.extend(
-    recursive_data_files('deploy', os.path.join('share', package_name, 'deploy'))
-)
 
 
 setup(

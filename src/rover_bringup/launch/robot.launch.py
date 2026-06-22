@@ -227,7 +227,6 @@ def launch_setup(context):
             launch_arguments={
                 'rover_config_file': str(config_path),
                 'command_topic': web_command_topic,
-                'terminal_enabled': 'false',
             }.items(),
         ))
 
