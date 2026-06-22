@@ -10,7 +10,7 @@ def generate_launch_description():
     use_web = LaunchConfiguration('use_web')
     # robot.launch.py loads the persistent device setup and starts all hardware.
     return LaunchDescription([
-        DeclareLaunchArgument('use_camera', default_value='false'),
+        DeclareLaunchArgument('use_camera', default_value='true'),
         DeclareLaunchArgument('use_web', default_value='false'),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare('rover_bringup'), 'launch', 'robot.launch.py'])

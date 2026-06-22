@@ -63,7 +63,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
-        DeclareLaunchArgument('use_camera', default_value='false'),
+        DeclareLaunchArgument('use_camera', default_value='true'),
         DeclareLaunchArgument('use_web', default_value='false'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('discovery_mode', default_value='configured'),
