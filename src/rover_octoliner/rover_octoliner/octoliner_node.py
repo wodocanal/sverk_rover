@@ -6,6 +6,7 @@ from typing import Iterable
 from rcl_interfaces.msg import SetParametersResult
 import rclpy
 from rclpy.node import Node
+from rover_octoliner.octoliner_driver import OctolinerDriver
 from rover_interfaces.msg import OctolinerReading
 from rover_interfaces.srv import SetSensitivity
 from std_msgs.msg import Bool, Float32, Float32MultiArray, UInt8
@@ -28,6 +29,7 @@ class OctolinerNode(Node):
         super().__init__('octoliner_node')
 
         self.declare_parameter('i2c_address', 42)
+        self.declare_parameter('i2c_bus', 1)
         self.declare_parameter('poll_rate_hz', 50.0)
         self.declare_parameter('frame_id', 'octoliner_link')
         self.declare_parameter('reading_topic', '/octoliner/reading')
@@ -99,18 +101,9 @@ class OctolinerNode(Node):
         )
 
     def _create_driver(self):
-        try:
-            from octoliner import Octoliner
-        except ImportError as exc:
-            message = (
-                'Python package "octoliner" is not installed. '
-                'Install it with: python3 -m pip install octoliner'
-            )
-            self.get_logger().error(message)
-            raise RuntimeError(message) from exc
-
         i2c_address = int(self.get_parameter('i2c_address').value)
-        return Octoliner(i2c_address=i2c_address)
+        i2c_bus = int(self.get_parameter('i2c_bus').value)
+        return OctolinerDriver(i2c_address=i2c_address, i2c_bus=i2c_bus)
 
     def _on_parameter_set(self, parameters):
         for parameter in parameters:

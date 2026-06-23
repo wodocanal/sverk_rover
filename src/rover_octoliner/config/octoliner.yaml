@@ -1,6 +1,7 @@
 octoliner_node:
   ros__parameters:
     i2c_address: 42
+    i2c_bus: 1
     poll_rate_hz: 50.0
     frame_id: octoliner_link
     reading_topic: /octoliner/reading
