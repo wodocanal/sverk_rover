@@ -2,7 +2,7 @@
 <package format="3">
   <name>rover_interfaces</name>
   <version>0.2.0</version>
-  <description>Custom wheel command and encoder interfaces for the rover.</description>
+  <description>Custom interfaces for rover sensors, actuators and services.</description>
   <maintainer email="maintainer@example.com">Rover Team</maintainer>
   <license>Apache-2.0</license>
 

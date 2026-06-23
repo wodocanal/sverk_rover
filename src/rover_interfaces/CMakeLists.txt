@@ -7,9 +7,11 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/OctolinerReading.msg"
   "msg/WheelCommand.msg"
   "msg/WheelEncoders.msg"
   "srv/GetFrame.srv"
+  "srv/SetSensitivity.srv"
   DEPENDENCIES std_msgs sensor_msgs
 )
 

@@ -39,6 +39,7 @@ def launch_setup(context):
     use_imu = as_bool(LaunchConfiguration('use_imu').perform(context))
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
     use_camera = as_bool(LaunchConfiguration('use_camera').perform(context))
+    use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
     use_web = as_bool(LaunchConfiguration('use_web').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
     use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context))
@@ -108,6 +109,8 @@ def launch_setup(context):
     imu_params['use_sim_time'] = use_sim_time
     camera_params = dict(config.get('camera', {}))
     camera_params['use_sim_time'] = use_sim_time
+    octoliner_params = dict(config.get('octoliner', {}))
+    octoliner_params['use_sim_time'] = use_sim_time
 
     xacro_file = PathJoinSubstitution([
         FindPackageShare('rover_description'), 'urdf', 'rover.urdf.xacro'
@@ -218,6 +221,15 @@ def launch_setup(context):
             parameters=[camera_params],
         ))
 
+    if use_octoliner:
+        actions.append(Node(
+            package='rover_octoliner',
+            executable='octoliner_node',
+            name='octoliner_node',
+            output='screen',
+            parameters=[octoliner_params],
+        ))
+
     if use_web:
         web_command_topic = '/cmd_vel_teleop' if use_mux else '/cmd_vel'
         actions.append(IncludeLaunchDescription(
@@ -288,6 +300,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
+        DeclareLaunchArgument('use_octoliner', default_value='false'),
         DeclareLaunchArgument('use_web', default_value='false'),
         # Kept false for compatibility with the existing motion executor,
         # which publishes directly to /cmd_vel. Enable it for Nav2.
