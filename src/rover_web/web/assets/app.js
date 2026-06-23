@@ -55,6 +55,9 @@ const ROUTE_STEP_FIELDS = {
   ],
 };
 
+const LASER_SCAN_TYPE = 'sensor_msgs/msg/LaserScan';
+const OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading';
+
 const state = {
   sessionId: ensureSessionId(),
   page: localStorage.getItem(STORAGE_KEYS.page) || 'overview',
@@ -76,6 +79,14 @@ const state = {
   cameraUrl: null,
   cameraSettings: null,
   cameraSettingsLastRefresh: 0,
+  selectedLidarTopic: null,
+  selectedLidarType: null,
+  lidarTimer: null,
+  lidarData: null,
+  selectedOctolinerTopic: null,
+  selectedOctolinerType: null,
+  octolinerTimer: null,
+  octolinerData: null,
   driveKeys: new Set(),
   driveTimer: null,
   route: {
@@ -212,6 +223,8 @@ function currentPageTitle(page) {
     drive: 'Управление',
     routes: 'Маршруты',
     visualization: 'Визуализация',
+    lidar: 'Лидар',
+    octoliner: 'Octoliner',
     terminal: 'Терминал',
     diagnostics: 'Диагностика',
     settings: 'Настройки',
@@ -288,6 +301,22 @@ function setPage(page) {
     connectCamera();
   } else {
     refreshCameraSettings();
+  }
+
+  if (page !== 'lidar') {
+    stopLidarLoop();
+  } else if (state.selectedLidarTopic && state.selectedLidarType) {
+    connectLidar();
+  } else {
+    renderLidarTopics();
+  }
+
+  if (page !== 'octoliner') {
+    stopOctolinerLoop();
+  } else if (state.selectedOctolinerTopic && state.selectedOctolinerType) {
+    connectOctoliner();
+  } else {
+    renderOctolinerTopics();
   }
 
   if (page === 'terminal') {
@@ -740,6 +769,8 @@ async function refreshRosGraph() {
     renderTopics();
     renderServices();
     renderCameraTopics();
+    renderLidarTopics();
+    renderOctolinerTopics();
     updateHealthIndicators();
   } catch (error) {
     state.rosHealthy = false;
@@ -1131,6 +1162,321 @@ async function connectCamera() {
     $('#camera-empty').classList.remove('hidden');
   }
   startCameraLoop();
+}
+
+function renderLidarTopics() {
+  const select = $('#lidar-topic-select');
+  const topics = safeArray(state.rosGraph?.topics)
+    .filter((item) => safeArray(item.types).includes(LASER_SCAN_TYPE))
+    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+  select.innerHTML = '';
+  if (!topics.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Нет LaserScan topics';
+    select.append(option);
+    state.selectedLidarTopic = null;
+    state.selectedLidarType = null;
+    $('#lidar-status').textContent = 'Лидар не найден.';
+    return;
+  }
+
+  if (!topics.some((item) => item.name === state.selectedLidarTopic)) {
+    state.selectedLidarTopic = topics[0].name;
+    state.selectedLidarType = LASER_SCAN_TYPE;
+  }
+
+  topics.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.name;
+    option.dataset.type = LASER_SCAN_TYPE;
+    option.textContent = `${item.name} (${LASER_SCAN_TYPE})`;
+    option.selected = item.name === state.selectedLidarTopic;
+    select.append(option);
+  });
+}
+
+function drawLidarVisualization(data = state.lidarData) {
+  const canvas = $('#lidar-canvas');
+  const ctx = setupCanvas(canvas);
+  if (!ctx) return;
+
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#f9fdff';
+  ctx.fillRect(0, 0, width, height);
+
+  const hasData = data && safeArray(data.points).length;
+  $('#lidar-empty').classList.toggle('hidden', Boolean(hasData));
+  if (!hasData) return;
+
+  const points = safeArray(data.points);
+  const maxRadius = Math.max(
+    0.5,
+    Number(data.range_max || 0),
+    ...points.map((point) => Math.hypot(Number(point[0] || 0), Number(point[1] || 0))),
+  );
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const scale = (Math.min(width, height) * 0.42) / maxRadius;
+
+  ctx.strokeStyle = '#e0edf3';
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75, 1.0].forEach((ratio) => {
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, maxRadius * scale * ratio, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+
+  ctx.strokeStyle = '#9fd7ec';
+  ctx.beginPath();
+  ctx.moveTo(centerX, 0);
+  ctx.lineTo(centerX, height);
+  ctx.moveTo(0, centerY);
+  ctx.lineTo(width, centerY);
+  ctx.stroke();
+
+  ctx.fillStyle = '#16b8f3';
+  points.forEach((point) => {
+    const x = Number(point[0] || 0);
+    const y = Number(point[1] || 0);
+    const screenX = centerX - y * scale;
+    const screenY = centerY - x * scale;
+    ctx.fillRect(screenX, screenY, 2, 2);
+  });
+
+  drawRoverArrow(ctx, { x: centerX, y: centerY }, 0, '#075f89', 16);
+}
+
+async function refreshLidarStatus() {
+  if (!state.selectedLidarTopic || !state.selectedLidarType) return null;
+  try {
+    const info = await api(`/api/lidar/status?topic=${encodeURIComponent(state.selectedLidarTopic)}&type=${encodeURIComponent(state.selectedLidarType)}`);
+    state.lidarData = info;
+    renderDetailList($('#lidar-meta'), [
+      { label: 'Topic', value: info.topic || '—' },
+      { label: 'Type', value: info.type || '—' },
+      { label: 'Frame', value: info.frame_id || '—' },
+      { label: 'Messages', value: String(info.message_count ?? '—') },
+      { label: 'Valid points', value: String(info.valid_points ?? 0) },
+      { label: 'Age', value: info.age_sec == null ? '—' : formatAge(info.age_sec) },
+    ]);
+    $('#lidar-status').textContent = info.last_error
+      ? `Ошибка: ${info.last_error}`
+      : (info.frame_ready ? 'Скан поступает.' : 'Ожидание первого скана.');
+    $('#lidar-points').textContent = `Точек: ${info.valid_points ?? 0}/${info.total_ranges ?? 0}`;
+    $('#lidar-range').textContent = `Диапазон: ${formatFloat(info.range_min, 2)}..${formatFloat(info.range_max, 2)} м`;
+    $('#lidar-age').textContent = `Возраст: ${info.age_sec == null ? '—' : formatAge(info.age_sec)}`;
+    $('#lidar-frame').textContent = `Frame: ${info.frame_id || '—'}`;
+    drawLidarVisualization(info);
+    return info;
+  } catch (error) {
+    $('#lidar-status').textContent = String(error.message || error);
+    return null;
+  }
+}
+
+function startLidarLoop() {
+  stopLidarLoop();
+  state.lidarTimer = window.setInterval(() => {
+    refreshLidarStatus();
+  }, 250);
+}
+
+function stopLidarLoop() {
+  if (state.lidarTimer) {
+    window.clearInterval(state.lidarTimer);
+    state.lidarTimer = null;
+  }
+}
+
+async function connectLidar() {
+  const select = $('#lidar-topic-select');
+  state.selectedLidarTopic = select.value || null;
+  state.selectedLidarType = select.selectedOptions[0]?.dataset.type || null;
+  stopLidarLoop();
+  if (!state.selectedLidarTopic || !state.selectedLidarType) {
+    $('#lidar-status').textContent = 'Нет выбранного источника.';
+    return;
+  }
+  $('#lidar-status').textContent = 'Подключение...';
+  const info = await refreshLidarStatus();
+  if (!info) return;
+  startLidarLoop();
+}
+
+function renderOctolinerTopics() {
+  const select = $('#octoliner-topic-select');
+  const topics = safeArray(state.rosGraph?.topics)
+    .filter((item) => safeArray(item.types).includes(OCTOLINER_READING_TYPE))
+    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+  select.innerHTML = '';
+  if (!topics.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Нет Octoliner topics';
+    select.append(option);
+    state.selectedOctolinerTopic = null;
+    state.selectedOctolinerType = null;
+    $('#octoliner-status').textContent = 'Octoliner не найден.';
+    return;
+  }
+
+  if (!topics.some((item) => item.name === state.selectedOctolinerTopic)) {
+    state.selectedOctolinerTopic = topics[0].name;
+    state.selectedOctolinerType = OCTOLINER_READING_TYPE;
+  }
+
+  topics.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.name;
+    option.dataset.type = OCTOLINER_READING_TYPE;
+    option.textContent = `${item.name} (${OCTOLINER_READING_TYPE})`;
+    option.selected = item.name === state.selectedOctolinerTopic;
+    select.append(option);
+  });
+}
+
+function drawOctolinerVisualization(data = state.octolinerData) {
+  const canvas = $('#octoliner-canvas');
+  const ctx = setupCanvas(canvas);
+  if (!ctx) return;
+
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#f9fdff';
+  ctx.fillRect(0, 0, width, height);
+
+  const values = safeArray(data?.analog_values);
+  $('#octoliner-empty').classList.toggle('hidden', values.length === 8);
+  if (values.length !== 8) return;
+
+  const marginX = 60;
+  const top = 60;
+  const bottom = height - 140;
+  const usableWidth = width - marginX * 2;
+  const usableHeight = bottom - top;
+  const barWidth = usableWidth / 8;
+  const pattern = Number(data.pattern || 0);
+
+  ctx.strokeStyle = '#d7e8f0';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i += 1) {
+    const y = top + (usableHeight / 5) * i;
+    ctx.beginPath();
+    ctx.moveTo(marginX, y);
+    ctx.lineTo(width - marginX, y);
+    ctx.stroke();
+  }
+
+  values.forEach((rawValue, index) => {
+    const value = Math.max(0, Math.min(1, Number(rawValue || 0)));
+    const x = marginX + index * barWidth + 8;
+    const w = Math.max(18, barWidth - 16);
+    const h = usableHeight * value;
+    const y = bottom - h;
+    const active = Boolean(pattern & (1 << (7 - index)));
+    ctx.fillStyle = active ? '#16b8f3' : '#b8e6f7';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = active ? '#078ac4' : '#9fd7ec';
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#075f89';
+    ctx.font = '12px "Avenir Next", "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`S${index + 1}`, x + w / 2, bottom + 20);
+    ctx.fillText(value.toFixed(2), x + w / 2, y - 8);
+  });
+
+  const guideY = height - 70;
+  const guideLeft = marginX;
+  const guideRight = width - marginX;
+  ctx.strokeStyle = '#9fd7ec';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(guideLeft, guideY);
+  ctx.lineTo(guideRight, guideY);
+  ctx.stroke();
+
+  const drawMarker = (position, color, label) => {
+    if (!Number.isFinite(Number(position))) return;
+    const normalized = (Number(position) + 1) / 2;
+    const x = guideLeft + normalized * (guideRight - guideLeft);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, guideY - 26);
+    ctx.lineTo(x, guideY + 10);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, guideY - 32, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '12px "Avenir Next", "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x, guideY - 42);
+  };
+
+  drawMarker(data.line_position, '#c93644', 'line');
+  drawMarker(data.tracked_line_position, '#075f89', 'tracked');
+}
+
+async function refreshOctolinerStatus() {
+  if (!state.selectedOctolinerTopic || !state.selectedOctolinerType) return null;
+  try {
+    const info = await api(`/api/octoliner/status?topic=${encodeURIComponent(state.selectedOctolinerTopic)}&type=${encodeURIComponent(state.selectedOctolinerType)}`);
+    state.octolinerData = info;
+    renderDetailList($('#octoliner-meta'), [
+      { label: 'Topic', value: info.topic || '—' },
+      { label: 'Type', value: info.type || '—' },
+      { label: 'Frame', value: info.frame_id || '—' },
+      { label: 'Messages', value: String(info.message_count ?? '—') },
+      { label: 'Dark sensors', value: String(info.dark_sensor_count ?? '—') },
+      { label: 'Age', value: info.age_sec == null ? '—' : formatAge(info.age_sec) },
+    ]);
+    $('#octoliner-status').textContent = info.last_error
+      ? `Ошибка: ${info.last_error}`
+      : (info.frame_ready ? 'Данные поступают.' : 'Ожидание первого чтения.');
+    $('#octoliner-pattern').textContent = `Pattern: ${info.pattern_bits || '00000000'}`;
+    $('#octoliner-visible').textContent = `Линия: ${info.line_visible ? 'видна' : 'не видна'}`;
+    $('#octoliner-line').textContent = `Позиция: ${info.line_position == null ? '—' : formatFloat(info.line_position, 2)}`;
+    $('#octoliner-tracked').textContent = `Tracked: ${info.tracked_line_position == null ? '—' : formatFloat(info.tracked_line_position, 2)}`;
+    $('#octoliner-sensitivity').textContent = `Sensitivity: ${info.sensitivity == null ? '—' : formatFloat(info.sensitivity, 2)}`;
+    drawOctolinerVisualization(info);
+    return info;
+  } catch (error) {
+    $('#octoliner-status').textContent = String(error.message || error);
+    return null;
+  }
+}
+
+function startOctolinerLoop() {
+  stopOctolinerLoop();
+  state.octolinerTimer = window.setInterval(() => {
+    refreshOctolinerStatus();
+  }, 200);
+}
+
+function stopOctolinerLoop() {
+  if (state.octolinerTimer) {
+    window.clearInterval(state.octolinerTimer);
+    state.octolinerTimer = null;
+  }
+}
+
+async function connectOctoliner() {
+  const select = $('#octoliner-topic-select');
+  state.selectedOctolinerTopic = select.value || null;
+  state.selectedOctolinerType = select.selectedOptions[0]?.dataset.type || null;
+  stopOctolinerLoop();
+  if (!state.selectedOctolinerTopic || !state.selectedOctolinerType) {
+    $('#octoliner-status').textContent = 'Нет выбранного источника.';
+    return;
+  }
+  $('#octoliner-status').textContent = 'Подключение...';
+  const info = await refreshOctolinerStatus();
+  if (!info) return;
+  startOctolinerLoop();
 }
 
 function refreshDriveConfigFromConfig(config) {
@@ -1992,6 +2338,30 @@ function bindVisualizationPage() {
   });
 }
 
+function bindLidarPage() {
+  $('#lidar-refresh-topics').addEventListener('click', async () => {
+    await refreshRosGraph();
+    renderLidarTopics();
+  });
+  $('#lidar-connect').addEventListener('click', connectLidar);
+  $('#lidar-topic-select').addEventListener('change', () => {
+    state.selectedLidarTopic = $('#lidar-topic-select').value || null;
+    state.selectedLidarType = $('#lidar-topic-select').selectedOptions[0]?.dataset.type || null;
+  });
+}
+
+function bindOctolinerPage() {
+  $('#octoliner-refresh-topics').addEventListener('click', async () => {
+    await refreshRosGraph();
+    renderOctolinerTopics();
+  });
+  $('#octoliner-connect').addEventListener('click', connectOctoliner);
+  $('#octoliner-topic-select').addEventListener('change', () => {
+    state.selectedOctolinerTopic = $('#octoliner-topic-select').value || null;
+    state.selectedOctolinerType = $('#octoliner-topic-select').selectedOptions[0]?.dataset.type || null;
+  });
+}
+
 function bindTerminalPage() {
   $('#terminal-reload').addEventListener('click', () => {
     refreshTerminalFrame(true);
@@ -2034,6 +2404,8 @@ async function initialize() {
   bindDrivePage();
   bindRoutesPage();
   bindVisualizationPage();
+  bindLidarPage();
+  bindOctolinerPage();
   bindTerminalPage();
   bindDiagnosticsPage();
   bindSettingsPage();
@@ -2059,11 +2431,13 @@ async function initialize() {
     await loadPlan(state.route.selectedName);
   }
 
-  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'terminal', 'diagnostics', 'settings'].includes(state.page)
+  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'octoliner', 'terminal', 'diagnostics', 'settings'].includes(state.page)
     ? state.page
     : 'overview');
   renderSettings();
   renderVisualization();
+  drawLidarVisualization();
+  drawOctolinerVisualization();
   renderRoutePreview();
 
   await recordActivity('Web session started', {
@@ -2082,6 +2456,8 @@ async function initialize() {
   }, 12000);
   window.addEventListener('resize', () => {
     renderVisualization();
+    drawLidarVisualization();
+    drawOctolinerVisualization();
     renderRoutePreview();
   });
 }

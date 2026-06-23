@@ -640,9 +640,19 @@ textarea {
   gap: 18px;
 }
 
+.sensor-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+  gap: 18px;
+}
+
 .camera-side-column {
   display: grid;
   gap: 18px;
+  align-self: start;
+}
+
+.sensor-source-panel {
   align-self: start;
 }
 
@@ -882,6 +892,18 @@ textarea {
   background: #f9fdff;
 }
 
+.sensor-canvas-panel {
+  min-height: 420px;
+}
+
+#lidar-canvas,
+#octoliner-canvas {
+  display: block;
+  width: 100%;
+  height: min(68vh, 640px);
+  background: #f9fdff;
+}
+
 .canvas-legend {
   position: absolute;
   right: 12px;
@@ -913,6 +935,23 @@ textarea {
 }
 
 .visualization-readout span {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 11px;
+  color: var(--accent-deep);
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.sensor-readout {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+}
+
+.sensor-readout span {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1088,6 +1127,7 @@ textarea {
   .two-column,
   .route-layout,
   .camera-grid,
+  .sensor-layout,
   .ros-layout {
     grid-template-columns: 1fr;
   }
@@ -1168,6 +1208,13 @@ textarea {
   .terminal-frame {
     height: 68vh;
     min-height: 420px;
+  }
+
+  #lidar-canvas,
+  #octoliner-canvas,
+  #odom-canvas,
+  #route-preview-canvas {
+    height: 340px;
   }
 }
 

@@ -38,7 +38,7 @@ from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.set_message import set_message_fields
 from rosidl_runtime_py.utilities import get_message, get_service
-from sensor_msgs.msg import CompressedImage, Image, Imu
+from sensor_msgs.msg import CompressedImage, Image, Imu, LaserScan
 import yaml
 
 
@@ -47,6 +47,8 @@ IMAGE_TOPIC_TYPES = {
     'sensor_msgs/msg/Image',
     'sensor_msgs/msg/CompressedImage',
 }
+LASER_SCAN_TYPE = 'sensor_msgs/msg/LaserScan'
+OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading'
 PLAN_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 V4L2_FMT_RE = re.compile(r"\[\d+\]: '([^']+)' \((.+)\)")
 V4L2_SIZE_RE = re.compile(r'Size:\s+Discrete\s+(\d+)x(\d+)')
@@ -247,6 +249,7 @@ class TopicWatch:
     type_name: str
     msg_class: type[Any]
     subscription: Any
+    raw_message: Any = None
     last_message: Any = None
     last_updated_monotonic: float = 0.0
     message_count: int = 0
@@ -605,6 +608,7 @@ class RoverWebGateway(Node):
                     watch.last_updated_monotonic = time.monotonic()
                     watch.message_count += 1
                     watch.last_error = None
+                    watch.raw_message = message
                     try:
                         watch.last_message = self._message_summary(message)
                     except Exception as exc:
@@ -1391,6 +1395,162 @@ class RoverWebGateway(Node):
         graph = self._graph_payload()
         return {'ok': True, 'topics': graph['image_topics']}
 
+    def lidar_topics(self) -> dict[str, Any]:
+        graph = self._graph_payload()
+        topics = [
+            item for item in graph['topics']
+            if LASER_SCAN_TYPE in item.get('types', [])
+        ]
+        return {'ok': True, 'topics': topics}
+
+    def octoliner_topics(self) -> dict[str, Any]:
+        graph = self._graph_payload()
+        topics = [
+            item for item in graph['topics']
+            if OCTOLINER_READING_TYPE in item.get('types', [])
+        ]
+        return {'ok': True, 'topics': topics}
+
+    def _scan_points_payload(
+        self,
+        message: LaserScan,
+        *,
+        max_points: int = 720,
+    ) -> dict[str, Any]:
+        ranges = list(message.ranges)
+        total_ranges = len(ranges)
+        if total_ranges <= 0:
+            return {
+                'points': [],
+                'total_ranges': 0,
+                'valid_points': 0,
+                'range_min': float(message.range_min),
+                'range_max': float(message.range_max),
+                'angle_min': float(message.angle_min),
+                'angle_max': float(message.angle_max),
+                'angle_increment': float(message.angle_increment),
+                'frame_id': message.header.frame_id,
+            }
+
+        step = max(1, math.ceil(total_ranges / max_points))
+        points: list[list[float]] = []
+        valid_points = 0
+        for index in range(0, total_ranges, step):
+            distance = float(ranges[index])
+            if not math.isfinite(distance):
+                continue
+            if distance < float(message.range_min) or distance > float(message.range_max):
+                continue
+            angle = float(message.angle_min + index * message.angle_increment)
+            x = distance * math.cos(angle)
+            y = distance * math.sin(angle)
+            points.append([x, y])
+            valid_points += 1
+
+        return {
+            'points': points,
+            'total_ranges': total_ranges,
+            'valid_points': valid_points,
+            'range_min': float(message.range_min),
+            'range_max': float(message.range_max),
+            'angle_min': float(message.angle_min),
+            'angle_max': float(
+                message.angle_min + max(0, total_ranges - 1) * message.angle_increment
+            ),
+            'angle_increment': float(message.angle_increment),
+            'frame_id': message.header.frame_id,
+        }
+
+    def lidar_status(
+        self,
+        topic_name: str,
+        type_name: str | None = None,
+    ) -> dict[str, Any]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, available_types = self._resolve_topic_type(topic, type_name)
+        if resolved_type != LASER_SCAN_TYPE:
+            raise ValueError(f'Topic {topic} is not a LaserScan topic')
+
+        watch = self._ensure_topic_watch(topic, resolved_type)
+        payload = {
+            'ok': True,
+            'topic': topic,
+            'type': resolved_type,
+            'available_types': available_types,
+            'message_count': watch.message_count,
+            'age_sec': age_seconds(watch.last_updated_monotonic),
+            'frame_ready': watch.raw_message is not None,
+            'last_error': watch.last_error,
+        }
+        raw_message = watch.raw_message
+        if raw_message is None:
+            payload.update({
+                'points': [],
+                'total_ranges': 0,
+                'valid_points': 0,
+            })
+            return payload
+
+        payload.update(self._scan_points_payload(raw_message))
+        return payload
+
+    def octoliner_status(
+        self,
+        topic_name: str,
+        type_name: str | None = None,
+    ) -> dict[str, Any]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, available_types = self._resolve_topic_type(topic, type_name)
+        if resolved_type != OCTOLINER_READING_TYPE:
+            raise ValueError(f'Topic {topic} is not an OctolinerReading topic')
+
+        watch = self._ensure_topic_watch(topic, resolved_type)
+        payload = {
+            'ok': True,
+            'topic': topic,
+            'type': resolved_type,
+            'available_types': available_types,
+            'message_count': watch.message_count,
+            'age_sec': age_seconds(watch.last_updated_monotonic),
+            'frame_ready': watch.raw_message is not None,
+            'last_error': watch.last_error,
+        }
+        raw_message = watch.raw_message
+        if raw_message is None:
+            payload.update({
+                'analog_values': [],
+                'pattern': 0,
+                'pattern_bits': '00000000',
+                'dark_sensor_count': 0,
+                'line_visible': False,
+                'line_position': None,
+                'tracked_line_position': None,
+                'sensitivity': None,
+                'frame_id': '',
+            })
+            return payload
+
+        pattern = int(raw_message.pattern)
+        line_position = float(raw_message.line_position)
+        tracked_line_position = float(raw_message.tracked_line_position)
+        sensitivity = float(raw_message.sensitivity)
+        payload.update({
+            'analog_values': [float(value) for value in raw_message.analog_values],
+            'pattern': pattern,
+            'pattern_bits': format(pattern & 0xFF, '08b'),
+            'dark_sensor_count': int(raw_message.dark_sensor_count),
+            'line_visible': bool(raw_message.line_visible),
+            'line_position': line_position if math.isfinite(line_position) else None,
+            'tracked_line_position': (
+                tracked_line_position
+                if math.isfinite(tracked_line_position)
+                else None
+            ),
+            'sensitivity': sensitivity if math.isfinite(sensitivity) else None,
+            'frame_id': str(raw_message.header.frame_id),
+        })
+        return payload
+
     def _camera_parameter_values(self) -> dict[str, Any]:
         client = self._ensure_parameter_client(self.camera_node_name)
         if not client.wait_for_services(timeout_sec=1.0):
@@ -1859,6 +2019,12 @@ class RoverWebGateway(Node):
                     if path == '/api/camera/topics':
                         self._send_json(gateway.camera_topics(), HTTPStatus.OK)
                         return
+                    if path == '/api/lidar/topics':
+                        self._send_json(gateway.lidar_topics(), HTTPStatus.OK)
+                        return
+                    if path == '/api/octoliner/topics':
+                        self._send_json(gateway.octoliner_topics(), HTTPStatus.OK)
+                        return
                     if path == '/api/camera/settings':
                         self._send_json(gateway.camera_settings(), HTTPStatus.OK)
                         return
@@ -1881,6 +2047,22 @@ class RoverWebGateway(Node):
                         type_name = self._optional_query(query, 'type')
                         watch, boundary = gateway.camera_stream(topic, type_name)
                         self._send_mjpeg_stream(watch, boundary)
+                        return
+                    if path == '/api/lidar/status':
+                        topic = self._required_query(query, 'topic')
+                        type_name = self._optional_query(query, 'type')
+                        self._send_json(
+                            gateway.lidar_status(topic, type_name),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path == '/api/octoliner/status':
+                        topic = self._required_query(query, 'topic')
+                        type_name = self._optional_query(query, 'type')
+                        self._send_json(
+                            gateway.octoliner_status(topic, type_name),
+                            HTTPStatus.OK,
+                        )
                         return
                     if path == '/api/drive':
                         self._send_json(gateway.drive_payload(), HTTPStatus.OK)

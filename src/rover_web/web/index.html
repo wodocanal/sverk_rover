@@ -33,6 +33,8 @@
         <button class="nav-item" data-page="drive">Управление</button>
         <button class="nav-item" data-page="routes">Маршруты</button>
         <button class="nav-item" data-page="visualization">Визуализация</button>
+        <button class="nav-item" data-page="lidar">Лидар</button>
+        <button class="nav-item" data-page="octoliner">Octoliner</button>
         <button class="nav-item" id="nav-terminal" data-page="terminal">Терминал</button>
         <button class="nav-item" data-page="diagnostics">Диагностика</button>
         <button class="nav-item" data-page="settings">Настройки</button>
@@ -345,6 +347,71 @@ angular.z: 0.00</pre>
           <div id="viz-empty" class="canvas-empty">Ожидание данных /odom…</div>
           <div class="canvas-legend">X вперёд · Y влево · след ограничен 1500 точками</div>
         </article>
+      </section>
+
+      <section class="page" id="page-lidar">
+        <div class="page-heading">
+          <div><h1>Лидар</h1><p>Live-визуализация данных LaserScan в системе координат робота.</p></div>
+          <button class="secondary" id="lidar-refresh-topics">Обновить источники</button>
+        </div>
+        <div class="sensor-layout">
+          <article class="panel sensor-source-panel">
+            <h2>Источник лидара</h2>
+            <label>LaserScan topic
+              <select id="lidar-topic-select"></select>
+            </label>
+            <div class="button-row">
+              <button id="lidar-connect">Подключить</button>
+            </div>
+            <dl class="detail-list" id="lidar-meta"></dl>
+            <div class="status-note" id="lidar-status">Выбери LaserScan topic.</div>
+          </article>
+          <article class="panel canvas-panel sensor-canvas-panel">
+            <div class="panel-title-overlay">LaserScan</div>
+            <canvas id="lidar-canvas" width="1000" height="640"></canvas>
+            <div id="lidar-empty" class="canvas-empty">Ожидание данных лидара…</div>
+            <div class="canvas-legend">Вперёд ↑ · влево ← · центр — база ровера</div>
+          </article>
+        </div>
+        <div class="sensor-readout">
+          <span id="lidar-points">Точек: 0</span>
+          <span id="lidar-range">Диапазон: —</span>
+          <span id="lidar-age">Возраст: —</span>
+          <span id="lidar-frame">Frame: —</span>
+        </div>
+      </section>
+
+      <section class="page" id="page-octoliner">
+        <div class="page-heading">
+          <div><h1>Octoliner</h1><p>Состояние 8 сенсоров линии, pattern и положение линии в реальном времени.</p></div>
+          <button class="secondary" id="octoliner-refresh-topics">Обновить источники</button>
+        </div>
+        <div class="sensor-layout">
+          <article class="panel sensor-source-panel">
+            <h2>Источник Octoliner</h2>
+            <label>Reading topic
+              <select id="octoliner-topic-select"></select>
+            </label>
+            <div class="button-row">
+              <button id="octoliner-connect">Подключить</button>
+            </div>
+            <dl class="detail-list" id="octoliner-meta"></dl>
+            <div class="status-note" id="octoliner-status">Выбери topic с OctolinerReading.</div>
+          </article>
+          <article class="panel canvas-panel sensor-canvas-panel">
+            <div class="panel-title-overlay">8 каналов</div>
+            <canvas id="octoliner-canvas" width="1000" height="640"></canvas>
+            <div id="octoliner-empty" class="canvas-empty">Ожидание данных Octoliner…</div>
+            <div class="canvas-legend">Левый край ← sensor 1 · sensor 8 → правый край</div>
+          </article>
+        </div>
+        <div class="sensor-readout">
+          <span id="octoliner-pattern">Pattern: —</span>
+          <span id="octoliner-visible">Линия: —</span>
+          <span id="octoliner-line">Позиция: —</span>
+          <span id="octoliner-tracked">Tracked: —</span>
+          <span id="octoliner-sensitivity">Sensitivity: —</span>
+        </div>
       </section>
 
       <section class="page" id="page-terminal">
