@@ -29,7 +29,6 @@ class OctolinerNode(Node):
 
         self.declare_parameter('i2c_address', 42)
         self.declare_parameter('poll_rate_hz', 50.0)
-        self.declare_parameter('use_sim_time', False)
         self.declare_parameter('frame_id', 'octoliner_link')
         self.declare_parameter('reading_topic', '/octoliner/reading')
         self.declare_parameter('analog_topic', '/octoliner/analog')
