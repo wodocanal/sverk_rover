@@ -387,17 +387,45 @@ angular.z: 0.00</pre>
           <button class="secondary" id="octoliner-refresh-topics">Обновить источники</button>
         </div>
         <div class="sensor-layout">
-          <article class="panel sensor-source-panel">
-            <h2>Источник Octoliner</h2>
-            <label>Reading topic
-              <select id="octoliner-topic-select"></select>
-            </label>
-            <div class="button-row">
-              <button id="octoliner-connect">Подключить</button>
-            </div>
-            <dl class="detail-list" id="octoliner-meta"></dl>
-            <div class="status-note" id="octoliner-status">Выбери topic с OctolinerReading.</div>
-          </article>
+          <div class="sensor-side-column">
+            <article class="panel sensor-source-panel">
+              <h2>Источник Octoliner</h2>
+              <label>Reading topic
+                <select id="octoliner-topic-select"></select>
+              </label>
+              <div class="button-row">
+                <button id="octoliner-connect">Подключить</button>
+              </div>
+              <dl class="detail-list" id="octoliner-meta"></dl>
+              <div class="status-note" id="octoliner-status">Выбери topic с OctolinerReading.</div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2>Настройки Octoliner</h2>
+                  <p>Живые параметры драйвера и автокалибровка по чёрной поверхности.</p>
+                </div>
+                <button class="secondary" id="octoliner-settings-refresh">Обновить</button>
+              </div>
+              <div class="form-grid compact-grid">
+                <label>I2C address<input id="octoliner-setting-address" type="number" readonly></label>
+                <label>I2C bus<input id="octoliner-setting-bus" type="number" readonly></label>
+                <label>Poll rate, Hz<input id="octoliner-setting-poll-rate" type="number" min="1" max="200" step="1" value="50"></label>
+                <label>Frame ID<input id="octoliner-setting-frame-id" value="octoliner_link"></label>
+                <label>Sensitivity <output id="octoliner-sensitivity-output">0.80</output>
+                  <input id="octoliner-setting-sensitivity" type="range" min="0" max="1" step="0.01" value="0.8">
+                </label>
+                <label class="check-label"><input id="octoliner-setting-auto-optimize" type="checkbox"> Auto optimize on start</label>
+              </div>
+              <div class="button-row">
+                <button id="octoliner-settings-apply">Применить</button>
+                <button class="secondary" id="octoliner-optimize">Калибровать по чёрному</button>
+              </div>
+              <div class="status-note" id="octoliner-settings-status">Ожидание параметров Octoliner.</div>
+              <pre class="message-box" id="octoliner-settings-details">—</pre>
+            </article>
+          </div>
           <article class="panel canvas-panel sensor-canvas-panel">
             <div class="panel-title-overlay">8 каналов</div>
             <canvas id="octoliner-canvas" width="1000" height="640"></canvas>

@@ -67,6 +67,22 @@ CAMERA_PARAMETER_NAMES = [
     'jpeg_quality',
     'reconnect_interval_sec',
 ]
+OCTOLINER_PARAMETER_NAMES = [
+    'i2c_address',
+    'i2c_bus',
+    'poll_rate_hz',
+    'frame_id',
+    'sensitivity',
+    'auto_optimize_on_start',
+    'set_sensitivity_service',
+    'optimize_on_black_service',
+]
+OCTOLINER_RUNTIME_PARAMETER_NAMES = {
+    'poll_rate_hz',
+    'frame_id',
+    'sensitivity',
+    'auto_optimize_on_start',
+}
 
 
 def current_ipv4_addresses() -> list[str]:
@@ -325,6 +341,7 @@ class RoverWebGateway(Node):
         )
         self.declare_parameter('command_topic', '/cmd_vel')
         self.declare_parameter('camera_node_name', '/usb_camera_node')
+        self.declare_parameter('octoliner_node_name', '/octoliner_node')
         self.declare_parameter('terminal_enabled', False)
         self.declare_parameter('terminal_url', '')
         self.declare_parameter('terminal_port', 7681)
@@ -368,6 +385,9 @@ class RoverWebGateway(Node):
         self.camera_node_name = str(
             self.get_parameter('camera_node_name').value
         ).strip() or '/usb_camera_node'
+        self.octoliner_node_name = str(
+            self.get_parameter('octoliner_node_name').value
+        ).strip() or '/octoliner_node'
         self.terminal_enabled = bool(self.get_parameter('terminal_enabled').value)
         self.terminal_url = str(self.get_parameter('terminal_url').value).strip()
         self.terminal_port = int(self.get_parameter('terminal_port').value)
@@ -968,6 +988,7 @@ class RoverWebGateway(Node):
             'imu_topic': self.imu_topic,
             'diagnostics_topic': self.diagnostics_topic,
             'camera_node_name': self.camera_node_name,
+            'octoliner_node_name': self.octoliner_node_name,
             'plans_directory': str(self.plans_directory),
             'web': {
                 'terminal_enabled': self.terminal_enabled,
@@ -1568,6 +1589,24 @@ class RoverWebGateway(Node):
             values[name] = parameter_value_to_python(value)
         return values
 
+    def _octoliner_parameter_values(self) -> dict[str, Any]:
+        client = self._ensure_parameter_client(self.octoliner_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                'Octoliner parameter services are not available for '
+                f'{self.octoliner_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.get_parameters(OCTOLINER_PARAMETER_NAMES),
+            timeout_sec=2.0,
+            label='octoliner parameters',
+        )
+        values = {}
+        for name, value in zip(OCTOLINER_PARAMETER_NAMES, response.values):
+            values[name] = parameter_value_to_python(value)
+        return values
+
     def _camera_v4l2_capabilities(self, device: str) -> dict[str, Any]:
         executable = shutil.which('v4l2-ctl')
         if executable is None:
@@ -1620,6 +1659,20 @@ class RoverWebGateway(Node):
             'capabilities': capabilities,
         }
 
+    def octoliner_settings(self) -> dict[str, Any]:
+        parameters = self._octoliner_parameter_values()
+        return {
+            'ok': True,
+            'node_name': self.octoliner_node_name,
+            'parameters': parameters,
+            'runtime_parameters': sorted(OCTOLINER_RUNTIME_PARAMETER_NAMES),
+            'notes': {
+                'i2c_address': 'Изменяется только после перезапуска ноды.',
+                'i2c_bus': 'Изменяется только после перезапуска ноды.',
+                'auto_optimize_on_start': 'Используется при следующем старте ноды.',
+            },
+        }
+
     def update_camera_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError('Camera settings payload must be an object')
@@ -1667,6 +1720,89 @@ class RoverWebGateway(Node):
             sanitize_payload(payload),
         )
         return self.camera_settings()
+
+    def update_octoliner_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('Octoliner settings payload must be an object')
+
+        updates: list[Parameter] = []
+        for name in OCTOLINER_RUNTIME_PARAMETER_NAMES:
+            if name not in payload:
+                continue
+            value = payload[name]
+            if name in {'poll_rate_hz', 'sensitivity'}:
+                updates.append(Parameter(name, value=float(value)))
+            elif name == 'frame_id':
+                updates.append(Parameter(name, value=str(value)))
+            elif name == 'auto_optimize_on_start':
+                updates.append(Parameter(name, value=bool(value)))
+
+        if not updates:
+            raise ValueError('No supported Octoliner settings were provided')
+
+        client = self._ensure_parameter_client(self.octoliner_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                'Octoliner parameter services are not available for '
+                f'{self.octoliner_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.set_parameters(updates),
+            timeout_sec=3.0,
+            label='octoliner parameter update',
+        )
+        failures = [
+            result.reason.strip() or 'parameter update rejected'
+            for result in response.results
+            if not result.successful
+        ]
+        if failures:
+            raise RuntimeError('; '.join(failures))
+
+        self.record_activity(
+            'octoliner',
+            'Octoliner settings updated',
+            sanitize_payload(payload),
+        )
+        return self.octoliner_settings()
+
+    def optimize_octoliner(self) -> dict[str, Any]:
+        parameters = self._octoliner_parameter_values()
+        service_name = str(parameters.get('optimize_on_black_service') or '').strip()
+        if not service_name:
+            raise RuntimeError('Octoliner optimize service is not configured')
+
+        handle = self._ensure_service_client(service_name, 'std_srvs/srv/Trigger')
+        if not handle.client.wait_for_service(timeout_sec=1.5):
+            raise RuntimeError(f'Service {service_name} is not available')
+
+        request = handle.srv_class.Request()
+        started = time.monotonic()
+        future = handle.client.call_async(request)
+        response = self._wait_for_future(
+            future,
+            timeout_sec=4.0,
+            label='octoliner optimize_on_black',
+        )
+        if response is None:
+            raise RuntimeError('Octoliner optimize service returned no response')
+        if not bool(response.success):
+            raise RuntimeError(str(response.message or 'Octoliner calibration failed'))
+
+        duration = time.monotonic() - started
+        self.record_activity(
+            'octoliner',
+            'Octoliner optimized on black surface',
+            {'service': service_name, 'duration_sec': duration},
+        )
+        return {
+            'ok': True,
+            'service': service_name,
+            'duration_sec': duration,
+            'response': sanitize_payload(message_to_ordereddict(response)),
+            'settings': self.octoliner_settings(),
+        }
 
     def camera_status(
         self,
@@ -2025,6 +2161,9 @@ class RoverWebGateway(Node):
                     if path == '/api/octoliner/topics':
                         self._send_json(gateway.octoliner_topics(), HTTPStatus.OK)
                         return
+                    if path == '/api/octoliner/settings':
+                        self._send_json(gateway.octoliner_settings(), HTTPStatus.OK)
+                        return
                     if path == '/api/camera/settings':
                         self._send_json(gateway.camera_settings(), HTTPStatus.OK)
                         return
@@ -2153,6 +2292,18 @@ class RoverWebGateway(Node):
                     if parsed.path == '/api/camera/settings':
                         self._send_json(
                             gateway.update_camera_settings(payload),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/octoliner/settings':
+                        self._send_json(
+                            gateway.update_octoliner_settings(payload),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/octoliner/optimize':
+                        self._send_json(
+                            gateway.optimize_octoliner(),
                             HTTPStatus.OK,
                         )
                         return

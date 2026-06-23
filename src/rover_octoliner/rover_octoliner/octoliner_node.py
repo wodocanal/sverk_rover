@@ -6,6 +6,7 @@ from typing import Iterable
 from rcl_interfaces.msg import SetParametersResult
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter as RosParameter
 from rover_octoliner.octoliner_driver import OctolinerDriver
 from rover_interfaces.msg import OctolinerReading
 from rover_interfaces.srv import SetSensitivity
@@ -200,7 +201,14 @@ class OctolinerNode(Node):
 
     def _handle_set_sensitivity(self, request, response):
         try:
-            applied = self._apply_sensitivity(request.sensitivity)
+            result = self.set_parameters([
+                RosParameter('sensitivity', value=float(request.sensitivity))
+            ])
+            if not result or not result[0].successful:
+                raise RuntimeError(
+                    result[0].reason if result else 'parameter update rejected'
+                )
+            applied = float(self._sensitivity)
         except Exception as exc:
             response.success = False
             response.message = f'Failed to set sensitivity: {exc}'
@@ -216,6 +224,13 @@ class OctolinerNode(Node):
         del request
         try:
             optimized = self._optimize_on_black()
+            result = self.set_parameters([
+                RosParameter('sensitivity', value=float(optimized))
+            ])
+            if not result or not result[0].successful:
+                raise RuntimeError(
+                    result[0].reason if result else 'parameter update rejected'
+                )
         except Exception as exc:
             response.success = False
             response.message = f'Failed to optimize sensitivity: {exc}'

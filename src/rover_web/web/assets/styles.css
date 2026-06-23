@@ -656,6 +656,12 @@ textarea {
   align-self: start;
 }
 
+.sensor-side-column {
+  display: grid;
+  gap: 18px;
+  align-self: start;
+}
+
 .camera-setting-flags {
   margin: 8px 0 12px;
 }
@@ -959,6 +965,10 @@ textarea {
   color: var(--accent-deep);
   font-size: 0.84rem;
   font-weight: 750;
+}
+
+#octoliner-setting-sensitivity {
+  width: 100%;
 }
 
 .visualization-controls {

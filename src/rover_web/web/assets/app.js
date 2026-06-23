@@ -87,6 +87,7 @@ const state = {
   selectedOctolinerType: null,
   octolinerTimer: null,
   octolinerData: null,
+  octolinerSettings: null,
   driveKeys: new Set(),
   driveTimer: null,
   route: {
@@ -314,8 +315,10 @@ function setPage(page) {
   if (page !== 'octoliner') {
     stopOctolinerLoop();
   } else if (state.selectedOctolinerTopic && state.selectedOctolinerType) {
+    refreshOctolinerSettings();
     connectOctoliner();
   } else {
+    refreshOctolinerSettings();
     renderOctolinerTopics();
   }
 
@@ -1304,6 +1307,105 @@ async function connectLidar() {
   const info = await refreshLidarStatus();
   if (!info) return;
   startLidarLoop();
+}
+
+function updateOctolinerSensitivityOutput() {
+  $('#octoliner-sensitivity-output').textContent = formatFloat(
+    $('#octoliner-setting-sensitivity').value,
+    2,
+  );
+}
+
+function setOctolinerSettingsForm(parameters = {}) {
+  $('#octoliner-setting-address').value = String(parameters.i2c_address ?? 42);
+  $('#octoliner-setting-bus').value = String(parameters.i2c_bus ?? 1);
+  $('#octoliner-setting-poll-rate').value = String(parameters.poll_rate_hz ?? 50);
+  $('#octoliner-setting-frame-id').value = parameters.frame_id || 'octoliner_link';
+  $('#octoliner-setting-sensitivity').value = String(parameters.sensitivity ?? 0.8);
+  $('#octoliner-setting-auto-optimize').checked = Boolean(
+    parameters.auto_optimize_on_start ?? false,
+  );
+  updateOctolinerSensitivityOutput();
+}
+
+function octolinerSettingsPayloadFromForm() {
+  return {
+    poll_rate_hz: Number($('#octoliner-setting-poll-rate').value || '50'),
+    frame_id: $('#octoliner-setting-frame-id').value.trim(),
+    sensitivity: Number($('#octoliner-setting-sensitivity').value || '0.8'),
+    auto_optimize_on_start: $('#octoliner-setting-auto-optimize').checked,
+  };
+}
+
+function summarizeOctolinerSettings(payload) {
+  const parameters = payload?.parameters || {};
+  const notes = payload?.notes || {};
+  return pretty({
+    node_name: payload?.node_name || '/octoliner_node',
+    runtime_parameters: payload?.runtime_parameters || [],
+    read_only: {
+      i2c_address: parameters.i2c_address,
+      i2c_bus: parameters.i2c_bus,
+      set_sensitivity_service: parameters.set_sensitivity_service,
+      optimize_on_black_service: parameters.optimize_on_black_service,
+    },
+    notes,
+  });
+}
+
+async function refreshOctolinerSettings() {
+  try {
+    const payload = await api('/api/octoliner/settings');
+    state.octolinerSettings = payload;
+    setOctolinerSettingsForm(payload.parameters || {});
+    $('#octoliner-settings-details').textContent = summarizeOctolinerSettings(payload);
+    $('#octoliner-settings-status').textContent = `Параметры получены из ${payload.node_name || '/octoliner_node'}.`;
+    return payload;
+  } catch (error) {
+    $('#octoliner-settings-status').textContent = String(error.message || error);
+    $('#octoliner-settings-details').textContent = 'Не удалось получить параметры Octoliner.';
+    return null;
+  }
+}
+
+async function applyOctolinerSettings() {
+  try {
+    $('#octoliner-settings-status').textContent = 'Применение параметров Octoliner...';
+    const payload = await api('/api/octoliner/settings', {
+      method: 'POST',
+      body: JSON.stringify(octolinerSettingsPayloadFromForm()),
+    });
+    state.octolinerSettings = payload;
+    setOctolinerSettingsForm(payload.parameters || {});
+    $('#octoliner-settings-details').textContent = summarizeOctolinerSettings(payload);
+    $('#octoliner-settings-status').textContent = 'Параметры Octoliner применены.';
+    showToast('Настройки Octoliner применены');
+    await Promise.all([refreshOctolinerSettings(), refreshOctolinerStatus()]);
+  } catch (error) {
+    $('#octoliner-settings-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+  }
+}
+
+async function optimizeOctoliner() {
+  try {
+    $('#octoliner-settings-status').textContent = 'Калибровка Octoliner по чёрной поверхности...';
+    const payload = await api('/api/octoliner/optimize', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    if (payload.settings) {
+      state.octolinerSettings = payload.settings;
+      setOctolinerSettingsForm(payload.settings.parameters || {});
+      $('#octoliner-settings-details').textContent = summarizeOctolinerSettings(payload.settings);
+    }
+    $('#octoliner-settings-status').textContent = payload.response?.message || 'Калибровка завершена.';
+    showToast('Octoliner откалиброван');
+    await refreshOctolinerStatus();
+  } catch (error) {
+    $('#octoliner-settings-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+  }
 }
 
 function renderOctolinerTopics() {
@@ -2352,7 +2454,7 @@ function bindLidarPage() {
 
 function bindOctolinerPage() {
   $('#octoliner-refresh-topics').addEventListener('click', async () => {
-    await refreshRosGraph();
+    await Promise.all([refreshRosGraph(), refreshOctolinerSettings()]);
     renderOctolinerTopics();
   });
   $('#octoliner-connect').addEventListener('click', connectOctoliner);
@@ -2360,6 +2462,10 @@ function bindOctolinerPage() {
     state.selectedOctolinerTopic = $('#octoliner-topic-select').value || null;
     state.selectedOctolinerType = $('#octoliner-topic-select').selectedOptions[0]?.dataset.type || null;
   });
+  $('#octoliner-settings-refresh').addEventListener('click', refreshOctolinerSettings);
+  $('#octoliner-settings-apply').addEventListener('click', applyOctolinerSettings);
+  $('#octoliner-optimize').addEventListener('click', optimizeOctoliner);
+  $('#octoliner-setting-sensitivity').addEventListener('input', updateOctolinerSensitivityOutput);
 }
 
 function bindTerminalPage() {
@@ -2394,6 +2500,12 @@ function refreshPeriodicData() {
   if (state.page === 'camera' && state.selectedCameraTopic && state.selectedCameraType && !state.cameraTimer) {
     connectCamera();
   }
+  if (state.page === 'octoliner' && state.selectedOctolinerTopic && state.selectedOctolinerType && !state.octolinerTimer) {
+    connectOctoliner();
+  }
+  if (state.page === 'lidar' && state.selectedLidarTopic && state.selectedLidarType && !state.lidarTimer) {
+    connectLidar();
+  }
 }
 
 async function initialize() {
@@ -2420,6 +2532,7 @@ async function initialize() {
     refreshStatus(),
     refreshRosGraph(),
     refreshCameraSettings(),
+    refreshOctolinerSettings(),
     refreshDriveConfig(),
     refreshPlanList(),
     refreshActivity(),
