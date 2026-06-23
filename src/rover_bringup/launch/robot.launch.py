@@ -300,8 +300,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
-        DeclareLaunchArgument('use_octoliner', default_value='false'),
-        DeclareLaunchArgument('use_web', default_value='false'),
+        DeclareLaunchArgument('use_octoliner', default_value='true'),
+        DeclareLaunchArgument('use_web', default_value='true'),
         # Kept false for compatibility with the existing motion executor,
         # which publishes directly to /cmd_vel. Enable it for Nav2.
         DeclareLaunchArgument('use_twist_mux', default_value='false'),
