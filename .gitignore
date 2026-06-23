@@ -11,3 +11,7 @@
 /.cache/
 /.config/
 /.local/
+
+# Python cache artifacts.
+__pycache__/
+*.pyc

@@ -30,6 +30,12 @@ data_files = [
 data_files.extend(
     recursive_data_files('web', os.path.join('share', package_name, 'web'))
 )
+data_files.extend(
+    recursive_data_files('tools', os.path.join('share', package_name, 'tools'))
+)
+data_files.extend(
+    recursive_data_files('plans', os.path.join('share', package_name, 'plans'))
+)
 
 
 setup(
@@ -41,7 +47,7 @@ setup(
     zip_safe=True,
     maintainer='Rover Team',
     maintainer_email='maintainer@example.com',
-    description='Minimal web server for the rover UI.',
+    description='Local web interface, gateway and route executor for the rover.',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [

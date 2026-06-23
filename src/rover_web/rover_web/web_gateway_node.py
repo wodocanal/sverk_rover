@@ -4,25 +4,31 @@
 from __future__ import annotations
 
 from array import array
+from collections import deque
 from dataclasses import dataclass
 import json
 import math
 import mimetypes
 import os
 from pathlib import Path
+import re
 import shutil
+import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from ament_index_python.packages import get_package_share_directory
 import cv2
+from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -30,7 +36,8 @@ from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.set_message import set_message_fields
 from rosidl_runtime_py.utilities import get_message, get_service
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import CompressedImage, Image, Imu
+import yaml
 
 
 MAX_REQUEST_BYTES = 1_000_000
@@ -38,6 +45,7 @@ IMAGE_TOPIC_TYPES = {
     'sensor_msgs/msg/Image',
     'sensor_msgs/msg/CompressedImage',
 }
+PLAN_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 
 
 def current_ipv4_addresses() -> list[str]:
@@ -133,6 +141,28 @@ def compressed_content_type(format_text: str) -> str:
     return 'image/jpeg'
 
 
+def read_yaml(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = yaml.safe_load(path.read_text(encoding='utf-8'))
+        return value if isinstance(value, dict) else fallback
+    except (OSError, yaml.YAMLError):
+        return fallback
+
+
+def quaternion_yaw(message: Odometry) -> float:
+    q = message.pose.pose.orientation
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
+
+
+@dataclass
+class TopicSnapshot:
+    received_monotonic: float = 0.0
+    message_count: int = 0
+
+
 @dataclass
 class TopicWatch:
     topic: str
@@ -183,11 +213,40 @@ class RoverWebGateway(Node):
         super().__init__('web_gateway_node')
 
         share = Path(get_package_share_directory('rover_web'))
+        try:
+            rover_share = Path(get_package_share_directory('rover_bringup'))
+        except Exception:
+            rover_share = share
+        home = Path.home()
 
         self.declare_parameter('bind_address', '0.0.0.0')
         self.declare_parameter('port', 8765)
+        self.declare_parameter(
+            'identity_file',
+            str(share / 'config' / 'robot_identity.yaml'),
+        )
+        self.declare_parameter(
+            'rover_config_file',
+            str(rover_share / 'config' / 'rover.yaml'),
+        )
         self.declare_parameter('web_root', str(share / 'web'))
+        self.declare_parameter(
+            'motion_executor_path',
+            str(share / 'tools' / 'rover_motion_executor.py'),
+        )
+        self.declare_parameter(
+            'plans_directory',
+            str(home / '.local' / 'share' / 'sverh-rover-web' / 'plans'),
+        )
+        self.declare_parameter(
+            'seed_plans_directory',
+            str(share / 'plans'),
+        )
         self.declare_parameter('command_topic', '/cmd_vel')
+        self.declare_parameter('terminal_enabled', False)
+        self.declare_parameter('terminal_url', '')
+        self.declare_parameter('terminal_port', 7681)
+        self.declare_parameter('terminal_path', '/terminal/')
         self.declare_parameter('drive_command_timeout_sec', 0.25)
         self.declare_parameter('default_linear_speed_mps', 0.18)
         self.declare_parameter('default_lateral_speed_mps', 0.16)
@@ -195,14 +254,41 @@ class RoverWebGateway(Node):
         self.declare_parameter('max_linear_speed_mps', 0.35)
         self.declare_parameter('max_lateral_speed_mps', 0.35)
         self.declare_parameter('max_angular_speed_radps', 1.50)
+        self.declare_parameter('odom_topic', '/odom')
+        self.declare_parameter('wheel_odom_topic', '/wheel/odometry')
+        self.declare_parameter('imu_topic', '/imu/data')
+        self.declare_parameter('diagnostics_topic', '/diagnostics')
         self.declare_parameter('runtime_dir', '/tmp/rover_devices')
+        self.declare_parameter('activity_limit', 1000)
+        self.declare_parameter('stop_hold_sec', 0.75)
 
         self.bind_address = str(self.get_parameter('bind_address').value)
         self.port = int(self.get_parameter('port').value)
+        self.identity_path = Path(
+            str(self.get_parameter('identity_file').value)
+        ).expanduser()
+        self.rover_config_path = Path(
+            str(self.get_parameter('rover_config_file').value)
+        ).expanduser()
         self.web_root = Path(
             str(self.get_parameter('web_root').value)
         ).expanduser().resolve()
+        self.executor_path = Path(
+            str(self.get_parameter('motion_executor_path').value)
+        ).expanduser()
+        self.plans_directory = Path(
+            str(self.get_parameter('plans_directory').value)
+        ).expanduser()
+        self.seed_plans_directory = Path(
+            str(self.get_parameter('seed_plans_directory').value)
+        ).expanduser()
         self.command_topic = str(self.get_parameter('command_topic').value)
+        self.terminal_enabled = bool(self.get_parameter('terminal_enabled').value)
+        self.terminal_url = str(self.get_parameter('terminal_url').value).strip()
+        self.terminal_port = int(self.get_parameter('terminal_port').value)
+        self.terminal_path = (
+            str(self.get_parameter('terminal_path').value).strip() or '/terminal/'
+        )
         self.drive_command_timeout_sec = max(
             0.1, float(self.get_parameter('drive_command_timeout_sec').value)
         )
@@ -227,9 +313,31 @@ class RoverWebGateway(Node):
             self.default_angular_speed,
             float(self.get_parameter('max_angular_speed_radps').value),
         )
+        self.odom_topic = str(self.get_parameter('odom_topic').value)
+        self.wheel_odom_topic = str(self.get_parameter('wheel_odom_topic').value)
+        self.imu_topic = str(self.get_parameter('imu_topic').value)
+        self.diagnostics_topic = str(self.get_parameter('diagnostics_topic').value)
         self.runtime_dir = Path(
             str(self.get_parameter('runtime_dir').value)
         ).expanduser()
+        self.activity_limit = max(
+            100, int(self.get_parameter('activity_limit').value)
+        )
+        self.stop_hold_sec = max(
+            0.2, float(self.get_parameter('stop_hold_sec').value)
+        )
+
+        self.identity = read_yaml(
+            self.identity_path,
+            {
+                'robot_id': 'sverh-rover-0001',
+                'hostname': socket.gethostname(),
+                'company': 'Сверх',
+                'model': 'mecanum-rover-v1',
+                'software_version': '0.1.0',
+            },
+        )
+        self.rover_config = read_yaml(self.rover_config_path, {})
 
         self.started_at = time.time()
         self._lock = threading.RLock()
@@ -240,6 +348,25 @@ class RoverWebGateway(Node):
         self._latest_drive_command = Twist()
         self._latest_drive_monotonic = 0.0
         self._drive_active = False
+        self._stop_until = 0.0
+
+        self._odom: Odometry | None = None
+        self._wheel_odom: Odometry | None = None
+        self._imu: Imu | None = None
+        self._diagnostics: list[dict[str, Any]] = []
+        self._topic_state = {
+            'odom': TopicSnapshot(),
+            'wheel_odometry': TopicSnapshot(),
+            'imu': TopicSnapshot(),
+            'diagnostics': TopicSnapshot(),
+        }
+        self._web_clients: dict[str, dict[str, Any]] = {}
+        self._activity: deque[dict[str, Any]] = deque(maxlen=self.activity_limit)
+        self._motion_process: subprocess.Popen[str] | None = None
+        self._motion_started_at: float | None = None
+        self._motion_command: list[str] = []
+        self._motion_log: deque[str] = deque(maxlen=500)
+        self._motion_return_code: int | None = None
 
         self._cpu_last_total = 0
         self._cpu_last_idle = 0
@@ -247,9 +374,35 @@ class RoverWebGateway(Node):
         self._system_cache: dict[str, Any] = {}
         self._graph_cache_monotonic = 0.0
         self._graph_cache: dict[str, Any] = {}
+        self._last_ip_check = 0.0
+        self._cached_ip_addresses: list[str] = []
 
         self.drive_publisher = self.create_publisher(Twist, self.command_topic, 10)
+        self.create_subscription(Odometry, self.odom_topic, self._odom_callback, 20)
+        self.create_subscription(
+            Odometry,
+            self.wheel_odom_topic,
+            self._wheel_odom_callback,
+            20,
+        )
+        self.create_subscription(
+            Imu,
+            self.imu_topic,
+            self._imu_callback,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            DiagnosticArray,
+            self.diagnostics_topic,
+            self._diagnostics_callback,
+            10,
+        )
         self.create_timer(0.05, self._drive_output_timer)
+        self.create_timer(1.0, self._maintenance_timer)
+
+        self.plans_directory.mkdir(parents=True, exist_ok=True)
+        self._seed_default_plans()
+        self.record_activity('system', 'Web gateway started', {'port': self.port})
 
         handler = self._build_handler()
         self._http_server = ThreadingHTTPServer((self.bind_address, self.port), handler)
@@ -268,6 +421,48 @@ class RoverWebGateway(Node):
             f'Rover web listening on http://{self.bind_address}:{self.port} '
             f'(LAN addresses: {address_list})'
         )
+
+    def _touch_snapshot(self, key: str) -> None:
+        snapshot = self._topic_state[key]
+        snapshot.received_monotonic = time.monotonic()
+        snapshot.message_count += 1
+
+    def _odom_callback(self, message: Odometry) -> None:
+        with self._lock:
+            self._odom = message
+            self._touch_snapshot('odom')
+
+    def _wheel_odom_callback(self, message: Odometry) -> None:
+        with self._lock:
+            self._wheel_odom = message
+            self._touch_snapshot('wheel_odometry')
+
+    def _imu_callback(self, message: Imu) -> None:
+        with self._lock:
+            self._imu = message
+            self._touch_snapshot('imu')
+
+    def _diagnostics_callback(self, message: DiagnosticArray) -> None:
+        converted: list[dict[str, Any]] = []
+        for status in message.status[:100]:
+            level = status.level
+            if isinstance(level, (bytes, bytearray, memoryview)):
+                level_value = int(level[0]) if len(level) > 0 else 0
+            else:
+                level_value = int(level)
+            converted.append({
+                'name': status.name,
+                'hardware_id': status.hardware_id,
+                'level': level_value,
+                'message': status.message,
+                'values': {
+                    item.key: item.value
+                    for item in status.values[:40]
+                },
+            })
+        with self._lock:
+            self._diagnostics = converted
+            self._touch_snapshot('diagnostics')
 
     def _topic_graph(self) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
         topic_types = {
@@ -514,6 +709,175 @@ class RoverWebGateway(Node):
             self._service_client_cache[key] = handle
             return handle
 
+    def _maintenance_timer(self) -> None:
+        cutoff = time.monotonic() - 10.0
+        with self._lock:
+            expired = [
+                key
+                for key, value in self._web_clients.items()
+                if value.get('last_seen', 0.0) < cutoff
+            ]
+            for key in expired:
+                del self._web_clients[key]
+
+            process = self._motion_process
+            if process is not None:
+                return_code = process.poll()
+                if return_code is not None:
+                    self._motion_return_code = return_code
+                    self._motion_process = None
+                    self.record_activity(
+                        'routes',
+                        'Motion process finished',
+                        {'return_code': return_code},
+                    )
+
+    def record_activity(
+        self,
+        source: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        item = {
+            'timestamp': time.time(),
+            'source': source[:64],
+            'message': message[:300],
+            'details': sanitize_payload(details or {}),
+        }
+        with self._lock:
+            self._activity.append(item)
+
+    def register_heartbeat(self, session_id: str, page: str, client_ip: str) -> None:
+        if not session_id or len(session_id) > 128:
+            return
+        with self._lock:
+            self._web_clients[session_id] = {
+                'session_id': session_id,
+                'page': page[:64],
+                'client_ip': client_ip,
+                'last_seen': time.monotonic(),
+            }
+
+    def request_stop(
+        self,
+        source: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        with self._lock:
+            self._stop_until = max(
+                self._stop_until,
+                time.monotonic() + self.stop_hold_sec,
+            )
+            self._latest_drive_command = Twist()
+            self._latest_drive_monotonic = time.monotonic()
+        self.record_activity(source, 'Software STOP requested', details or {})
+
+    def identity_payload(self) -> dict[str, Any]:
+        now = time.monotonic()
+        with self._lock:
+            if now - self._last_ip_check > 10.0 or not self._cached_ip_addresses:
+                self._cached_ip_addresses = current_ipv4_addresses()
+                self._last_ip_check = now
+            addresses = list(self._cached_ip_addresses)
+        payload = dict(self.identity)
+        payload['runtime_hostname'] = socket.gethostname()
+        payload['ip_addresses'] = addresses
+        return payload
+
+    def _seed_default_plans(self) -> None:
+        if any(self.plans_directory.glob('*.yaml')):
+            return
+        if not self.seed_plans_directory.is_dir():
+            return
+        for source in sorted(self.seed_plans_directory.glob('*.yaml')):
+            target = self.plans_directory / source.name
+            if target.exists():
+                continue
+            try:
+                shutil.copy2(source, target)
+            except OSError:
+                continue
+
+    def _pose_payload(self, message: Odometry | None) -> dict[str, Any] | None:
+        if message is None:
+            return None
+        return {
+            'x': float(message.pose.pose.position.x),
+            'y': float(message.pose.pose.position.y),
+            'yaw': quaternion_yaw(message),
+            'vx': float(message.twist.twist.linear.x),
+            'vy': float(message.twist.twist.linear.y),
+            'wz': float(message.twist.twist.angular.z),
+            'frame_id': message.header.frame_id,
+            'child_frame_id': message.child_frame_id,
+        }
+
+    def _cpu_percent(self) -> float | None:
+        try:
+            fields = [
+                int(value)
+                for value in Path('/proc/stat').read_text().splitlines()[0].split()[1:]
+            ]
+            idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
+            total = sum(fields)
+            if self._cpu_last_total == 0:
+                value = None
+            else:
+                total_delta = total - self._cpu_last_total
+                idle_delta = idle - self._cpu_last_idle
+                value = (
+                    None
+                    if total_delta <= 0
+                    else 100.0 * (1.0 - idle_delta / total_delta)
+                )
+            self._cpu_last_total = total
+            self._cpu_last_idle = idle
+            return value
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def public_config_payload(self) -> dict[str, Any]:
+        geometry = self.rover_config.get('geometry', {})
+        encoders = self.rover_config.get('encoders', {})
+        base = self.rover_config.get('base_driver', {})
+        return {
+            'command_topic': self.command_topic,
+            'drive_command_timeout_sec': self.drive_command_timeout_sec,
+            'drive_defaults': {
+                'linear_x': self.default_linear_speed,
+                'linear_y': self.default_lateral_speed,
+                'angular_z': self.default_angular_speed,
+            },
+            'drive_limits': {
+                'linear_x': self.max_linear_speed,
+                'linear_y': self.max_lateral_speed,
+                'angular_z': self.max_angular_speed,
+            },
+            'odom_topic': self.odom_topic,
+            'wheel_odom_topic': self.wheel_odom_topic,
+            'imu_topic': self.imu_topic,
+            'diagnostics_topic': self.diagnostics_topic,
+            'plans_directory': str(self.plans_directory),
+            'web': {
+                'terminal_enabled': self.terminal_enabled,
+                'terminal_url': self.terminal_url,
+                'terminal_port': self.terminal_port,
+                'terminal_path': self.terminal_path,
+            },
+            'geometry': geometry,
+            'encoders': encoders,
+            'limits': {
+                'max_wheel_speed_mps': base.get('max_wheel_speed_mps', 0.35),
+                'command_timeout_sec': base.get('command_timeout_sec', 0.5),
+                'feedback_timeout_sec': base.get('feedback_timeout_sec', 0.35),
+            },
+            'recommended': {
+                'manual_linear_speed_mps': min(self.max_linear_speed, 0.18),
+                'manual_lateral_speed_mps': min(self.max_lateral_speed, 0.16),
+                'manual_angular_speed_radps': min(self.max_angular_speed, 0.70),
+            },
+        }
+
     def _system_summary(self) -> dict[str, Any]:
         now = time.monotonic()
         with self._lock:
@@ -559,19 +923,34 @@ class RoverWebGateway(Node):
         except (OSError, ValueError, IndexError):
             uptime_sec = max(0.0, time.time() - self.started_at)
 
+        throttled = 'unavailable'
+        try:
+            result = subprocess.run(
+                ['vcgencmd', 'get_throttled'],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=0.4,
+            )
+            throttled = result.stdout.strip() or 'unavailable'
+        except (OSError, subprocess.SubprocessError):
+            pass
+
         payload = {
             'ok': True,
             'hostname': socket.gethostname(),
-            'ip_addresses': current_ipv4_addresses(),
+            'ip_addresses': self.identity_payload().get('ip_addresses', []),
             'bind_address': self.bind_address,
             'port': self.port,
             'started_at': self.started_at,
             'uptime_sec': uptime_sec,
+            'cpu_percent': self._cpu_percent(),
             'temperature_c': temperature_c,
             'memory_total_bytes': memory_total,
             'memory_available_bytes': memory_available,
             'disk_total_bytes': disk_total,
             'disk_free_bytes': disk_free,
+            'throttled': throttled,
             'load_average': {
                 'one_min': load_1,
                 'five_min': load_5,
@@ -617,6 +996,106 @@ class RoverWebGateway(Node):
             }
         except (OSError, json.JSONDecodeError):
             return {'available': False, 'path': str(path), 'devices': {}}
+
+    def status_payload(self) -> dict[str, Any]:
+        with self._lock:
+            diagnostics = list(self._diagnostics)
+            clients = [dict(value) for value in self._web_clients.values()]
+            for client in clients:
+                client.pop('last_seen', None)
+            topic_state = {
+                key: {
+                    'age_sec': age_seconds(value.received_monotonic),
+                    'message_count': value.message_count,
+                }
+                for key, value in self._topic_state.items()
+            }
+            odom = self._pose_payload(self._odom)
+            wheel_odom = self._pose_payload(self._wheel_odom)
+            imu = None
+            if self._imu is not None:
+                imu = {
+                    'angular_velocity_z': float(self._imu.angular_velocity.z),
+                    'linear_acceleration_x': float(self._imu.linear_acceleration.x),
+                    'linear_acceleration_y': float(self._imu.linear_acceleration.y),
+                    'linear_acceleration_z': float(self._imu.linear_acceleration.z),
+                    'frame_id': self._imu.header.frame_id,
+                }
+            motion = self.motion_status_payload_locked()
+
+        highest_level = max((entry['level'] for entry in diagnostics), default=-1)
+        return {
+            'ok': True,
+            'server_time': time.time(),
+            'identity': self.identity_payload(),
+            'system': self._system_summary(),
+            'topics': topic_state,
+            'device_discovery': self._devices_payload(),
+            'odom': odom,
+            'wheel_odometry': wheel_odom,
+            'imu': imu,
+            'diagnostics': {
+                'highest_level': highest_level,
+                'items': diagnostics,
+            },
+            'clients': clients,
+            'connected_clients': len(clients),
+            'drive_clients': sum(1 for item in clients if item.get('page') == 'drive'),
+            'motion': motion,
+        }
+
+    def activity_payload(self, limit: int) -> list[dict[str, Any]]:
+        limit = min(max(limit, 1), 1000)
+        with self._lock:
+            return list(self._activity)[-limit:][::-1]
+
+    def list_plans(self) -> list[dict[str, Any]]:
+        plans: list[dict[str, Any]] = []
+        for path in sorted(self.plans_directory.glob('*.yaml')):
+            try:
+                stat = path.stat()
+                plan = read_yaml(path, {})
+                steps = plan.get('steps', [])
+                plans.append({
+                    'name': path.name,
+                    'size_bytes': stat.st_size,
+                    'modified': stat.st_mtime,
+                    'steps': len(steps) if isinstance(steps, list) else 0,
+                })
+            except OSError:
+                continue
+        return plans
+
+    def _safe_plan_path(self, name: str) -> Path:
+        name = unquote(name)
+        if not PLAN_NAME_RE.fullmatch(name) or not name.endswith(('.yaml', '.yml')):
+            raise ValueError('Invalid plan name')
+        path = (self.plans_directory / name).resolve()
+        if path.parent != self.plans_directory.resolve():
+            raise ValueError('Invalid plan path')
+        return path
+
+    def read_plan(self, name: str) -> dict[str, Any]:
+        path = self._safe_plan_path(name)
+        if not path.exists():
+            raise FileNotFoundError(name)
+        value = yaml.safe_load(path.read_text(encoding='utf-8'))
+        if not isinstance(value, dict):
+            raise ValueError('Plan must contain a YAML object')
+        return value
+
+    def save_plan(self, name: str, plan: dict[str, Any]) -> None:
+        steps = plan.get('steps')
+        if not isinstance(steps, list) or not steps:
+            raise ValueError('Plan requires a non-empty steps list')
+        path = self._safe_plan_path(name)
+        temporary = path.with_suffix(path.suffix + '.tmp')
+        temporary.write_text(
+            yaml.safe_dump(plan, allow_unicode=True, sort_keys=False),
+            encoding='utf-8',
+        )
+        temporary.replace(path)
+        self.record_activity('routes', 'Plan saved', {'name': name, 'steps': len(steps)})
 
     def _graph_payload(self) -> dict[str, Any]:
         now = time.monotonic()
@@ -682,7 +1161,9 @@ class RoverWebGateway(Node):
                 'subscribers': self.count_subscribers(topic),
                 'message_count': watch.message_count,
                 'age_sec': age_seconds(watch.last_updated_monotonic),
-                'frame_url': f'/api/camera/frame?topic={topic}',
+                'frame_url': (
+                    f'/api/camera/frame?topic={topic}&type={resolved_type}'
+                ),
                 'width': watch.width,
                 'height': watch.height,
                 'encoding': watch.encoding,
@@ -722,6 +1203,11 @@ class RoverWebGateway(Node):
             raise ValueError('Topic payload must be a JSON object')
         set_message_fields(message, payload)
         handle.publisher.publish(message)
+        self.record_activity(
+            'ros',
+            'Topic published',
+            {'topic': topic, 'type': resolved_type},
+        )
         return {
             'ok': True,
             'topic': topic,
@@ -776,11 +1262,21 @@ class RoverWebGateway(Node):
         if response is None:
             raise RuntimeError(f'Service {service} returned no response')
 
+        duration = time.monotonic() - started
+        self.record_activity(
+            'ros',
+            'Service called',
+            {
+                'service': service,
+                'type': resolved_type,
+                'duration_sec': duration,
+            },
+        )
         return {
             'ok': True,
             'service': service,
             'type': resolved_type,
-            'duration_sec': time.monotonic() - started,
+            'duration_sec': duration,
             'response': sanitize_payload(message_to_ordereddict(response)),
         }
 
@@ -810,7 +1306,7 @@ class RoverWebGateway(Node):
             'age_sec': age_seconds(watch.last_updated_monotonic),
             'frame_ready': watch.frame_bytes is not None,
             'last_error': watch.last_error,
-            'frame_url': f'/api/camera/frame?topic={topic}',
+            'frame_url': f'/api/camera/frame?topic={topic}&type={resolved_type}',
         }
 
     def camera_frame(
@@ -879,12 +1375,168 @@ class RoverWebGateway(Node):
             fresh = now - self._latest_drive_monotonic <= self.drive_command_timeout_sec
             command = self._latest_drive_command
             was_active = self._drive_active
-            self._drive_active = fresh
+            stop_active = now < self._stop_until
+            self._drive_active = fresh and not stop_active
 
-        if fresh:
+        if stop_active:
+            self.drive_publisher.publish(Twist())
+        elif fresh:
             self.drive_publisher.publish(command)
         elif was_active:
             self.drive_publisher.publish(Twist())
+
+    def start_motion(self, request: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            if self._motion_process is not None and self._motion_process.poll() is None:
+                raise RuntimeError('A motion command is already running')
+
+        if not self.executor_path.exists():
+            raise FileNotFoundError(f'Motion executor not found: {self.executor_path}')
+
+        kind = str(request.get('kind', '')).strip()
+        command = [
+            sys.executable,
+            str(self.executor_path),
+            '--odom-topic',
+            self.odom_topic,
+            '--cmd-vel-topic',
+            self.command_topic,
+        ]
+        summary: dict[str, Any] = {'kind': kind}
+
+        if kind == 'plan':
+            name = str(request.get('name', ''))
+            path = self._safe_plan_path(name)
+            if not path.exists():
+                raise FileNotFoundError(name)
+            command += ['run', str(path)]
+            summary['name'] = name
+        elif kind == 'move':
+            forward = float(request.get('forward', 0.0))
+            left = float(request.get('left', 0.0))
+            speed = float(request.get('speed', 0.15))
+            if abs(forward) > 5.0 or abs(left) > 5.0:
+                raise ValueError('Move distance is limited to 5 m per command')
+            if not 0.10 <= speed <= 0.35:
+                raise ValueError('Move speed must be between 0.10 and 0.35 m/s')
+            command += [
+                'move',
+                '--forward',
+                str(forward),
+                '--left',
+                str(left),
+                '--speed',
+                str(speed),
+            ]
+            summary.update({'forward': forward, 'left': left, 'speed': speed})
+        elif kind == 'turn':
+            degrees = float(request.get('degrees', 0.0))
+            speed = float(request.get('speed', 0.25))
+            tolerance = float(request.get('tolerance_deg', 3.0))
+            if abs(degrees) > 720.0:
+                raise ValueError('Turn is limited to 720 degrees per command')
+            if not 0.10 <= speed <= 1.0:
+                raise ValueError('Angular speed must be between 0.10 and 1.0 rad/s')
+            if not 1.0 <= tolerance <= 15.0:
+                raise ValueError('Tolerance must be between 1 and 15 degrees')
+            command += [
+                'turn',
+                str(degrees),
+                '--speed',
+                str(speed),
+                '--tolerance-deg',
+                str(tolerance),
+            ]
+            summary.update({
+                'degrees': degrees,
+                'speed': speed,
+                'tolerance_deg': tolerance,
+            })
+        else:
+            raise ValueError('Unknown motion kind')
+
+        environment = os.environ.copy()
+        environment.setdefault('ROS_AUTOMATIC_DISCOVERY_RANGE', 'LOCALHOST')
+        process = subprocess.Popen(
+            command,
+            cwd=str(self.executor_path.parent.parent),
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+        with self._lock:
+            self._motion_process = process
+            self._motion_started_at = time.time()
+            self._motion_command = command
+            self._motion_log.clear()
+            self._motion_return_code = None
+
+        threading.Thread(
+            target=self._read_motion_output,
+            args=(process,),
+            name='rover-motion-output',
+            daemon=True,
+        ).start()
+        self.record_activity('routes', 'Motion process started', summary)
+        return self.motion_status_payload()
+
+    def _read_motion_output(self, process: subprocess.Popen[str]) -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            cleaned = line.rstrip('\r\n')
+            with self._lock:
+                self._motion_log.append(cleaned)
+
+    def stop_motion(self, *, request_stop: bool = True) -> dict[str, Any]:
+        with self._lock:
+            process = self._motion_process
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            threading.Thread(
+                target=self._ensure_motion_stopped,
+                args=(process,),
+                name='rover-motion-stop',
+                daemon=True,
+            ).start()
+        if request_stop:
+            self.request_stop('routes', {'reason': 'motion stop endpoint'})
+        return self.motion_status_payload()
+
+    def _ensure_motion_stopped(self, process: subprocess.Popen[str]) -> None:
+        try:
+            process.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=2.0)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def motion_status_payload_locked(self) -> dict[str, Any]:
+        process = self._motion_process
+        running = process is not None and process.poll() is None
+        return {
+            'running': running,
+            'pid': process.pid if running and process is not None else None,
+            'started_at': self._motion_started_at,
+            'return_code': self._motion_return_code,
+            'command': list(self._motion_command),
+            'log': list(self._motion_log)[-120:],
+        }
+
+    def motion_status_payload(self) -> dict[str, Any]:
+        with self._lock:
+            return self.motion_status_payload_locked()
 
     def _serve_static_file(self, request_path: str) -> tuple[bytes, str]:
         relative_path = 'index.html' if request_path in ('', '/') else request_path.lstrip('/')
@@ -910,10 +1562,45 @@ class RoverWebGateway(Node):
                     query = parse_qs(parsed.query)
 
                     if path == '/api/health':
-                        self._send_json(gateway._system_summary(), HTTPStatus.OK)
+                        self._send_json(
+                            {'ok': True, 'service': 'rover_web'},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path == '/api/identity':
+                        self._send_json(gateway.identity_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/config':
+                        self._send_json(gateway.public_config_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/status':
+                        self._send_json(gateway.status_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/activity':
+                        limit_text = self._optional_query(query, 'limit') or '100'
+                        self._send_json(
+                            {'items': gateway.activity_payload(int(limit_text))},
+                            HTTPStatus.OK,
+                        )
                         return
                     if path == '/api/system':
                         self._send_json(gateway._system_summary(), HTTPStatus.OK)
+                        return
+                    if path == '/api/plans':
+                        self._send_json(
+                            {'plans': gateway.list_plans()},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path.startswith('/api/plans/'):
+                        name = path.removeprefix('/api/plans/')
+                        self._send_json(
+                            {'name': name, 'plan': gateway.read_plan(name)},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path == '/api/motion/status':
+                        self._send_json(gateway.motion_status_payload(), HTTPStatus.OK)
                         return
                     if path == '/api/ros/graph':
                         self._send_json(gateway._graph_payload(), HTTPStatus.OK)
@@ -973,8 +1660,44 @@ class RoverWebGateway(Node):
                 try:
                     parsed = urlparse(self.path)
                     payload = self._read_json_body()
+                    if parsed.path == '/api/heartbeat':
+                        gateway.register_heartbeat(
+                            str(payload.get('session_id', '')),
+                            str(payload.get('page', '')),
+                            self._client_ip(),
+                        )
+                        self._send_json({'ok': True}, HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/activity':
+                        gateway.record_activity(
+                            str(payload.get('source', 'web')),
+                            str(payload.get('message', 'Activity')),
+                            payload.get('details', {})
+                            if isinstance(payload.get('details', {}), dict)
+                            else {},
+                        )
+                        self._send_json({'ok': True}, HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/stop':
+                        details = (
+                            payload.get('details', {})
+                            if isinstance(payload.get('details', {}), dict)
+                            else {}
+                        )
+                        gateway.request_stop(
+                            str(payload.get('source', 'web')),
+                            {'client_ip': self._client_ip(), **details},
+                        )
+                        self._send_json(
+                            {
+                                'ok': True,
+                                'motion': gateway.stop_motion(request_stop=False),
+                            },
+                            HTTPStatus.OK,
+                        )
+                        return
                     if parsed.path == '/api/ros/topic/publish':
-                        topic = payload.get('topic')
+                        topic = payload.get('topic') or ''
                         type_name = payload.get('type')
                         message = payload.get('message', {})
                         self._send_json(
@@ -983,7 +1706,7 @@ class RoverWebGateway(Node):
                         )
                         return
                     if parsed.path == '/api/ros/service/call':
-                        service = payload.get('service')
+                        service = payload.get('service') or ''
                         type_name = payload.get('type')
                         request_payload = payload.get('request', {})
                         self._send_json(
@@ -1003,6 +1726,26 @@ class RoverWebGateway(Node):
                         return
                     if parsed.path == '/api/drive/stop':
                         self._send_json(gateway.stop_drive(), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/motion/start':
+                        self._send_json(
+                            {'ok': True, 'motion': gateway.start_motion(payload)},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/motion/stop':
+                        self._send_json(
+                            {'ok': True, 'motion': gateway.stop_motion()},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/plans/save':
+                        name = str(payload.get('name', ''))
+                        plan = payload.get('plan')
+                        if not isinstance(plan, dict):
+                            raise ValueError('plan must be an object')
+                        gateway.save_plan(name, plan)
+                        self._send_json({'ok': True}, HTTPStatus.OK)
                         return
                     self._send_error(HTTPStatus.NOT_FOUND, 'Not found')
                 except json.JSONDecodeError:
@@ -1031,6 +1774,10 @@ class RoverWebGateway(Node):
                 if value is None:
                     raise ValueError(f'Missing query parameter: {key}')
                 return value
+
+            def _client_ip(self) -> str:
+                forwarded = self.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+                return forwarded or self.client_address[0]
 
             def _read_json_body(self) -> dict[str, Any]:
                 content_length = int(self.headers.get('Content-Length', '0'))
@@ -1085,12 +1832,20 @@ class RoverWebGateway(Node):
         return Handler
 
     def destroy_node(self) -> bool:
+        self.request_stop('system', {'reason': 'gateway shutdown'})
+        try:
+            self.stop_motion()
+        except Exception:
+            pass
         try:
             self.drive_publisher.publish(Twist())
         except Exception:
             pass
-        self._http_server.shutdown()
-        self._http_server.server_close()
+        try:
+            self._http_server.shutdown()
+            self._http_server.server_close()
+        except Exception:
+            pass
         self._http_thread.join(timeout=1.0)
         return super().destroy_node()
 
