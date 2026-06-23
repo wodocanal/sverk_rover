@@ -12,3 +12,4 @@ usb_camera_node:
     publish_compressed: true
     jpeg_quality: 85
     reconnect_interval_sec: 2.0
+    get_frame_service: get_frame

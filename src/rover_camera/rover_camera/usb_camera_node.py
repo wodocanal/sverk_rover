@@ -12,6 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
+from rover_interfaces.srv import GetFrame
 from sensor_msgs.msg import CompressedImage, Image
 
 
@@ -41,6 +42,7 @@ class UsbCameraNode(Node):
         self.declare_parameter('publish_compressed', True)
         self.declare_parameter('jpeg_quality', 85)
         self.declare_parameter('reconnect_interval_sec', 2.0)
+        self.declare_parameter('get_frame_service', 'get_frame')
 
         self._config_lock = threading.RLock()
         self.capture_lock = threading.RLock()
@@ -80,6 +82,7 @@ class UsbCameraNode(Node):
         self._load_parameters()
         self._configure_publishers()
         self._configure_timer()
+        self._configure_services()
         self.add_on_set_parameters_callback(self._handle_parameter_update)
 
         self.capture_thread = threading.Thread(
@@ -110,6 +113,9 @@ class UsbCameraNode(Node):
         self.reconnect_interval = float(
             self.get_parameter('reconnect_interval_sec').value
         )
+        self.get_frame_service_name = str(
+            self.get_parameter('get_frame_service').value
+        )
         self._validate_configuration()
 
     def _validate_configuration(self) -> None:
@@ -128,6 +134,8 @@ class UsbCameraNode(Node):
             raise ValueError(
                 'At least one of publish_raw or publish_compressed must be true'
             )
+        if not self.get_frame_service_name.strip():
+            raise ValueError('get_frame_service must not be empty')
 
     def _configure_publishers(self) -> None:
         if self.raw_publisher is not None:
@@ -159,6 +167,15 @@ class UsbCameraNode(Node):
             self._publish_latest_frame,
         )
 
+    def _configure_services(self) -> None:
+        if getattr(self, 'get_frame_service', None) is not None:
+            self.destroy_service(self.get_frame_service)
+        self.get_frame_service = self.create_service(
+            GetFrame,
+            self.get_frame_service_name,
+            self._handle_get_frame,
+        )
+
     def _handle_parameter_update(
         self,
         parameters: list[Parameter],
@@ -176,6 +193,7 @@ class UsbCameraNode(Node):
             'publish_compressed': self.publish_compressed,
             'jpeg_quality': self.jpeg_quality,
             'reconnect_interval_sec': self.reconnect_interval,
+            'get_frame_service': self.get_frame_service_name,
         }
 
         try:
@@ -191,6 +209,7 @@ class UsbCameraNode(Node):
             reconnect_interval = float(candidate['reconnect_interval_sec'])
             publish_raw = bool(candidate['publish_raw'])
             publish_compressed = bool(candidate['publish_compressed'])
+            get_frame_service_name = str(candidate['get_frame_service'])
 
             if width <= 0 or height <= 0:
                 raise ValueError('width and height must be positive')
@@ -209,6 +228,8 @@ class UsbCameraNode(Node):
                 raise ValueError(
                     'At least one of publish_raw or publish_compressed must be true'
                 )
+            if not get_frame_service_name.strip():
+                raise ValueError('get_frame_service must not be empty')
         except (TypeError, ValueError) as exc:
             return SetParametersResult(successful=False, reason=str(exc))
 
@@ -228,6 +249,7 @@ class UsbCameraNode(Node):
                 self.jpeg_quality,
                 self.frame_id,
             )
+            old_service_name = self.get_frame_service_name
 
             self.device = str(candidate['device'])
             self.image_topic = str(candidate['image_topic'])
@@ -241,6 +263,7 @@ class UsbCameraNode(Node):
             self.publish_compressed = publish_compressed
             self.jpeg_quality = jpeg_quality
             self.reconnect_interval = reconnect_interval
+            self.get_frame_service_name = get_frame_service_name
 
             if old_publish != (
                 self.publish_raw,
@@ -261,6 +284,9 @@ class UsbCameraNode(Node):
             ):
                 self._configure_timer()
                 self._request_reopen(force=True)
+
+            if old_service_name != self.get_frame_service_name:
+                self._configure_services()
 
         self.get_logger().info(
             'Camera parameters updated: '
@@ -449,6 +475,49 @@ class UsbCameraNode(Node):
             self.compressed_publisher.publish(message)
             self.frames_published_compressed += 1
             self.last_published_seq_compressed = sequence
+
+    def _handle_get_frame(
+        self,
+        _request: GetFrame.Request,
+        response: GetFrame.Response,
+    ) -> GetFrame.Response:
+        with self.frame_lock:
+            latest_frame = None if self.latest_frame is None else self.latest_frame.copy()
+            latest_compressed = self.latest_compressed
+            stamp = self.latest_header_stamp
+            width = self.latest_width
+            height = self.latest_height
+            age_sec = (
+                max(0.0, time.monotonic() - self.latest_capture_monotonic)
+                if self.latest_capture_monotonic > 0.0
+                else float('inf')
+            )
+
+        if latest_frame is None or stamp is None or width <= 0 or height <= 0:
+            response.success = False
+            response.message = 'No camera frame is available yet'
+            response.age_sec = float('inf')
+            return response
+
+        if latest_compressed is None:
+            try:
+                latest_compressed = self._encode_frame(latest_frame)
+            except Exception as exc:
+                response.success = False
+                response.message = f'JPEG encode failed: {exc}'
+                response.age_sec = float(age_sec)
+                return response
+
+        response.success = True
+        response.message = 'ok'
+        response.frame.header.stamp = stamp
+        response.frame.header.frame_id = self.frame_id
+        response.frame.format = 'jpeg'
+        response.frame.data = latest_compressed
+        response.width = int(width)
+        response.height = int(height)
+        response.age_sec = float(age_sec)
+        return response
 
     def close(self) -> None:
         self.shutdown_event.set()
