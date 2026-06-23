@@ -120,9 +120,13 @@ lidar:
 camera:
   device: /dev/video0
   image_topic: /camera/image_raw
+  compressed_image_topic: /camera/image_raw/compressed
   frame_id: camera_optical_frame
-  width: 640
-  height: 480
+  width: 1280
+  height: 720
   fps: 30.0
   use_mjpeg: true
+  publish_raw: true
+  publish_compressed: true
+  jpeg_quality: 85
   reconnect_interval_sec: 2.0

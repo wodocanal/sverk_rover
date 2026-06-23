@@ -32,6 +32,8 @@ from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rclpy.parameter_client import AsyncParameterClient
 from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.set_message import set_message_fields
@@ -46,6 +48,23 @@ IMAGE_TOPIC_TYPES = {
     'sensor_msgs/msg/CompressedImage',
 }
 PLAN_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
+V4L2_FMT_RE = re.compile(r"\[\d+\]: '([^']+)' \((.+)\)")
+V4L2_SIZE_RE = re.compile(r'Size:\s+Discrete\s+(\d+)x(\d+)')
+V4L2_INTERVAL_RE = re.compile(r'Interval:\s+Discrete\s+([0-9.]+)s\s+\(([0-9.]+)\s+fps\)')
+CAMERA_PARAMETER_NAMES = [
+    'device',
+    'image_topic',
+    'compressed_image_topic',
+    'frame_id',
+    'width',
+    'height',
+    'fps',
+    'use_mjpeg',
+    'publish_raw',
+    'publish_compressed',
+    'jpeg_quality',
+    'reconnect_interval_sec',
+]
 
 
 def current_ipv4_addresses() -> list[str]:
@@ -139,6 +158,65 @@ def compressed_content_type(format_text: str) -> str:
     if 'png' in lowered:
         return 'image/png'
     return 'image/jpeg'
+
+
+def parameter_value_to_python(value: Any) -> Any:
+    type_code = int(getattr(value, 'type', 0))
+    if type_code == Parameter.Type.BOOL.value:
+        return bool(value.bool_value)
+    if type_code == Parameter.Type.INTEGER.value:
+        return int(value.integer_value)
+    if type_code == Parameter.Type.DOUBLE.value:
+        return float(value.double_value)
+    if type_code == Parameter.Type.STRING.value:
+        return str(value.string_value)
+    if type_code == Parameter.Type.BOOL_ARRAY.value:
+        return list(value.bool_array_value)
+    if type_code == Parameter.Type.INTEGER_ARRAY.value:
+        return [int(item) for item in value.integer_array_value]
+    if type_code == Parameter.Type.DOUBLE_ARRAY.value:
+        return [float(item) for item in value.double_array_value]
+    if type_code == Parameter.Type.STRING_ARRAY.value:
+        return list(value.string_array_value)
+    return None
+
+
+def parse_v4l2_capabilities(text: str) -> list[dict[str, Any]]:
+    formats: list[dict[str, Any]] = []
+    current_format: dict[str, Any] | None = None
+    current_mode: dict[str, Any] | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        format_match = V4L2_FMT_RE.search(line)
+        if format_match:
+            current_format = {
+                'pixel_format': format_match.group(1),
+                'description': format_match.group(2),
+                'modes': [],
+            }
+            formats.append(current_format)
+            current_mode = None
+            continue
+
+        size_match = V4L2_SIZE_RE.search(line)
+        if size_match and current_format is not None:
+            current_mode = {
+                'width': int(size_match.group(1)),
+                'height': int(size_match.group(2)),
+                'fps': [],
+            }
+            current_format['modes'].append(current_mode)
+            continue
+
+        interval_match = V4L2_INTERVAL_RE.search(line)
+        if interval_match and current_mode is not None:
+            current_mode['fps'].append(float(interval_match.group(2)))
+
+    return formats
 
 
 def read_yaml(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -243,6 +321,7 @@ class RoverWebGateway(Node):
             str(share / 'plans'),
         )
         self.declare_parameter('command_topic', '/cmd_vel')
+        self.declare_parameter('camera_node_name', '/usb_camera_node')
         self.declare_parameter('terminal_enabled', False)
         self.declare_parameter('terminal_url', '')
         self.declare_parameter('terminal_port', 7681)
@@ -283,6 +362,9 @@ class RoverWebGateway(Node):
             str(self.get_parameter('seed_plans_directory').value)
         ).expanduser()
         self.command_topic = str(self.get_parameter('command_topic').value)
+        self.camera_node_name = str(
+            self.get_parameter('camera_node_name').value
+        ).strip() or '/usb_camera_node'
         self.terminal_enabled = bool(self.get_parameter('terminal_enabled').value)
         self.terminal_url = str(self.get_parameter('terminal_url').value).strip()
         self.terminal_port = int(self.get_parameter('terminal_port').value)
@@ -345,6 +427,7 @@ class RoverWebGateway(Node):
         self._image_watches: dict[tuple[str, str], ImageWatch] = {}
         self._publisher_cache: dict[tuple[str, str], PublisherHandle] = {}
         self._service_client_cache: dict[tuple[str, str], ServiceHandle] = {}
+        self._parameter_client_cache: dict[str, AsyncParameterClient] = {}
         self._latest_drive_command = Twist()
         self._latest_drive_monotonic = 0.0
         self._drive_active = False
@@ -709,6 +792,29 @@ class RoverWebGateway(Node):
             self._service_client_cache[key] = handle
             return handle
 
+    def _ensure_parameter_client(self, node_name: str) -> AsyncParameterClient:
+        with self._lock:
+            existing = self._parameter_client_cache.get(node_name)
+            if existing is not None:
+                return existing
+            client = AsyncParameterClient(self, node_name)
+            self._parameter_client_cache[node_name] = client
+            return client
+
+    def _wait_for_future(
+        self,
+        future: Any,
+        *,
+        timeout_sec: float,
+        label: str,
+    ) -> Any:
+        deadline = time.monotonic() + timeout_sec
+        while not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not future.done():
+            raise RuntimeError(f'Timeout while waiting for {label}')
+        return future.result()
+
     def _maintenance_timer(self) -> None:
         cutoff = time.monotonic() - 10.0
         with self._lock:
@@ -857,6 +963,7 @@ class RoverWebGateway(Node):
             'wheel_odom_topic': self.wheel_odom_topic,
             'imu_topic': self.imu_topic,
             'diagnostics_topic': self.diagnostics_topic,
+            'camera_node_name': self.camera_node_name,
             'plans_directory': str(self.plans_directory),
             'web': {
                 'terminal_enabled': self.terminal_enabled,
@@ -1284,6 +1391,123 @@ class RoverWebGateway(Node):
         graph = self._graph_payload()
         return {'ok': True, 'topics': graph['image_topics']}
 
+    def _camera_parameter_values(self) -> dict[str, Any]:
+        client = self._ensure_parameter_client(self.camera_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                f'Camera parameter services are not available for {self.camera_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.get_parameters(CAMERA_PARAMETER_NAMES),
+            timeout_sec=2.0,
+            label='camera parameters',
+        )
+        values = {}
+        for name, value in zip(CAMERA_PARAMETER_NAMES, response.values):
+            values[name] = parameter_value_to_python(value)
+        return values
+
+    def _camera_v4l2_capabilities(self, device: str) -> dict[str, Any]:
+        executable = shutil.which('v4l2-ctl')
+        if executable is None:
+            return {
+                'available': False,
+                'device': device,
+                'formats': [],
+                'error': 'v4l2-ctl is not installed',
+            }
+
+        try:
+            result = subprocess.run(
+                [executable, '--device', device, '--list-formats-ext'],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {
+                'available': False,
+                'device': device,
+                'formats': [],
+                'error': str(exc),
+            }
+
+        if result.returncode != 0:
+            return {
+                'available': False,
+                'device': device,
+                'formats': [],
+                'error': result.stderr.strip() or result.stdout.strip() or 'v4l2-ctl failed',
+            }
+
+        return {
+            'available': True,
+            'device': device,
+            'formats': parse_v4l2_capabilities(result.stdout),
+        }
+
+    def camera_settings(self) -> dict[str, Any]:
+        parameters = self._camera_parameter_values()
+        capabilities = self._camera_v4l2_capabilities(
+            str(parameters.get('device') or '/dev/video0')
+        )
+        return {
+            'ok': True,
+            'node_name': self.camera_node_name,
+            'parameters': parameters,
+            'capabilities': capabilities,
+        }
+
+    def update_camera_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('Camera settings payload must be an object')
+
+        updates: list[Parameter] = []
+        for name in CAMERA_PARAMETER_NAMES:
+            if name not in payload:
+                continue
+
+            value = payload[name]
+            if name in {'device', 'image_topic', 'compressed_image_topic', 'frame_id'}:
+                updates.append(Parameter(name, value=str(value)))
+            elif name in {'width', 'height', 'jpeg_quality'}:
+                updates.append(Parameter(name, value=int(value)))
+            elif name in {'fps', 'reconnect_interval_sec'}:
+                updates.append(Parameter(name, value=float(value)))
+            elif name in {'use_mjpeg', 'publish_raw', 'publish_compressed'}:
+                updates.append(Parameter(name, value=bool(value)))
+
+        if not updates:
+            raise ValueError('No supported camera settings were provided')
+
+        client = self._ensure_parameter_client(self.camera_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                f'Camera parameter services are not available for {self.camera_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.set_parameters(updates),
+            timeout_sec=3.0,
+            label='camera parameter update',
+        )
+        failures = [
+            result.reason.strip() or 'parameter update rejected'
+            for result in response.results
+            if not result.successful
+        ]
+        if failures:
+            raise RuntimeError('; '.join(failures))
+
+        self.record_activity(
+            'camera',
+            'Camera settings updated',
+            sanitize_payload(payload),
+        )
+        return self.camera_settings()
+
     def camera_status(
         self,
         topic_name: str,
@@ -1307,6 +1531,7 @@ class RoverWebGateway(Node):
             'frame_ready': watch.frame_bytes is not None,
             'last_error': watch.last_error,
             'frame_url': f'/api/camera/frame?topic={topic}&type={resolved_type}',
+            'stream_url': f'/api/camera/stream?topic={topic}&type={resolved_type}',
         }
 
     def camera_frame(
@@ -1320,6 +1545,16 @@ class RoverWebGateway(Node):
         if watch.frame_bytes is None:
             raise RuntimeError(f'No frame received yet from {topic}')
         return watch.frame_bytes, watch.content_type
+
+    def camera_stream(
+        self,
+        topic_name: str,
+        type_name: str | None = None,
+    ) -> tuple[ImageWatch, str]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, _ = self._resolve_topic_type(topic, type_name)
+        watch = self._ensure_image_watch(topic, resolved_type)
+        return watch, 'frame'
 
     def drive_payload(self) -> dict[str, Any]:
         with self._lock:
@@ -1624,6 +1859,9 @@ class RoverWebGateway(Node):
                     if path == '/api/camera/topics':
                         self._send_json(gateway.camera_topics(), HTTPStatus.OK)
                         return
+                    if path == '/api/camera/settings':
+                        self._send_json(gateway.camera_settings(), HTTPStatus.OK)
+                        return
                     if path == '/api/camera/status':
                         topic = self._required_query(query, 'topic')
                         type_name = self._optional_query(query, 'type')
@@ -1637,6 +1875,12 @@ class RoverWebGateway(Node):
                         type_name = self._optional_query(query, 'type')
                         frame_bytes, content_type = gateway.camera_frame(topic, type_name)
                         self._send_bytes(frame_bytes, content_type, HTTPStatus.OK)
+                        return
+                    if path == '/api/camera/stream':
+                        topic = self._required_query(query, 'topic')
+                        type_name = self._optional_query(query, 'type')
+                        watch, boundary = gateway.camera_stream(topic, type_name)
+                        self._send_mjpeg_stream(watch, boundary)
                         return
                     if path == '/api/drive':
                         self._send_json(gateway.drive_payload(), HTTPStatus.OK)
@@ -1721,6 +1965,12 @@ class RoverWebGateway(Node):
                                 float(payload.get('linear_y', 0.0)),
                                 float(payload.get('angular_z', 0.0)),
                             ),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/camera/settings':
+                        self._send_json(
+                            gateway.update_camera_settings(payload),
                             HTTPStatus.OK,
                         )
                         return
@@ -1815,6 +2065,47 @@ class RoverWebGateway(Node):
                 )
                 self.end_headers()
                 self.wfile.write(payload)
+
+            def _send_mjpeg_stream(
+                self,
+                watch: ImageWatch,
+                boundary: str,
+            ) -> None:
+                self.send_response(HTTPStatus.OK)
+                self.send_header(
+                    'Content-Type',
+                    f'multipart/x-mixed-replace; boundary={boundary}',
+                )
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+
+                last_count = -1
+                while True:
+                    with gateway._lock:
+                        count = watch.message_count
+                        payload = watch.frame_bytes
+                        content_type = watch.content_type or 'image/jpeg'
+                    if payload is None:
+                        time.sleep(0.05)
+                        continue
+                    if count == last_count:
+                        time.sleep(0.02)
+                        continue
+
+                    try:
+                        self.wfile.write(f'--{boundary}\r\n'.encode('ascii'))
+                        self.wfile.write(
+                            f'Content-Type: {content_type}\r\n'.encode('ascii')
+                        )
+                        self.wfile.write(
+                            f'Content-Length: {len(payload)}\r\n\r\n'.encode('ascii')
+                        )
+                        self.wfile.write(payload)
+                        self.wfile.write(b'\r\n')
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        break
+                    last_count = count
 
             def _send_error(self, status: HTTPStatus, message: str) -> None:
                 payload = {'ok': False, 'error': message}

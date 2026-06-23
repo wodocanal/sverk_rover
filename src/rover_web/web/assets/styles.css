@@ -640,6 +640,16 @@ textarea {
   gap: 18px;
 }
 
+.camera-side-column {
+  display: grid;
+  gap: 18px;
+  align-self: start;
+}
+
+.camera-setting-flags {
+  margin: 8px 0 12px;
+}
+
 .camera-frame-wrap {
   position: relative;
   min-height: 420px;

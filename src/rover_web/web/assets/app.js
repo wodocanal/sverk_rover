@@ -74,6 +74,8 @@ const state = {
   selectedCameraType: null,
   cameraTimer: null,
   cameraUrl: null,
+  cameraSettings: null,
+  cameraSettingsLastRefresh: 0,
   driveKeys: new Set(),
   driveTimer: null,
   route: {
@@ -282,7 +284,10 @@ function setPage(page) {
   if (page !== 'camera') {
     stopCameraLoop();
   } else if (state.selectedCameraTopic && state.selectedCameraType) {
+    refreshCameraSettings();
     connectCamera();
+  } else {
+    refreshCameraSettings();
   }
 
   if (page === 'terminal') {
@@ -928,7 +933,16 @@ async function callSelectedService() {
 
 function renderCameraTopics() {
   const select = $('#camera-topic-select');
-  const topics = safeArray(state.rosGraph?.image_topics);
+  const topics = safeArray(state.rosGraph?.image_topics).slice().sort((left, right) => {
+    const leftType = safeArray(left.types)[0] || '';
+    const rightType = safeArray(right.types)[0] || '';
+    const leftCompressed = leftType.includes('CompressedImage') || left.name?.endsWith('/compressed');
+    const rightCompressed = rightType.includes('CompressedImage') || right.name?.endsWith('/compressed');
+    if (leftCompressed !== rightCompressed) {
+      return leftCompressed ? -1 : 1;
+    }
+    return String(left.name || '').localeCompare(String(right.name || ''));
+  });
   select.innerHTML = '';
   if (!topics.length) {
     const option = document.createElement('option');
@@ -942,8 +956,12 @@ function renderCameraTopics() {
   }
 
   if (!topics.some((item) => item.name === state.selectedCameraTopic)) {
-    state.selectedCameraTopic = topics[0].name;
-    state.selectedCameraType = safeArray(topics[0].types)[0] || '';
+    const preferred = topics.find((item) => {
+      const type = safeArray(item.types)[0] || '';
+      return type.includes('CompressedImage') || item.name?.endsWith('/compressed');
+    }) || topics[0];
+    state.selectedCameraTopic = preferred.name;
+    state.selectedCameraType = safeArray(preferred.types)[0] || '';
   }
 
   topics.forEach((item) => {
@@ -954,6 +972,98 @@ function renderCameraTopics() {
     option.selected = item.name === state.selectedCameraTopic;
     select.append(option);
   });
+}
+
+function summarizeCameraCapabilities(capabilities) {
+  if (!capabilities?.available) {
+    return pretty({
+      device: capabilities?.device || state.cameraSettings?.parameters?.device || '/dev/video0',
+      error: capabilities?.error || 'v4l2-ctl недоступен',
+    });
+  }
+
+  const rows = [];
+  safeArray(capabilities.formats).forEach((format) => {
+    rows.push(`${format.pixel_format} · ${format.description}`);
+    safeArray(format.modes).forEach((mode) => {
+      const fpsValues = safeArray(mode.fps);
+      const fpsText = fpsValues.length
+        ? fpsValues.map((value) => Number(value).toFixed(value >= 10 ? 0 : 1)).join(', ')
+        : 'unknown';
+      rows.push(`  ${mode.width}x${mode.height} @ ${fpsText} fps`);
+    });
+  });
+  return rows.length ? rows.join('\n') : 'Форматы не обнаружены.';
+}
+
+function setCameraSettingsForm(parameters = {}) {
+  $('#camera-setting-device').value = parameters.device || '/dev/video0';
+  $('#camera-setting-frame-id').value = parameters.frame_id || 'camera_optical_frame';
+  $('#camera-setting-image-topic').value = parameters.image_topic || '/camera/image_raw';
+  $('#camera-setting-compressed-topic').value = parameters.compressed_image_topic || '/camera/image_raw/compressed';
+  $('#camera-setting-width').value = String(parameters.width ?? 1280);
+  $('#camera-setting-height').value = String(parameters.height ?? 720);
+  $('#camera-setting-fps').value = String(parameters.fps ?? 30);
+  $('#camera-setting-jpeg-quality').value = String(parameters.jpeg_quality ?? 85);
+  $('#camera-setting-use-mjpeg').checked = Boolean(parameters.use_mjpeg ?? true);
+  $('#camera-setting-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
+  $('#camera-setting-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
+}
+
+async function refreshCameraSettings() {
+  try {
+    const payload = await api('/api/camera/settings');
+    state.cameraSettings = payload;
+    state.cameraSettingsLastRefresh = Date.now();
+    setCameraSettingsForm(payload.parameters || {});
+    $('#camera-capabilities').textContent = summarizeCameraCapabilities(payload.capabilities);
+    $('#camera-settings-status').textContent = `Параметры получены из ${payload.node_name || '/usb_camera_node'}.`;
+  } catch (error) {
+    $('#camera-settings-status').textContent = String(error.message || error);
+    $('#camera-capabilities').textContent = 'Не удалось получить параметры камеры.';
+  }
+}
+
+function cameraSettingsPayloadFromForm() {
+  return {
+    device: $('#camera-setting-device').value.trim(),
+    frame_id: $('#camera-setting-frame-id').value.trim(),
+    image_topic: $('#camera-setting-image-topic').value.trim(),
+    compressed_image_topic: $('#camera-setting-compressed-topic').value.trim(),
+    width: Number($('#camera-setting-width').value || '1280'),
+    height: Number($('#camera-setting-height').value || '720'),
+    fps: Number($('#camera-setting-fps').value || '30'),
+    jpeg_quality: Number($('#camera-setting-jpeg-quality').value || '85'),
+    use_mjpeg: $('#camera-setting-use-mjpeg').checked,
+    publish_raw: $('#camera-setting-publish-raw').checked,
+    publish_compressed: $('#camera-setting-publish-compressed').checked,
+  };
+}
+
+async function applyCameraSettings() {
+  try {
+    $('#camera-settings-status').textContent = 'Применение параметров камеры...';
+    const payload = await api('/api/camera/settings', {
+      method: 'POST',
+      body: JSON.stringify(cameraSettingsPayloadFromForm()),
+    });
+    state.cameraSettings = payload;
+    setCameraSettingsForm(payload.parameters || {});
+    $('#camera-capabilities').textContent = summarizeCameraCapabilities(payload.capabilities);
+    $('#camera-settings-status').textContent = 'Параметры камеры применены.';
+    showToast('Настройки камеры применены');
+    await Promise.all([refreshRosGraph(), refreshCameraSettings()]);
+    await connectCamera();
+  } catch (error) {
+    $('#camera-settings-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+  }
+}
+
+function applyCameraPreset(width, height, fps) {
+  $('#camera-setting-width').value = String(width);
+  $('#camera-setting-height').value = String(height);
+  $('#camera-setting-fps').value = String(fps);
 }
 
 async function refreshCameraStatus() {
@@ -967,45 +1077,29 @@ async function refreshCameraStatus() {
       { label: 'Resolution', value: info.width && info.height ? `${info.width}×${info.height}` : '—' },
       { label: 'Frames', value: String(info.message_count ?? '—') },
       { label: 'Age', value: info.age_sec == null ? '—' : formatAge(info.age_sec) },
+      { label: 'Preview', value: info.type?.includes('CompressedImage') ? 'MJPEG stream' : 'JPEG snapshot stream' },
     ]);
     $('#camera-status').textContent = info.last_error
       ? `Ошибка: ${info.last_error}`
       : (info.frame_ready ? 'Кадры поступают.' : 'Ожидание первого кадра.');
+    return info;
   } catch (error) {
     $('#camera-status').textContent = String(error.message || error);
-  }
-}
-
-async function fetchCameraFrame() {
-  if (state.page !== 'camera' || !state.selectedCameraTopic || !state.selectedCameraType) return;
-  try {
-    const response = await fetch(
-      `/api/camera/frame?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}&t=${Date.now()}`,
-      { cache: 'no-store' },
-    );
-    if (!response.ok) {
-      throw new Error(`Frame ${response.status}`);
-    }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    if (state.cameraUrl) {
-      URL.revokeObjectURL(state.cameraUrl);
-    }
-    state.cameraUrl = url;
-    $('#camera-frame').src = url;
-    $('#camera-empty').classList.add('hidden');
-  } catch (error) {
-    $('#camera-empty').classList.remove('hidden');
+    return null;
   }
 }
 
 function startCameraLoop() {
   stopCameraLoop();
-  fetchCameraFrame();
+  if (!state.selectedCameraTopic || !state.selectedCameraType) {
+    return;
+  }
+  state.cameraUrl = `/api/camera/stream?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}&t=${Date.now()}`;
+  $('#camera-frame').src = state.cameraUrl;
+  $('#camera-empty').classList.add('hidden');
   state.cameraTimer = window.setInterval(() => {
     refreshCameraStatus();
-    fetchCameraFrame();
-  }, 350);
+  }, 500);
 }
 
 function stopCameraLoop() {
@@ -1013,10 +1107,8 @@ function stopCameraLoop() {
     window.clearInterval(state.cameraTimer);
     state.cameraTimer = null;
   }
-  if (state.cameraUrl) {
-    URL.revokeObjectURL(state.cameraUrl);
-    state.cameraUrl = null;
-  }
+  $('#camera-frame').src = '';
+  state.cameraUrl = null;
 }
 
 async function connectCamera() {
@@ -1030,7 +1122,14 @@ async function connectCamera() {
   }
   $('#camera-status').textContent = 'Подключение...';
   await recordActivity('Выбран источник камеры', { topic: state.selectedCameraTopic, type: state.selectedCameraType }, 'camera');
-  await refreshCameraStatus();
+  const info = await refreshCameraStatus();
+  if (!info) {
+    $('#camera-empty').classList.remove('hidden');
+    return;
+  }
+  if (!info?.frame_ready && !info?.last_error) {
+    $('#camera-empty').classList.remove('hidden');
+  }
   startCameraLoop();
 }
 
@@ -1714,11 +1813,24 @@ function bindRosPage() {
 }
 
 function bindCameraPage() {
-  $('#camera-refresh-topics').addEventListener('click', refreshRosGraph);
+  $('#camera-refresh-topics').addEventListener('click', async () => {
+    await Promise.all([refreshRosGraph(), refreshCameraSettings()]);
+  });
   $('#camera-connect').addEventListener('click', connectCamera);
   $('#camera-topic-select').addEventListener('change', () => {
     state.selectedCameraTopic = $('#camera-topic-select').value || null;
     state.selectedCameraType = $('#camera-topic-select').selectedOptions[0]?.dataset.type || null;
+  });
+  $('#camera-settings-refresh').addEventListener('click', refreshCameraSettings);
+  $('#camera-settings-apply').addEventListener('click', applyCameraSettings);
+  $('#camera-preset-720p').addEventListener('click', () => applyCameraPreset(1280, 720, 30));
+  $('#camera-preset-1080p').addEventListener('click', () => applyCameraPreset(1920, 1080, 30));
+  $('#camera-preset-vga').addEventListener('click', () => applyCameraPreset(640, 480, 30));
+  $('#camera-frame').addEventListener('load', () => {
+    $('#camera-empty').classList.add('hidden');
+  });
+  $('#camera-frame').addEventListener('error', () => {
+    $('#camera-empty').classList.remove('hidden');
   });
 }
 
@@ -1935,6 +2047,7 @@ async function initialize() {
     refreshSystem(),
     refreshStatus(),
     refreshRosGraph(),
+    refreshCameraSettings(),
     refreshDriveConfig(),
     refreshPlanList(),
     refreshActivity(),
