@@ -56,6 +56,7 @@ const ROUTE_STEP_FIELDS = {
 };
 
 const LASER_SCAN_TYPE = 'sensor_msgs/msg/LaserScan';
+const LED_STRIP_STATE_TYPE = 'rover_interfaces/msg/LedStripState';
 const OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading';
 
 const state = {
@@ -83,6 +84,11 @@ const state = {
   selectedLidarType: null,
   lidarTimer: null,
   lidarData: null,
+  selectedLedStripTopic: null,
+  selectedLedStripType: null,
+  ledStripTimer: null,
+  ledStripData: null,
+  ledStripSettings: null,
   selectedOctolinerTopic: null,
   selectedOctolinerType: null,
   octolinerTimer: null,
@@ -225,6 +231,7 @@ function currentPageTitle(page) {
     routes: 'Маршруты',
     visualization: 'Визуализация',
     lidar: 'Лидар',
+    lights: 'Свет',
     octoliner: 'Octoliner',
     terminal: 'Терминал',
     diagnostics: 'Диагностика',
@@ -310,6 +317,16 @@ function setPage(page) {
     connectLidar();
   } else {
     renderLidarTopics();
+  }
+
+  if (page !== 'lights') {
+    stopLedStripLoop();
+  } else if (state.selectedLedStripTopic && state.selectedLedStripType) {
+    refreshLedStripSettings();
+    connectLedStrip();
+  } else {
+    refreshLedStripSettings();
+    renderLedStripTopics();
   }
 
   if (page !== 'octoliner') {
@@ -1307,6 +1324,293 @@ async function connectLidar() {
   const info = await refreshLidarStatus();
   if (!info) return;
   startLidarLoop();
+}
+
+function normalizeHexColor(value, fallback = '#000000') {
+  const raw = String(value || fallback).trim();
+  return /^#[0-9a-f]{6}$/i.test(raw) ? raw.toUpperCase() : fallback;
+}
+
+function parsePackedColor(value) {
+  const numeric = Number(value) >>> 0;
+  return {
+    red: (numeric >> 16) & 0xFF,
+    green: (numeric >> 8) & 0xFF,
+    blue: numeric & 0xFF,
+  };
+}
+
+function updateLedStripBrightnessOutput() {
+  $('#led-strip-brightness-output').textContent = formatFloat(
+    $('#led-strip-brightness').value,
+    2,
+  );
+}
+
+function updateLedStripSpeedOutput() {
+  $('#led-strip-speed-output').textContent = formatFloat(
+    $('#led-strip-speed').value,
+    2,
+  );
+}
+
+function setLedStripSettingsForm(parameters = {}) {
+  $('#led-strip-setting-gpio').value = String(parameters.gpio_pin ?? 2);
+  $('#led-strip-setting-count').value = String(parameters.led_count ?? 8);
+  $('#led-strip-setting-frame-id').value = parameters.frame_id || 'led_strip';
+  $('#led-strip-setting-order').value = parameters.pixel_order || 'GRB';
+  $('#led-strip-setting-animation-rate').value = String(parameters.animation_rate_hz ?? 30);
+  $('#led-strip-setting-publish-rate').value = String(parameters.state_publish_hz ?? 5);
+}
+
+function setLedStripControlForm(parameters = {}) {
+  $('#led-strip-enabled').checked = Boolean(parameters.enabled ?? false);
+  $('#led-strip-effect').value = parameters.effect || 'solid';
+  $('#led-strip-brightness').value = String(parameters.brightness ?? 0.35);
+  $('#led-strip-speed').value = String(parameters.effect_speed_hz ?? 1.0);
+  $('#led-strip-primary-color').value = normalizeHexColor(
+    parameters.primary_color,
+    '#16B8F3',
+  );
+  $('#led-strip-secondary-color').value = normalizeHexColor(
+    parameters.secondary_color,
+    '#FFFFFF',
+  );
+  updateLedStripBrightnessOutput();
+  updateLedStripSpeedOutput();
+}
+
+function ledStripSettingsPayloadFromForm() {
+  return {
+    gpio_pin: Number($('#led-strip-setting-gpio').value || '2'),
+    led_count: Number($('#led-strip-setting-count').value || '8'),
+    frame_id: $('#led-strip-setting-frame-id').value.trim(),
+    pixel_order: $('#led-strip-setting-order').value.trim().toUpperCase(),
+    animation_rate_hz: Number($('#led-strip-setting-animation-rate').value || '30'),
+    state_publish_hz: Number($('#led-strip-setting-publish-rate').value || '5'),
+  };
+}
+
+function ledStripCommandPayloadFromForm(enabledOverride = null) {
+  return {
+    enabled: enabledOverride == null
+      ? $('#led-strip-enabled').checked
+      : Boolean(enabledOverride),
+    effect: $('#led-strip-effect').value,
+    brightness: Number($('#led-strip-brightness').value || '0.35'),
+    effect_speed_hz: Number($('#led-strip-speed').value || '1.0'),
+    primary_color: normalizeHexColor($('#led-strip-primary-color').value, '#16B8F3'),
+    secondary_color: normalizeHexColor($('#led-strip-secondary-color').value, '#FFFFFF'),
+  };
+}
+
+function summarizeLedStripSettings(payload) {
+  const parameters = payload?.parameters || {};
+  return pretty({
+    node_name: payload?.node_name || '/led_strip_node',
+    runtime_parameters: payload?.runtime_parameters || [],
+    effects: payload?.effects || [],
+    parameters,
+    notes: payload?.notes || {},
+  });
+}
+
+async function refreshLedStripSettings() {
+  try {
+    const payload = await api('/api/led_strip/settings');
+    state.ledStripSettings = payload;
+    setLedStripSettingsForm(payload.parameters || {});
+    setLedStripControlForm(payload.parameters || {});
+    $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload);
+    $('#led-strip-settings-status').textContent = `Параметры получены из ${payload.node_name || '/led_strip_node'}.`;
+    return payload;
+  } catch (error) {
+    $('#led-strip-settings-status').textContent = String(error.message || error);
+    $('#led-strip-settings-details').textContent = 'Не удалось получить параметры LED strip.';
+    return null;
+  }
+}
+
+async function applyLedStripSettings() {
+  try {
+    $('#led-strip-settings-status').textContent = 'Применение параметров ленты...';
+    const payload = await api('/api/led_strip/settings', {
+      method: 'POST',
+      body: JSON.stringify(ledStripSettingsPayloadFromForm()),
+    });
+    state.ledStripSettings = payload;
+    setLedStripSettingsForm(payload.parameters || {});
+    $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload);
+    $('#led-strip-settings-status').textContent = 'Параметры LED strip применены.';
+    showToast('Настройки LED strip применены');
+    await Promise.all([refreshLedStripSettings(), refreshLedStripStatus()]);
+  } catch (error) {
+    $('#led-strip-settings-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+  }
+}
+
+function renderLedStripTopics() {
+  const select = $('#led-strip-topic-select');
+  const topics = safeArray(state.rosGraph?.topics)
+    .filter((item) => safeArray(item.types).includes(LED_STRIP_STATE_TYPE))
+    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+  select.innerHTML = '';
+  if (!topics.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Нет LedStripState topics';
+    select.append(option);
+    state.selectedLedStripTopic = null;
+    state.selectedLedStripType = null;
+    $('#led-strip-status').textContent = 'LED strip не найден.';
+    return;
+  }
+
+  if (!topics.some((item) => item.name === state.selectedLedStripTopic)) {
+    state.selectedLedStripTopic = topics[0].name;
+    state.selectedLedStripType = LED_STRIP_STATE_TYPE;
+  }
+
+  topics.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.name;
+    option.dataset.type = LED_STRIP_STATE_TYPE;
+    option.textContent = `${item.name} (${LED_STRIP_STATE_TYPE})`;
+    option.selected = item.name === state.selectedLedStripTopic;
+    select.append(option);
+  });
+}
+
+function drawLedStripVisualization(data = state.ledStripData) {
+  const canvas = $('#led-strip-canvas');
+  const ctx = setupCanvas(canvas);
+  if (!ctx) return;
+
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#f9fdff';
+  ctx.fillRect(0, 0, width, height);
+
+  const colors = safeArray(data?.preview_colors);
+  $('#led-strip-empty').classList.toggle('hidden', colors.length > 0);
+  if (!colors.length) return;
+
+  const count = colors.length;
+  const marginX = 28;
+  const marginY = 42;
+  const usableWidth = width - marginX * 2;
+  const gap = Math.max(2, Math.min(12, usableWidth / Math.max(1, count) * 0.08));
+  const cellWidth = Math.max(8, (usableWidth - gap * (count - 1)) / count);
+  const top = marginY;
+  const cellHeight = height - marginY * 2;
+
+  colors.forEach((packed, index) => {
+    const { red, green, blue } = parsePackedColor(packed);
+    const x = marginX + index * (cellWidth + gap);
+    const y = top;
+    ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
+    ctx.fillRect(x, y, cellWidth, cellHeight);
+    ctx.strokeStyle = 'rgba(7, 95, 137, 0.18)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, cellWidth, cellHeight);
+  });
+
+  ctx.fillStyle = '#075f89';
+  ctx.font = '12px "Avenir Next", "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${count} LED`, marginX, 24);
+  ctx.textAlign = 'right';
+  ctx.fillText(`GPIO ${data?.gpio_pin ?? '—'}`, width - marginX, 24);
+}
+
+async function refreshLedStripStatus() {
+  if (!state.selectedLedStripTopic || !state.selectedLedStripType) return null;
+  try {
+    const info = await api(`/api/led_strip/status?topic=${encodeURIComponent(state.selectedLedStripTopic)}&type=${encodeURIComponent(state.selectedLedStripType)}`);
+    state.ledStripData = info;
+    renderDetailList($('#led-strip-meta'), [
+      { label: 'Topic', value: info.topic || '—' },
+      { label: 'Type', value: info.type || '—' },
+      { label: 'Frame', value: info.frame_id || '—' },
+      { label: 'LED count', value: String(info.led_count ?? '—') },
+      { label: 'Lit now', value: String(info.lit_count ?? '—') },
+      { label: 'Age', value: info.age_sec == null ? '—' : formatAge(info.age_sec) },
+    ]);
+    $('#led-strip-status').textContent = info.last_error
+      ? `Ошибка: ${info.last_error}`
+      : (info.frame_ready ? (info.status_message || 'Данные поступают.') : 'Ожидание первого состояния.');
+    $('#led-strip-effect-readout').textContent = `Effect: ${info.effect || '—'}`;
+    $('#led-strip-brightness-readout').textContent = `Brightness: ${info.brightness == null ? '—' : formatFloat(info.brightness, 2)}`;
+    $('#led-strip-backend').textContent = `Backend: ${info.backend || '—'}`;
+    $('#led-strip-connection').textContent = `Состояние: ${info.connected ? 'подключено' : 'preview only / offline'}`;
+    $('#led-strip-age').textContent = `Возраст: ${info.age_sec == null ? '—' : formatAge(info.age_sec)}`;
+    setLedStripControlForm({
+      enabled: info.enabled,
+      effect: info.effect,
+      brightness: info.brightness,
+      effect_speed_hz: info.effect_speed_hz,
+      primary_color: info.primary_color,
+      secondary_color: info.secondary_color,
+    });
+    drawLedStripVisualization(info);
+    return info;
+  } catch (error) {
+    $('#led-strip-status').textContent = String(error.message || error);
+    return null;
+  }
+}
+
+function startLedStripLoop() {
+  stopLedStripLoop();
+  state.ledStripTimer = window.setInterval(() => {
+    refreshLedStripStatus();
+  }, 250);
+}
+
+function stopLedStripLoop() {
+  if (state.ledStripTimer) {
+    window.clearInterval(state.ledStripTimer);
+    state.ledStripTimer = null;
+  }
+}
+
+async function connectLedStrip() {
+  const select = $('#led-strip-topic-select');
+  state.selectedLedStripTopic = select.value || null;
+  state.selectedLedStripType = select.selectedOptions[0]?.dataset.type || null;
+  stopLedStripLoop();
+  if (!state.selectedLedStripTopic || !state.selectedLedStripType) {
+    $('#led-strip-status').textContent = 'Нет выбранного источника.';
+    return;
+  }
+  $('#led-strip-status').textContent = 'Подключение...';
+  const info = await refreshLedStripStatus();
+  if (!info) return;
+  startLedStripLoop();
+}
+
+async function sendLedStripCommand(enabledOverride = null) {
+  try {
+    $('#led-strip-control-status').textContent = 'Отправка команды на LED strip...';
+    const payload = await api('/api/led_strip/command', {
+      method: 'POST',
+      body: JSON.stringify(ledStripCommandPayloadFromForm(enabledOverride)),
+    });
+    if (payload.settings) {
+      state.ledStripSettings = payload.settings;
+      setLedStripSettingsForm(payload.settings.parameters || {});
+      setLedStripControlForm(payload.settings.parameters || {});
+      $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload.settings);
+    }
+    $('#led-strip-control-status').textContent = payload.response?.message || 'Команда отправлена.';
+    showToast(enabledOverride === false ? 'Лента выключена' : 'Команда для LED strip отправлена');
+    await refreshLedStripStatus();
+  } catch (error) {
+    $('#led-strip-control-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+  }
 }
 
 function updateOctolinerSensitivityOutput() {
@@ -2452,6 +2756,27 @@ function bindLidarPage() {
   });
 }
 
+function bindLedStripPage() {
+  $('#led-strip-refresh-topics').addEventListener('click', async () => {
+    await Promise.all([refreshRosGraph(), refreshLedStripSettings()]);
+    renderLedStripTopics();
+  });
+  $('#led-strip-connect').addEventListener('click', connectLedStrip);
+  $('#led-strip-topic-select').addEventListener('change', () => {
+    state.selectedLedStripTopic = $('#led-strip-topic-select').value || null;
+    state.selectedLedStripType = $('#led-strip-topic-select').selectedOptions[0]?.dataset.type || null;
+  });
+  $('#led-strip-settings-refresh').addEventListener('click', refreshLedStripSettings);
+  $('#led-strip-settings-apply').addEventListener('click', applyLedStripSettings);
+  $('#led-strip-apply').addEventListener('click', () => sendLedStripCommand());
+  $('#led-strip-off').addEventListener('click', () => {
+    $('#led-strip-enabled').checked = false;
+    sendLedStripCommand(false);
+  });
+  $('#led-strip-brightness').addEventListener('input', updateLedStripBrightnessOutput);
+  $('#led-strip-speed').addEventListener('input', updateLedStripSpeedOutput);
+}
+
 function bindOctolinerPage() {
   $('#octoliner-refresh-topics').addEventListener('click', async () => {
     await Promise.all([refreshRosGraph(), refreshOctolinerSettings()]);
@@ -2500,6 +2825,9 @@ function refreshPeriodicData() {
   if (state.page === 'camera' && state.selectedCameraTopic && state.selectedCameraType && !state.cameraTimer) {
     connectCamera();
   }
+  if (state.page === 'lights' && state.selectedLedStripTopic && state.selectedLedStripType && !state.ledStripTimer) {
+    connectLedStrip();
+  }
   if (state.page === 'octoliner' && state.selectedOctolinerTopic && state.selectedOctolinerType && !state.octolinerTimer) {
     connectOctoliner();
   }
@@ -2517,6 +2845,7 @@ async function initialize() {
   bindRoutesPage();
   bindVisualizationPage();
   bindLidarPage();
+  bindLedStripPage();
   bindOctolinerPage();
   bindTerminalPage();
   bindDiagnosticsPage();
@@ -2532,6 +2861,7 @@ async function initialize() {
     refreshStatus(),
     refreshRosGraph(),
     refreshCameraSettings(),
+    refreshLedStripSettings(),
     refreshOctolinerSettings(),
     refreshDriveConfig(),
     refreshPlanList(),
@@ -2544,12 +2874,13 @@ async function initialize() {
     await loadPlan(state.route.selectedName);
   }
 
-  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'octoliner', 'terminal', 'diagnostics', 'settings'].includes(state.page)
+  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'lights', 'octoliner', 'terminal', 'diagnostics', 'settings'].includes(state.page)
     ? state.page
     : 'overview');
   renderSettings();
   renderVisualization();
   drawLidarVisualization();
+  drawLedStripVisualization();
   drawOctolinerVisualization();
   renderRoutePreview();
 

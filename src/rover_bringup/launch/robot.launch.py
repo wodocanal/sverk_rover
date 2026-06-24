@@ -39,6 +39,7 @@ def launch_setup(context):
     use_imu = as_bool(LaunchConfiguration('use_imu').perform(context))
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
     use_camera = as_bool(LaunchConfiguration('use_camera').perform(context))
+    use_led_strip = as_bool(LaunchConfiguration('use_led_strip').perform(context))
     use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
     use_web = as_bool(LaunchConfiguration('use_web').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
@@ -109,6 +110,8 @@ def launch_setup(context):
     imu_params['use_sim_time'] = use_sim_time
     camera_params = dict(config.get('camera', {}))
     camera_params['use_sim_time'] = use_sim_time
+    led_strip_params = dict(config.get('led_strip', {}))
+    led_strip_params['use_sim_time'] = use_sim_time
     octoliner_params = dict(config.get('octoliner', {}))
     octoliner_params['use_sim_time'] = use_sim_time
 
@@ -168,6 +171,19 @@ def launch_setup(context):
         ),
     ])
 
+    if (
+        use_led_strip
+        and use_octoliner
+        and int(led_strip_params.get('gpio_pin', 2)) == 2
+    ):
+        actions.append(LogInfo(
+            msg=(
+                '[WARN] LED strip uses GPIO2, which is also the default I2C SDA '
+                'line for Octoliner. Running both together on the same pin can '
+                'cause unstable behavior.'
+            )
+        ))
+
     if use_mux:
         mux_config = str(
             Path(get_package_share_directory('rover_bringup'))
@@ -219,6 +235,15 @@ def launch_setup(context):
             name='usb_camera_node',
             output='screen',
             parameters=[camera_params],
+        ))
+
+    if use_led_strip:
+        actions.append(Node(
+            package='rover_led_strip',
+            executable='led_strip_node',
+            name='led_strip_node',
+            output='screen',
+            parameters=[led_strip_params],
         ))
 
     if use_octoliner:
@@ -300,6 +325,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
+        DeclareLaunchArgument('use_led_strip', default_value='false'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
         DeclareLaunchArgument('use_web', default_value='true'),
         # Kept false for compatibility with the existing motion executor,

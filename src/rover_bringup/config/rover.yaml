@@ -131,6 +131,21 @@ camera:
   jpeg_quality: 85
   reconnect_interval_sec: 2.0
   get_frame_service: get_frame
+led_strip:
+  gpio_pin: 2
+  led_count: 8
+  frame_id: led_strip
+  pixel_order: GRB
+  state_topic: /led_strip/state
+  set_state_service: /led_strip/set_state
+  enabled: false
+  brightness: 0.35
+  effect: solid
+  effect_speed_hz: 1.0
+  primary_color: '#16B8F3'
+  secondary_color: '#FFFFFF'
+  animation_rate_hz: 30.0
+  state_publish_hz: 5.0
 octoliner:
   i2c_address: 42
   i2c_bus: 1

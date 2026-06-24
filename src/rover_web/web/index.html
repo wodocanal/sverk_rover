@@ -34,6 +34,7 @@
         <button class="nav-item" data-page="routes">Маршруты</button>
         <button class="nav-item" data-page="visualization">Визуализация</button>
         <button class="nav-item" data-page="lidar">Лидар</button>
+        <button class="nav-item" data-page="lights">Свет</button>
         <button class="nav-item" data-page="octoliner">Octoliner</button>
         <button class="nav-item" id="nav-terminal" data-page="terminal">Терминал</button>
         <button class="nav-item" data-page="diagnostics">Диагностика</button>
@@ -439,6 +440,104 @@ angular.z: 0.00</pre>
           <span id="octoliner-line">Позиция: —</span>
           <span id="octoliner-tracked">Tracked: —</span>
           <span id="octoliner-sensitivity">Sensitivity: —</span>
+        </div>
+      </section>
+
+      <section class="page" id="page-lights">
+        <div class="page-heading">
+          <div><h1>Свет</h1><p>Управление адресной лентой, выбор эффекта и быстрый просмотр текущего кадра.</p></div>
+          <button class="secondary" id="led-strip-refresh-topics">Обновить источники</button>
+        </div>
+        <div class="sensor-layout">
+          <div class="sensor-side-column">
+            <article class="panel sensor-source-panel">
+              <h2>Источник состояния</h2>
+              <label>LedStripState topic
+                <select id="led-strip-topic-select"></select>
+              </label>
+              <div class="button-row">
+                <button id="led-strip-connect">Подключить</button>
+              </div>
+              <dl class="detail-list" id="led-strip-meta"></dl>
+              <div class="status-note" id="led-strip-status">Выбери topic с LedStripState.</div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2>Команда</h2>
+                  <p>Быстрое управление питанием, цветом и эффектом.</p>
+                </div>
+              </div>
+              <div class="form-grid compact-grid">
+                <label>Эффект
+                  <select id="led-strip-effect">
+                    <option value="solid">solid</option>
+                    <option value="blink">blink</option>
+                    <option value="pulse">pulse</option>
+                    <option value="chase">chase</option>
+                    <option value="gradient">gradient</option>
+                    <option value="rainbow">rainbow</option>
+                  </select>
+                </label>
+                <label>Brightness <output id="led-strip-brightness-output">0.35</output>
+                  <input id="led-strip-brightness" type="range" min="0" max="1" step="0.01" value="0.35">
+                </label>
+                <label>Speed, Hz <output id="led-strip-speed-output">1.00</output>
+                  <input id="led-strip-speed" type="range" min="0.05" max="20" step="0.05" value="1.0">
+                </label>
+                <label>Primary color
+                  <input id="led-strip-primary-color" type="color" value="#16B8F3">
+                </label>
+                <label>Secondary color
+                  <input id="led-strip-secondary-color" type="color" value="#FFFFFF">
+                </label>
+                <label class="check-label"><input id="led-strip-enabled" type="checkbox"> Лента включена</label>
+              </div>
+              <div class="button-row">
+                <button id="led-strip-apply">Применить</button>
+                <button class="secondary" id="led-strip-off">Выключить</button>
+              </div>
+              <div class="status-note" id="led-strip-control-status">Команда ещё не отправлялась.</div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2>Настройки ленты</h2>
+                  <p>Параметры драйвера и частоты обновления.</p>
+                </div>
+                <button class="secondary" id="led-strip-settings-refresh">Обновить</button>
+              </div>
+              <div class="form-grid compact-grid">
+                <label>GPIO pin<input id="led-strip-setting-gpio" type="number" min="0" max="27" step="1" value="2"></label>
+                <label>LED count<input id="led-strip-setting-count" type="number" min="1" max="1024" step="1" value="8"></label>
+                <label>Frame ID<input id="led-strip-setting-frame-id" value="led_strip"></label>
+                <label>Pixel order<input id="led-strip-setting-order" value="GRB"></label>
+                <label>Animation rate, Hz<input id="led-strip-setting-animation-rate" type="number" min="1" max="120" step="1" value="30"></label>
+                <label>State publish, Hz<input id="led-strip-setting-publish-rate" type="number" min="0.5" max="30" step="0.5" value="5"></label>
+              </div>
+              <div class="button-row">
+                <button id="led-strip-settings-apply">Применить настройки</button>
+              </div>
+              <div class="status-note" id="led-strip-settings-status">Ожидание параметров ленты.</div>
+              <pre class="message-box" id="led-strip-settings-details">—</pre>
+            </article>
+          </div>
+
+          <article class="panel canvas-panel sensor-canvas-panel">
+            <div class="panel-title-overlay">Preview</div>
+            <canvas id="led-strip-canvas" width="1000" height="360"></canvas>
+            <div id="led-strip-empty" class="canvas-empty">Ожидание данных LED strip…</div>
+            <div class="canvas-legend">Каждый сегмент соответствует одному светодиоду.</div>
+          </article>
+        </div>
+        <div class="sensor-readout">
+          <span id="led-strip-effect-readout">Effect: —</span>
+          <span id="led-strip-brightness-readout">Brightness: —</span>
+          <span id="led-strip-backend">Backend: —</span>
+          <span id="led-strip-connection">Состояние: —</span>
+          <span id="led-strip-age">Возраст: —</span>
         </div>
       </section>
 

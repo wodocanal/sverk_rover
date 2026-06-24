@@ -48,6 +48,7 @@ IMAGE_TOPIC_TYPES = {
     'sensor_msgs/msg/CompressedImage',
 }
 LASER_SCAN_TYPE = 'sensor_msgs/msg/LaserScan'
+LED_STRIP_STATE_TYPE = 'rover_interfaces/msg/LedStripState'
 OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading'
 PLAN_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 V4L2_FMT_RE = re.compile(r"\[\d+\]: '([^']+)' \((.+)\)")
@@ -67,6 +68,36 @@ CAMERA_PARAMETER_NAMES = [
     'jpeg_quality',
     'reconnect_interval_sec',
 ]
+LED_STRIP_PARAMETER_NAMES = [
+    'gpio_pin',
+    'led_count',
+    'frame_id',
+    'pixel_order',
+    'enabled',
+    'brightness',
+    'effect',
+    'effect_speed_hz',
+    'primary_color',
+    'secondary_color',
+    'animation_rate_hz',
+    'state_publish_hz',
+    'state_topic',
+    'set_state_service',
+]
+LED_STRIP_RUNTIME_PARAMETER_NAMES = {
+    'gpio_pin',
+    'led_count',
+    'frame_id',
+    'pixel_order',
+    'enabled',
+    'brightness',
+    'effect',
+    'effect_speed_hz',
+    'primary_color',
+    'secondary_color',
+    'animation_rate_hz',
+    'state_publish_hz',
+}
 OCTOLINER_PARAMETER_NAMES = [
     'i2c_address',
     'i2c_bus',
@@ -341,6 +372,7 @@ class RoverWebGateway(Node):
         )
         self.declare_parameter('command_topic', '/cmd_vel')
         self.declare_parameter('camera_node_name', '/usb_camera_node')
+        self.declare_parameter('led_strip_node_name', '/led_strip_node')
         self.declare_parameter('octoliner_node_name', '/octoliner_node')
         self.declare_parameter('terminal_enabled', False)
         self.declare_parameter('terminal_url', '')
@@ -385,6 +417,9 @@ class RoverWebGateway(Node):
         self.camera_node_name = str(
             self.get_parameter('camera_node_name').value
         ).strip() or '/usb_camera_node'
+        self.led_strip_node_name = str(
+            self.get_parameter('led_strip_node_name').value
+        ).strip() or '/led_strip_node'
         self.octoliner_node_name = str(
             self.get_parameter('octoliner_node_name').value
         ).strip() or '/octoliner_node'
@@ -988,6 +1023,7 @@ class RoverWebGateway(Node):
             'imu_topic': self.imu_topic,
             'diagnostics_topic': self.diagnostics_topic,
             'camera_node_name': self.camera_node_name,
+            'led_strip_node_name': self.led_strip_node_name,
             'octoliner_node_name': self.octoliner_node_name,
             'plans_directory': str(self.plans_directory),
             'web': {
@@ -1424,6 +1460,14 @@ class RoverWebGateway(Node):
         ]
         return {'ok': True, 'topics': topics}
 
+    def led_strip_topics(self) -> dict[str, Any]:
+        graph = self._graph_payload()
+        topics = [
+            item for item in graph['topics']
+            if LED_STRIP_STATE_TYPE in item.get('types', [])
+        ]
+        return {'ok': True, 'topics': topics}
+
     def octoliner_topics(self) -> dict[str, Any]:
         graph = self._graph_payload()
         topics = [
@@ -1515,6 +1559,75 @@ class RoverWebGateway(Node):
         payload.update(self._scan_points_payload(raw_message))
         return payload
 
+    def led_strip_status(
+        self,
+        topic_name: str,
+        type_name: str | None = None,
+    ) -> dict[str, Any]:
+        topic = normalize_topic_name(topic_name)
+        resolved_type, available_types = self._resolve_topic_type(topic, type_name)
+        if resolved_type != LED_STRIP_STATE_TYPE:
+            raise ValueError(f'Topic {topic} is not a LedStripState topic')
+
+        watch = self._ensure_topic_watch(topic, resolved_type)
+        payload = {
+            'ok': True,
+            'topic': topic,
+            'type': resolved_type,
+            'available_types': available_types,
+            'message_count': watch.message_count,
+            'age_sec': age_seconds(watch.last_updated_monotonic),
+            'frame_ready': watch.raw_message is not None,
+            'last_error': watch.last_error,
+        }
+        raw_message = watch.raw_message
+        if raw_message is None:
+            payload.update({
+                'connected': False,
+                'enabled': False,
+                'led_count': 0,
+                'lit_count': 0,
+                'brightness': None,
+                'effect': '',
+                'effect_speed_hz': None,
+                'gpio_pin': None,
+                'pixel_order': '',
+                'backend': '',
+                'status_message': '',
+                'primary_color': '#000000',
+                'secondary_color': '#000000',
+                'preview_colors': [],
+                'frame_id': '',
+            })
+            return payload
+
+        payload.update({
+            'connected': bool(raw_message.connected),
+            'enabled': bool(raw_message.enabled),
+            'led_count': int(raw_message.led_count),
+            'lit_count': int(raw_message.lit_count),
+            'brightness': float(raw_message.brightness),
+            'effect': str(raw_message.effect),
+            'effect_speed_hz': float(raw_message.effect_speed_hz),
+            'gpio_pin': int(raw_message.gpio_pin),
+            'pixel_order': str(raw_message.pixel_order),
+            'backend': str(raw_message.backend),
+            'status_message': str(raw_message.status_message),
+            'primary_color': '#%02X%02X%02X' % (
+                int(raw_message.red),
+                int(raw_message.green),
+                int(raw_message.blue),
+            ),
+            'secondary_color': '#%02X%02X%02X' % (
+                int(raw_message.secondary_red),
+                int(raw_message.secondary_green),
+                int(raw_message.secondary_blue),
+            ),
+            'preview_colors': [int(value) for value in raw_message.preview_colors],
+            'frame_id': str(raw_message.header.frame_id),
+        })
+        return payload
+
     def octoliner_status(
         self,
         topic_name: str,
@@ -1589,6 +1702,24 @@ class RoverWebGateway(Node):
             values[name] = parameter_value_to_python(value)
         return values
 
+    def _led_strip_parameter_values(self) -> dict[str, Any]:
+        client = self._ensure_parameter_client(self.led_strip_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                'LED strip parameter services are not available for '
+                f'{self.led_strip_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.get_parameters(LED_STRIP_PARAMETER_NAMES),
+            timeout_sec=2.0,
+            label='led strip parameters',
+        )
+        values = {}
+        for name, value in zip(LED_STRIP_PARAMETER_NAMES, response.values):
+            values[name] = parameter_value_to_python(value)
+        return values
+
     def _octoliner_parameter_values(self) -> dict[str, Any]:
         client = self._ensure_parameter_client(self.octoliner_node_name)
         if not client.wait_for_services(timeout_sec=1.0):
@@ -1659,6 +1790,31 @@ class RoverWebGateway(Node):
             'capabilities': capabilities,
         }
 
+    def led_strip_settings(self) -> dict[str, Any]:
+        parameters = self._led_strip_parameter_values()
+        return {
+            'ok': True,
+            'node_name': self.led_strip_node_name,
+            'parameters': parameters,
+            'runtime_parameters': sorted(LED_STRIP_RUNTIME_PARAMETER_NAMES),
+            'effects': [
+                'solid',
+                'blink',
+                'pulse',
+                'chase',
+                'gradient',
+                'rainbow',
+            ],
+            'notes': {
+                'state_topic': 'Изменяется только после перезапуска ноды.',
+                'set_state_service': 'Изменяется только после перезапуска ноды.',
+                'gpio_pin': (
+                    'GPIO2 конфликтует с I2C SDA. Если используется Octoliner '
+                    'или другой I2C-модуль, лучше перенести ленту на отдельный GPIO.'
+                ),
+            },
+        }
+
     def octoliner_settings(self) -> dict[str, Any]:
         parameters = self._octoliner_parameter_values()
         return {
@@ -1721,6 +1877,54 @@ class RoverWebGateway(Node):
         )
         return self.camera_settings()
 
+    def update_led_strip_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('LED strip settings payload must be an object')
+
+        updates: list[Parameter] = []
+        for name in LED_STRIP_RUNTIME_PARAMETER_NAMES:
+            if name not in payload:
+                continue
+            value = payload[name]
+            if name in {'gpio_pin', 'led_count'}:
+                updates.append(Parameter(name, value=int(value)))
+            elif name in {'brightness', 'effect_speed_hz', 'animation_rate_hz', 'state_publish_hz'}:
+                updates.append(Parameter(name, value=float(value)))
+            elif name == 'enabled':
+                updates.append(Parameter(name, value=bool(value)))
+            else:
+                updates.append(Parameter(name, value=str(value)))
+
+        if not updates:
+            raise ValueError('No supported LED strip settings were provided')
+
+        client = self._ensure_parameter_client(self.led_strip_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                'LED strip parameter services are not available for '
+                f'{self.led_strip_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.set_parameters(updates),
+            timeout_sec=3.0,
+            label='led strip parameter update',
+        )
+        failures = [
+            result.reason.strip() or 'parameter update rejected'
+            for result in response.results
+            if not result.successful
+        ]
+        if failures:
+            raise RuntimeError('; '.join(failures))
+
+        self.record_activity(
+            'lights',
+            'LED strip settings updated',
+            sanitize_payload(payload),
+        )
+        return self.led_strip_settings()
+
     def update_octoliner_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError('Octoliner settings payload must be an object')
@@ -1766,6 +1970,79 @@ class RoverWebGateway(Node):
             sanitize_payload(payload),
         )
         return self.octoliner_settings()
+
+    def command_led_strip(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('LED strip command payload must be an object')
+
+        parameters = self._led_strip_parameter_values()
+        service_name = str(parameters.get('set_state_service') or '').strip()
+        if not service_name:
+            raise RuntimeError('LED strip state service is not configured')
+
+        handle = self._ensure_service_client(
+            service_name,
+            'rover_interfaces/srv/SetLedStripState',
+        )
+        if not handle.client.wait_for_service(timeout_sec=1.5):
+            raise RuntimeError(f'Service {service_name} is not available')
+
+        request = handle.srv_class.Request()
+        request.enabled = bool(payload.get('enabled', False))
+        request.brightness = float(payload.get('brightness', 0.35))
+        request.effect = str(payload.get('effect', 'solid')).strip().lower()
+        request.effect_speed_hz = float(payload.get('effect_speed_hz', 1.0))
+
+        def parse_rgb(color_text: Any) -> tuple[int, int, int]:
+            text = str(color_text or '#000000').strip().lstrip('#')
+            if len(text) != 6:
+                raise ValueError('Colors must be in #RRGGBB format')
+            return (
+                int(text[0:2], 16),
+                int(text[2:4], 16),
+                int(text[4:6], 16),
+            )
+
+        (
+            request.red,
+            request.green,
+            request.blue,
+        ) = parse_rgb(payload.get('primary_color', '#16B8F3'))
+        (
+            request.secondary_red,
+            request.secondary_green,
+            request.secondary_blue,
+        ) = parse_rgb(payload.get('secondary_color', '#FFFFFF'))
+
+        started = time.monotonic()
+        future = handle.client.call_async(request)
+        response = self._wait_for_future(
+            future,
+            timeout_sec=3.0,
+            label='led strip set_state',
+        )
+        if response is None:
+            raise RuntimeError('LED strip service returned no response')
+        if not bool(response.success):
+            raise RuntimeError(str(response.message or 'LED strip command failed'))
+
+        duration = time.monotonic() - started
+        self.record_activity(
+            'lights',
+            'LED strip command sent',
+            {
+                'service': service_name,
+                'duration_sec': duration,
+                'payload': sanitize_payload(payload),
+            },
+        )
+        return {
+            'ok': True,
+            'service': service_name,
+            'duration_sec': duration,
+            'response': sanitize_payload(message_to_ordereddict(response)),
+            'settings': self.led_strip_settings(),
+        }
 
     def optimize_octoliner(self) -> dict[str, Any]:
         parameters = self._octoliner_parameter_values()
@@ -2158,8 +2435,14 @@ class RoverWebGateway(Node):
                     if path == '/api/lidar/topics':
                         self._send_json(gateway.lidar_topics(), HTTPStatus.OK)
                         return
+                    if path == '/api/led_strip/topics':
+                        self._send_json(gateway.led_strip_topics(), HTTPStatus.OK)
+                        return
                     if path == '/api/octoliner/topics':
                         self._send_json(gateway.octoliner_topics(), HTTPStatus.OK)
+                        return
+                    if path == '/api/led_strip/settings':
+                        self._send_json(gateway.led_strip_settings(), HTTPStatus.OK)
                         return
                     if path == '/api/octoliner/settings':
                         self._send_json(gateway.octoliner_settings(), HTTPStatus.OK)
@@ -2192,6 +2475,14 @@ class RoverWebGateway(Node):
                         type_name = self._optional_query(query, 'type')
                         self._send_json(
                             gateway.lidar_status(topic, type_name),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if path == '/api/led_strip/status':
+                        topic = self._required_query(query, 'topic')
+                        type_name = self._optional_query(query, 'type')
+                        self._send_json(
+                            gateway.led_strip_status(topic, type_name),
                             HTTPStatus.OK,
                         )
                         return
@@ -2292,6 +2583,18 @@ class RoverWebGateway(Node):
                     if parsed.path == '/api/camera/settings':
                         self._send_json(
                             gateway.update_camera_settings(payload),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/led_strip/settings':
+                        self._send_json(
+                            gateway.update_led_strip_settings(payload),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/led_strip/command':
+                        self._send_json(
+                            gateway.command_led_strip(payload),
                             HTTPStatus.OK,
                         )
                         return

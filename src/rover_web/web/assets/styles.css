@@ -903,6 +903,7 @@ textarea {
 }
 
 #lidar-canvas,
+#led-strip-canvas,
 #octoliner-canvas {
   display: block;
   width: 100%;
@@ -969,6 +970,16 @@ textarea {
 
 #octoliner-setting-sensitivity {
   width: 100%;
+}
+
+#led-strip-primary-color,
+#led-strip-secondary-color {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 4px;
 }
 
 .visualization-controls {
@@ -1221,6 +1232,7 @@ textarea {
   }
 
   #lidar-canvas,
+  #led-strip-canvas,
   #octoliner-canvas,
   #odom-canvas,
   #route-preview-canvas {

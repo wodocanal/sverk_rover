@@ -5,6 +5,7 @@ web_gateway_node:
 
     command_topic: /cmd_vel
     camera_node_name: /usb_camera_node
+    led_strip_node_name: /led_strip_node
     octoliner_node_name: /octoliner_node
     drive_command_timeout_sec: 0.25
     default_linear_speed_mps: 0.18

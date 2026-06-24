@@ -18,6 +18,7 @@ def generate_launch_description():
     use_imu = LaunchConfiguration('use_imu')
     use_lidar = LaunchConfiguration('use_lidar')
     use_camera = LaunchConfiguration('use_camera')
+    use_led_strip = LaunchConfiguration('use_led_strip')
     use_octoliner = LaunchConfiguration('use_octoliner')
     use_web = LaunchConfiguration('use_web')
     use_sim_time = LaunchConfiguration('use_sim_time')
@@ -37,6 +38,7 @@ def generate_launch_description():
             'use_imu': use_imu,
             'use_lidar': use_lidar,
             'use_camera': use_camera,
+            'use_led_strip': use_led_strip,
             'use_octoliner': use_octoliner,
             'use_web': use_web,
             'use_twist_mux': 'false',
@@ -66,6 +68,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
+        DeclareLaunchArgument('use_led_strip', default_value='false'),
         DeclareLaunchArgument('use_octoliner', default_value='false'),
         DeclareLaunchArgument('use_web', default_value='false'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
