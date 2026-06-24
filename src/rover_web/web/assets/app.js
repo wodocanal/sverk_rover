@@ -1355,7 +1355,7 @@ function updateLedStripSpeedOutput() {
 }
 
 function setLedStripSettingsForm(parameters = {}) {
-  $('#led-strip-setting-gpio').value = String(parameters.gpio_pin ?? 2);
+  $('#led-strip-setting-gpio').value = String(parameters.gpio_pin ?? 18);
   $('#led-strip-setting-count').value = String(parameters.led_count ?? 8);
   $('#led-strip-setting-frame-id').value = parameters.frame_id || 'led_strip';
   $('#led-strip-setting-order').value = parameters.pixel_order || 'GRB';
@@ -1382,7 +1382,7 @@ function setLedStripControlForm(parameters = {}) {
 
 function ledStripSettingsPayloadFromForm() {
   return {
-    gpio_pin: Number($('#led-strip-setting-gpio').value || '2'),
+    gpio_pin: Number($('#led-strip-setting-gpio').value || '18'),
     led_count: Number($('#led-strip-setting-count').value || '8'),
     frame_id: $('#led-strip-setting-frame-id').value.trim(),
     pixel_order: $('#led-strip-setting-order').value.trim().toUpperCase(),

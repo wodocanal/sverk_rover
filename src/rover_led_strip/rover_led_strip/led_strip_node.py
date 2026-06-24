@@ -92,7 +92,7 @@ class LedStripNode(Node):
     def __init__(self) -> None:
         super().__init__('led_strip_node')
 
-        self.declare_parameter('gpio_pin', 2)
+        self.declare_parameter('gpio_pin', 18)
         self.declare_parameter('led_count', 8)
         self.declare_parameter('frame_id', 'led_strip')
         self.declare_parameter('pixel_order', 'GRB')

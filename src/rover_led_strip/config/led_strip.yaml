@@ -1,6 +1,6 @@
 led_strip_node:
   ros__parameters:
-    gpio_pin: 2
+    gpio_pin: 18
     led_count: 8
     frame_id: led_strip
     pixel_order: GRB

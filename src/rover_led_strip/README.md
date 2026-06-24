@@ -12,6 +12,6 @@ python3 -m pip install --upgrade Adafruit-Blinka adafruit-circuitpython-pixelbuf
 
 ## Wiring note
 
-The current config defaults to `GPIO2` because that is how the strip is connected right now.
+The current config defaults to `GPIO18`, which is the recommended data pin for this project.
 
-Important: `GPIO2` is also the default I2C SDA pin on Raspberry Pi. If Octoliner or any other I2C device is connected on the same bus, driving the LED strip on `GPIO2` can conflict with I2C traffic. For stable simultaneous work, move the LED data wire to a separate GPIO and update `gpio_pin` in the config.
+Avoid using `GPIO2` for the LED data line when Octoliner or other I2C devices are connected. `GPIO2` is the default I2C SDA pin on Raspberry Pi, so it can conflict with I2C traffic.

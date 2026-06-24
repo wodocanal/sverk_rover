@@ -174,7 +174,7 @@ def launch_setup(context):
     if (
         use_led_strip
         and use_octoliner
-        and int(led_strip_params.get('gpio_pin', 2)) == 2
+        and int(led_strip_params.get('gpio_pin', 18)) == 2
     ):
         actions.append(LogInfo(
             msg=(

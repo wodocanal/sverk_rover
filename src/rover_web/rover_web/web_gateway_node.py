@@ -1808,6 +1808,7 @@ class RoverWebGateway(Node):
             'notes': {
                 'state_topic': 'Изменяется только после перезапуска ноды.',
                 'set_state_service': 'Изменяется только после перезапуска ноды.',
+                'recommended_gpio_pin': 'Для этой конфигурации рекомендован GPIO18.',
                 'gpio_pin': (
                     'GPIO2 конфликтует с I2C SDA. Если используется Octoliner '
                     'или другой I2C-модуль, лучше перенести ленту на отдельный GPIO.'
