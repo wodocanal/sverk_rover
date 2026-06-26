@@ -17,11 +17,6 @@ trap cleanup EXIT
 shell_bin="/bin/bash"
 shell_name="bash"
 shell_args=(--noprofile --rcfile "$tmp_rc" -i)
-if command -v zsh >/dev/null 2>&1; then
-  shell_bin="$(command -v zsh)"
-  shell_name="zsh"
-  shell_args=(-dfi)
-fi
 
 cat >"$tmp_rc" <<EOF
 export TERM="\${TERM:-xterm-256color}"
@@ -44,17 +39,7 @@ echo "Workspace: \$PWD"
 echo "Shell: $shell_name"
 echo
 
-if [ -n "\${ZSH_VERSION:-}" ]; then
-  PROMPT='[rover] %n@%m:%~%# '
-else
-  PS1='[rover] \u@\h:\w\$ '
-fi
+PS1='[rover] \u@\h:\w\$ '
 EOF
-
-if [ "$shell_name" = "zsh" ]; then
-  export ZDOTDIR="$(dirname "$tmp_rc")"
-  mv "$tmp_rc" "$ZDOTDIR/.zshrc"
-  tmp_rc="$ZDOTDIR/.zshrc"
-fi
 
 exec "$shell_bin" "${shell_args[@]}"
