@@ -89,6 +89,7 @@ const state = {
   ledStripTimer: null,
   ledStripData: null,
   ledStripSettings: null,
+  ledStripControlDirty: false,
   selectedOctolinerTopic: null,
   selectedOctolinerType: null,
   octolinerTimer: null,
@@ -1356,7 +1357,7 @@ function updateLedStripSpeedOutput() {
 
 function setLedStripSettingsForm(parameters = {}) {
   $('#led-strip-setting-gpio').value = String(parameters.gpio_pin ?? 18);
-  $('#led-strip-setting-count').value = String(parameters.led_count ?? 8);
+  $('#led-strip-setting-count').value = String(parameters.led_count ?? 16);
   $('#led-strip-setting-frame-id').value = parameters.frame_id || 'led_strip';
   $('#led-strip-setting-order').value = parameters.pixel_order || 'GRB';
   $('#led-strip-setting-animation-rate').value = String(parameters.animation_rate_hz ?? 30);
@@ -1383,7 +1384,7 @@ function setLedStripControlForm(parameters = {}) {
 function ledStripSettingsPayloadFromForm() {
   return {
     gpio_pin: Number($('#led-strip-setting-gpio').value || '18'),
-    led_count: Number($('#led-strip-setting-count').value || '8'),
+    led_count: Number($('#led-strip-setting-count').value || '16'),
     frame_id: $('#led-strip-setting-frame-id').value.trim(),
     pixel_order: $('#led-strip-setting-order').value.trim().toUpperCase(),
     animation_rate_hz: Number($('#led-strip-setting-animation-rate').value || '30'),
@@ -1420,7 +1421,9 @@ async function refreshLedStripSettings() {
     const payload = await api('/api/led_strip/settings');
     state.ledStripSettings = payload;
     setLedStripSettingsForm(payload.parameters || {});
-    setLedStripControlForm(payload.parameters || {});
+    if (!state.ledStripControlDirty) {
+      setLedStripControlForm(payload.parameters || {});
+    }
     $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload);
     $('#led-strip-settings-status').textContent = `Параметры получены из ${payload.node_name || '/led_strip_node'}.`;
     return payload;
@@ -1525,6 +1528,10 @@ function drawLedStripVisualization(data = state.ledStripData) {
   ctx.fillText(`GPIO ${data?.gpio_pin ?? '—'}`, width - marginX, 24);
 }
 
+function markLedStripControlDirty() {
+  state.ledStripControlDirty = true;
+}
+
 async function refreshLedStripStatus() {
   if (!state.selectedLedStripTopic || !state.selectedLedStripType) return null;
   try {
@@ -1546,14 +1553,16 @@ async function refreshLedStripStatus() {
     $('#led-strip-backend').textContent = `Backend: ${info.backend || '—'}`;
     $('#led-strip-connection').textContent = `Состояние: ${info.connected ? 'подключено' : 'preview only / offline'}`;
     $('#led-strip-age').textContent = `Возраст: ${info.age_sec == null ? '—' : formatAge(info.age_sec)}`;
-    setLedStripControlForm({
-      enabled: info.enabled,
-      effect: info.effect,
-      brightness: info.brightness,
-      effect_speed_hz: info.effect_speed_hz,
-      primary_color: info.primary_color,
-      secondary_color: info.secondary_color,
-    });
+    if (!state.ledStripControlDirty) {
+      setLedStripControlForm({
+        enabled: info.enabled,
+        effect: info.effect,
+        brightness: info.brightness,
+        effect_speed_hz: info.effect_speed_hz,
+        primary_color: info.primary_color,
+        secondary_color: info.secondary_color,
+      });
+    }
     drawLedStripVisualization(info);
     return info;
   } catch (error) {
@@ -1604,6 +1613,7 @@ async function sendLedStripCommand(enabledOverride = null) {
       setLedStripControlForm(payload.settings.parameters || {});
       $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload.settings);
     }
+    state.ledStripControlDirty = false;
     $('#led-strip-control-status').textContent = payload.response?.message || 'Команда отправлена.';
     showToast(enabledOverride === false ? 'Лента выключена' : 'Команда для LED strip отправлена');
     await refreshLedStripStatus();
@@ -2779,6 +2789,17 @@ function bindLedStripPage() {
   });
   $('#led-strip-brightness').addEventListener('input', updateLedStripBrightnessOutput);
   $('#led-strip-speed').addEventListener('input', updateLedStripSpeedOutput);
+  [
+    'led-strip-enabled',
+    'led-strip-effect',
+    'led-strip-brightness',
+    'led-strip-speed',
+    'led-strip-primary-color',
+    'led-strip-secondary-color',
+  ].forEach((id) => {
+    $(`#${id}`).addEventListener('input', markLedStripControlDirty);
+    $(`#${id}`).addEventListener('change', markLedStripControlDirty);
+  });
 }
 
 function bindOctolinerPage() {

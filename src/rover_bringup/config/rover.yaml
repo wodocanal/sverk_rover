@@ -133,7 +133,7 @@ camera:
   get_frame_service: get_frame
 led_strip:
   gpio_pin: 18
-  led_count: 8
+  led_count: 16
   frame_id: led_strip
   pixel_order: GRB
   state_topic: /led_strip/state
