@@ -1,28 +1,39 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 workspace="${1:-${ROVER_WORKSPACE:-$HOME/sverk_rover}}"
+workspace="$(cd "$(dirname "$workspace")" 2>/dev/null && pwd)/$(basename "$workspace")"
+
+if [ ! -d "$workspace" ]; then
+  workspace="$HOME"
+fi
+
+tmp_rc="$(mktemp /tmp/rover-terminal-rc.XXXXXX)"
+cleanup() {
+  rm -f "$tmp_rc"
+}
+trap cleanup EXIT
+
+cat >"$tmp_rc" <<EOF
+export TERM="\${TERM:-xterm-256color}"
+export COLORTERM="\${COLORTERM:-truecolor}"
+export ROVER_WORKSPACE="$workspace"
 
 if [ -f /opt/ros/jazzy/setup.bash ]; then
-  # shellcheck disable=SC1091
   source /opt/ros/jazzy/setup.bash
 fi
 
 if [ -f "$workspace/install/setup.bash" ]; then
-  # shellcheck disable=SC1090
   source "$workspace/install/setup.bash"
 fi
 
-if [ -d "$workspace" ]; then
-  cd "$workspace"
-else
-  cd "$HOME"
-fi
+cd "$workspace" 2>/dev/null || cd "\$HOME"
 
-export ROVER_WORKSPACE="$workspace"
+PS1='[rover] \u@\h:\w\$ '
+clear
+echo "Rover terminal ready"
+echo "Workspace: \$PWD"
+echo
+EOF
 
-if command -v zsh >/dev/null 2>&1; then
-  exec zsh -i
-fi
-
-exec bash -i
+exec bash --noprofile --rcfile "$tmp_rc" -i
