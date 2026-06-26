@@ -89,6 +89,7 @@ const state = {
   ledStripTimer: null,
   ledStripData: null,
   ledStripSettings: null,
+  ledStripControlInitialized: false,
   ledStripControlDirty: false,
   selectedOctolinerTopic: null,
   selectedOctolinerType: null,
@@ -1421,8 +1422,9 @@ async function refreshLedStripSettings() {
     const payload = await api('/api/led_strip/settings');
     state.ledStripSettings = payload;
     setLedStripSettingsForm(payload.parameters || {});
-    if (!state.ledStripControlDirty) {
+    if (!state.ledStripControlInitialized) {
       setLedStripControlForm(payload.parameters || {});
+      state.ledStripControlInitialized = true;
     }
     $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload);
     $('#led-strip-settings-status').textContent = `Параметры получены из ${payload.node_name || '/led_strip_node'}.`;
@@ -1529,6 +1531,7 @@ function drawLedStripVisualization(data = state.ledStripData) {
 }
 
 function markLedStripControlDirty() {
+  state.ledStripControlInitialized = true;
   state.ledStripControlDirty = true;
 }
 
@@ -1553,16 +1556,6 @@ async function refreshLedStripStatus() {
     $('#led-strip-backend').textContent = `Backend: ${info.backend || '—'}`;
     $('#led-strip-connection').textContent = `Состояние: ${info.connected ? 'подключено' : 'preview only / offline'}`;
     $('#led-strip-age').textContent = `Возраст: ${info.age_sec == null ? '—' : formatAge(info.age_sec)}`;
-    if (!state.ledStripControlDirty) {
-      setLedStripControlForm({
-        enabled: info.enabled,
-        effect: info.effect,
-        brightness: info.brightness,
-        effect_speed_hz: info.effect_speed_hz,
-        primary_color: info.primary_color,
-        secondary_color: info.secondary_color,
-      });
-    }
     drawLedStripVisualization(info);
     return info;
   } catch (error) {
@@ -1613,6 +1606,7 @@ async function sendLedStripCommand(enabledOverride = null) {
       setLedStripControlForm(payload.settings.parameters || {});
       $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload.settings);
     }
+    state.ledStripControlInitialized = true;
     state.ledStripControlDirty = false;
     $('#led-strip-control-status').textContent = payload.response?.message || 'Команда отправлена.';
     showToast(enabledOverride === false ? 'Лента выключена' : 'Команда для LED strip отправлена');
