@@ -63,6 +63,7 @@ def generate_launch_description():
                 LaunchConfiguration('terminal_bind_address'),
                 '-p',
                 LaunchConfiguration('terminal_port'),
+                '-W',
                 '/bin/bash',
                 terminal_shell,
                 LaunchConfiguration('terminal_workspace'),
