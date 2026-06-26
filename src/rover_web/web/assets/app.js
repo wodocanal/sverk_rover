@@ -2587,8 +2587,12 @@ function bindCameraPage() {
 }
 
 function shouldIgnoreDriveKeyEvent(target) {
+  if (state.page !== 'drive') return true;
   const tag = target?.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+    return true;
+  }
+  return document.activeElement?.id === 'terminal-frame';
 }
 
 function bindDrivePage() {
