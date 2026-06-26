@@ -104,6 +104,10 @@ class LedStripNode(Node):
         self.declare_parameter('effect_speed_hz', 1.0)
         self.declare_parameter('primary_color', '#16B8F3')
         self.declare_parameter('secondary_color', '#FFFFFF')
+        self.declare_parameter('startup_self_test', True)
+        self.declare_parameter('startup_test_color', '#FFFFFF')
+        self.declare_parameter('startup_test_step_sec', 0.06)
+        self.declare_parameter('startup_test_hold_sec', 0.5)
         self.declare_parameter('animation_rate_hz', 30.0)
         self.declare_parameter('state_publish_hz', 5.0)
 
@@ -136,6 +140,7 @@ class LedStripNode(Node):
         )
 
         self._configure_backend(self._settings)
+        self._run_startup_self_test()
         self._render_and_show(force=True)
         self.get_logger().info(
             'LED strip node ready on GPIO %d with %d LEDs (%s)'
@@ -168,6 +173,22 @@ class LedStripNode(Node):
             'secondary_color': str(
                 self.get_parameter('secondary_color').value
             ).strip(),
+            'startup_self_test': bool(
+                self.get_parameter('startup_self_test').value
+            ),
+            'startup_test_color': str(
+                self.get_parameter('startup_test_color').value
+            ).strip(),
+            'startup_test_step_sec': clamp(
+                self.get_parameter('startup_test_step_sec').value,
+                0.01,
+                2.0,
+            ),
+            'startup_test_hold_sec': clamp(
+                self.get_parameter('startup_test_hold_sec').value,
+                0.0,
+                5.0,
+            ),
             'animation_rate_hz': clamp(
                 self.get_parameter('animation_rate_hz').value,
                 1.0,
@@ -201,6 +222,20 @@ class LedStripNode(Node):
         validated['primary_color'] = color_to_hex(parse_color_text(validated['primary_color']))
         validated['secondary_color'] = color_to_hex(
             parse_color_text(validated['secondary_color'])
+        )
+        validated['startup_self_test'] = bool(validated['startup_self_test'])
+        validated['startup_test_color'] = color_to_hex(
+            parse_color_text(validated['startup_test_color'])
+        )
+        validated['startup_test_step_sec'] = clamp(
+            validated['startup_test_step_sec'],
+            0.01,
+            2.0,
+        )
+        validated['startup_test_hold_sec'] = clamp(
+            validated['startup_test_hold_sec'],
+            0.0,
+            5.0,
         )
         validated['animation_rate_hz'] = clamp(validated['animation_rate_hz'], 1.0, 120.0)
         validated['state_publish_hz'] = clamp(validated['state_publish_hz'], 0.5, 30.0)
@@ -346,8 +381,13 @@ class LedStripNode(Node):
 
         return [primary] * count
 
-    def _render_and_show(self, *, force: bool = False) -> None:
-        frame = self._effect_frame(time.monotonic())
+    def _show_frame(
+        self,
+        frame: list[tuple[int, int, int]],
+        *,
+        brightness: float | None = None,
+        force: bool = False,
+    ) -> None:
         signature = tuple(pack_color(color) for color in frame)
         self._preview_colors = frame
         if not force and signature == self._last_render_signature:
@@ -358,7 +398,11 @@ class LedStripNode(Node):
             try:
                 self._backend.show(
                     frame,
-                    brightness=float(self._settings['brightness']),
+                    brightness=(
+                        float(self._settings['brightness'])
+                        if brightness is None
+                        else float(brightness)
+                    ),
                 )
                 self._backend_error = ''
             except Exception as exc:  # pragma: no cover - hardware-specific failure
@@ -367,6 +411,38 @@ class LedStripNode(Node):
                     self._backend_error,
                     throttle_duration_sec=2.0,
                 )
+
+    def _run_startup_self_test(self) -> None:
+        if not bool(self._settings.get('startup_self_test', True)):
+            return
+        if self._backend is None:
+            return
+
+        count = int(self._settings['led_count'])
+        if count <= 0:
+            return
+
+        test_color = parse_color_text(self._settings['startup_test_color'])
+        step_sec = float(self._settings['startup_test_step_sec'])
+        hold_sec = float(self._settings['startup_test_hold_sec'])
+        off = (0, 0, 0)
+        frame = [off] * count
+
+        for index in range(count):
+            frame[index] = test_color
+            self._show_frame(list(frame), brightness=1.0, force=True)
+            self._publish_state()
+            time.sleep(step_sec)
+
+        if hold_sec > 0.0:
+            time.sleep(hold_sec)
+
+        self._show_frame([off] * count, brightness=1.0, force=True)
+        self._publish_state()
+
+    def _render_and_show(self, *, force: bool = False) -> None:
+        frame = self._effect_frame(time.monotonic())
+        self._show_frame(frame, force=force)
 
     def _animation_tick(self) -> None:
         self._render_and_show()

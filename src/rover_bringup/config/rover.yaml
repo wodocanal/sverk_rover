@@ -144,6 +144,10 @@ led_strip:
   effect_speed_hz: 1.0
   primary_color: '#16B8F3'
   secondary_color: '#FFFFFF'
+  startup_self_test: true
+  startup_test_color: '#FFFFFF'
+  startup_test_step_sec: 0.06
+  startup_test_hold_sec: 0.5
   animation_rate_hz: 30.0
   state_publish_hz: 5.0
 octoliner:
