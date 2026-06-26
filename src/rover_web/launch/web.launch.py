@@ -2,8 +2,9 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.conditions import IfCondition
+from launch.substitutions import FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -19,8 +20,16 @@ def default_rover_config_file() -> str:
         return ''
 
 
+def default_workspace_root(web_share: Path) -> str:
+    try:
+        return str(web_share.parents[3])
+    except Exception:
+        return str(Path.home() / 'sverk_rover')
+
+
 def generate_launch_description():
     web_share = Path(get_package_share_directory('rover_web'))
+    terminal_shell = str(web_share / 'tools' / 'rover_terminal_shell.sh')
 
     return LaunchDescription([
         DeclareLaunchArgument('bind_address', default_value='0.0.0.0'),
@@ -36,10 +45,30 @@ def generate_launch_description():
                 Path.home() / '.local' / 'share' / 'sverh-rover-web' / 'plans'
             ),
         ),
-        DeclareLaunchArgument('terminal_enabled', default_value='false'),
+        DeclareLaunchArgument('terminal_enabled', default_value='true'),
+        DeclareLaunchArgument('start_terminal', default_value='true'),
         DeclareLaunchArgument('terminal_url', default_value=''),
+        DeclareLaunchArgument('terminal_bind_address', default_value='0.0.0.0'),
         DeclareLaunchArgument('terminal_port', default_value='7681'),
-        DeclareLaunchArgument('terminal_path', default_value='/terminal/'),
+        DeclareLaunchArgument('terminal_path', default_value='/'),
+        DeclareLaunchArgument(
+            'terminal_workspace',
+            default_value=default_workspace_root(web_share),
+        ),
+        ExecuteProcess(
+            condition=IfCondition(LaunchConfiguration('start_terminal')),
+            cmd=[
+                FindExecutable(name='ttyd'),
+                '-i',
+                LaunchConfiguration('terminal_bind_address'),
+                '-p',
+                LaunchConfiguration('terminal_port'),
+                '/bin/bash',
+                terminal_shell,
+                LaunchConfiguration('terminal_workspace'),
+            ],
+            output='screen',
+        ),
         Node(
             package='rover_web',
             executable='web_gateway_node',
