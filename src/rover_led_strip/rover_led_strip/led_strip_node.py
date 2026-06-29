@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import colorsys
+from glob import glob
 import math
 import time
 from typing import Any
@@ -326,26 +327,87 @@ class LedStripNode(Node):
 
     def _configure_backend(self, *, run_self_test: bool) -> None:
         led_count = int(self._settings['led_count'])
-        spi_bus = int(self._settings['spi_bus'])
-        spi_device = int(self._settings['spi_device'])
+        requested_bus = int(self._settings['spi_bus'])
+        requested_device = int(self._settings['spi_device'])
         if self._driver is not None:
             try:
                 self._driver.close()
             except Exception:
                 pass
-        self._driver = WS2812SpiDriver(
-            spi_bus=spi_bus,
-            spi_device=spi_device,
-            led_count=led_count,
+        self._driver = None
+        self._strip = None
+        selected_bus, selected_device = self._resolve_spi_target(
+            requested_bus,
+            requested_device,
         )
-        self._strip = self._driver.get_strip()
-        self._strip.set_brightness(float(self._settings['brightness']))
-        self._backend_name = f'ws2812-spidev:{spi_bus}.{spi_device}'
-        self._backend_error = ''
-        self._connected = True
+        try:
+            self._driver = WS2812SpiDriver(
+                spi_bus=selected_bus,
+                spi_device=selected_device,
+                led_count=led_count,
+            )
+            self._strip = self._driver.get_strip()
+            self._strip.set_brightness(float(self._settings['brightness']))
+            self._backend_name = f'ws2812-spidev:{selected_bus}.{selected_device}'
+            self._backend_error = ''
+            self._connected = True
+            self._settings['spi_bus'] = selected_bus
+            self._settings['spi_device'] = selected_device
+        except Exception as exc:
+            available = self._available_spi_targets()
+            self._backend_name = 'ws2812-spidev:offline'
+            self._backend_error = (
+                f'Failed to open /dev/spidev{selected_bus}.{selected_device}: {exc}. '
+                f'Available SPI devices: {", ".join(available) if available else "none"}.'
+            )
+            self._connected = False
         self._resize_last_pixels(led_count)
-        if run_self_test and bool(self._settings['startup_self_test']):
+        if (
+            self._strip is not None
+            and run_self_test
+            and bool(self._settings['startup_self_test'])
+        ):
             self._run_startup_self_test()
+
+    def _available_spi_targets(self) -> list[str]:
+        return sorted(
+            path.rsplit('/dev/', 1)[-1]
+            for path in glob('/dev/spidev*')
+        )
+
+    def _resolve_spi_target(
+        self,
+        requested_bus: int,
+        requested_device: int,
+    ) -> tuple[int, int]:
+        requested = f'spidev{requested_bus}.{requested_device}'
+        available = self._available_spi_targets()
+        if requested in available:
+            return requested_bus, requested_device
+
+        transport = str(self._settings.get('led_transport', 'auto')).strip().lower()
+        if transport != 'auto':
+            return requested_bus, requested_device
+
+        for candidate in ('spidev0.0', 'spidev1.0'):
+            if candidate in available:
+                bus_text, device_text = candidate.replace('spidev', '').split('.', 1)
+                self.get_logger().warn(
+                    'Requested SPI device /dev/%s is unavailable, using /dev/%s instead.'
+                    % (requested, candidate)
+                )
+                return int(bus_text), int(device_text)
+
+        if available:
+            first = available[0]
+            bus_text, device_text = first.replace('spidev', '').split('.', 1)
+            self.get_logger().warn(
+                'Requested SPI device /dev/%s is unavailable, using /dev/%s instead.'
+                % (requested, first)
+            )
+            return int(bus_text), int(device_text)
+
+        return requested_bus, requested_device
 
     def _run_startup_self_test(self) -> None:
         if self._strip is None:
