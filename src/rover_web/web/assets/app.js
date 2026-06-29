@@ -1357,17 +1357,18 @@ function updateLedStripSpeedOutput() {
 }
 
 function setLedStripSettingsForm(parameters = {}) {
-  $('#led-strip-setting-gpio').value = String(parameters.gpio_pin ?? 18);
+  $('#led-strip-setting-transport').value = parameters.led_transport || 'auto';
+  $('#led-strip-setting-spi-bus').value = String(parameters.spi_bus ?? 1);
+  $('#led-strip-setting-spi-device').value = String(parameters.spi_device ?? 0);
   $('#led-strip-setting-count').value = String(parameters.led_count ?? 16);
   $('#led-strip-setting-frame-id').value = parameters.frame_id || 'led_strip';
-  $('#led-strip-setting-order').value = parameters.pixel_order || 'GRB';
   $('#led-strip-setting-animation-rate').value = String(parameters.animation_rate_hz ?? 30);
   $('#led-strip-setting-publish-rate').value = String(parameters.state_publish_hz ?? 5);
 }
 
 function setLedStripControlForm(parameters = {}) {
   $('#led-strip-enabled').checked = Boolean(parameters.enabled ?? false);
-  $('#led-strip-effect').value = parameters.effect || 'solid';
+  $('#led-strip-effect').value = parameters.effect || 'fill';
   $('#led-strip-brightness').value = String(parameters.brightness ?? 0.35);
   $('#led-strip-speed').value = String(parameters.effect_speed_hz ?? 1.0);
   $('#led-strip-primary-color').value = normalizeHexColor(
@@ -1384,10 +1385,11 @@ function setLedStripControlForm(parameters = {}) {
 
 function ledStripSettingsPayloadFromForm() {
   return {
-    gpio_pin: Number($('#led-strip-setting-gpio').value || '18'),
+    led_transport: $('#led-strip-setting-transport').value.trim().toLowerCase() || 'auto',
+    spi_bus: Number($('#led-strip-setting-spi-bus').value || '1'),
+    spi_device: Number($('#led-strip-setting-spi-device').value || '0'),
     led_count: Number($('#led-strip-setting-count').value || '16'),
     frame_id: $('#led-strip-setting-frame-id').value.trim(),
-    pixel_order: $('#led-strip-setting-order').value.trim().toUpperCase(),
     animation_rate_hz: Number($('#led-strip-setting-animation-rate').value || '30'),
     state_publish_hz: Number($('#led-strip-setting-publish-rate').value || '5'),
   };
@@ -1527,7 +1529,10 @@ function drawLedStripVisualization(data = state.ledStripData) {
   ctx.textAlign = 'left';
   ctx.fillText(`${count} LED`, marginX, 24);
   ctx.textAlign = 'right';
-  ctx.fillText(`GPIO ${data?.gpio_pin ?? '—'}`, width - marginX, 24);
+  const transport = data?.transport || 'spi';
+  const bus = data?.spi_bus == null ? '—' : data.spi_bus;
+  const device = data?.spi_device == null ? '—' : data.spi_device;
+  ctx.fillText(`${transport} ${bus}.${device}`, width - marginX, 24);
 }
 
 function markLedStripControlDirty() {
@@ -1554,7 +1559,8 @@ async function refreshLedStripStatus() {
     $('#led-strip-effect-readout').textContent = `Effect: ${info.effect || '—'}`;
     $('#led-strip-brightness-readout').textContent = `Brightness: ${info.brightness == null ? '—' : formatFloat(info.brightness, 2)}`;
     $('#led-strip-backend').textContent = `Backend: ${info.backend || '—'}`;
-    $('#led-strip-connection').textContent = `Состояние: ${info.connected ? 'подключено' : 'preview only / offline'}`;
+    const transportText = info.transport ? `${info.transport} ${info.spi_bus}.${info.spi_device}` : (info.connected ? 'подключено' : 'offline');
+    $('#led-strip-connection').textContent = `Состояние: ${transportText}`;
     $('#led-strip-age').textContent = `Возраст: ${info.age_sec == null ? '—' : formatAge(info.age_sec)}`;
     drawLedStripVisualization(info);
     return info;

@@ -7,11 +7,15 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/LEDState.msg"
+  "msg/LEDStateArray.msg"
   "msg/LedStripState.msg"
   "msg/OctolinerReading.msg"
   "msg/WheelCommand.msg"
   "msg/WheelEncoders.msg"
   "srv/GetFrame.srv"
+  "srv/SetLEDEffect.srv"
+  "srv/SetLEDs.srv"
   "srv/SetLedStripState.srv"
   "srv/SetSensitivity.srv"
   DEPENDENCIES std_msgs sensor_msgs

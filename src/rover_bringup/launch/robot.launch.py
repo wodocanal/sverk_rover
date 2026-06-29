@@ -174,13 +174,12 @@ def launch_setup(context):
     if (
         use_led_strip
         and use_octoliner
-        and int(led_strip_params.get('gpio_pin', 18)) == 2
+        and str(led_strip_params.get('led_transport', 'auto')).strip().lower() in {'auto', 'spi'}
     ):
         actions.append(LogInfo(
             msg=(
-                '[WARN] LED strip uses GPIO2, which is also the default I2C SDA '
-                'line for Octoliner. Running both together on the same pin can '
-                'cause unstable behavior.'
+                '[INFO] LED strip is configured for SPI transport. Make sure the data '
+                'wire is connected to the SPI MOSI pin that matches spi_bus/spi_device.'
             )
         ))
 

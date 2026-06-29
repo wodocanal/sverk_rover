@@ -69,10 +69,11 @@ CAMERA_PARAMETER_NAMES = [
     'reconnect_interval_sec',
 ]
 LED_STRIP_PARAMETER_NAMES = [
-    'gpio_pin',
+    'led_transport',
+    'spi_bus',
+    'spi_device',
     'led_count',
     'frame_id',
-    'pixel_order',
     'enabled',
     'brightness',
     'effect',
@@ -83,12 +84,16 @@ LED_STRIP_PARAMETER_NAMES = [
     'state_publish_hz',
     'state_topic',
     'set_state_service',
+    'native_state_topic',
+    'set_effect_service',
+    'set_leds_service',
 ]
 LED_STRIP_RUNTIME_PARAMETER_NAMES = {
-    'gpio_pin',
+    'led_transport',
+    'spi_bus',
+    'spi_device',
     'led_count',
     'frame_id',
-    'pixel_order',
     'enabled',
     'brightness',
     'effect',
@@ -1590,6 +1595,9 @@ class RoverWebGateway(Node):
                 'brightness': None,
                 'effect': '',
                 'effect_speed_hz': None,
+                'transport': '',
+                'spi_bus': None,
+                'spi_device': None,
                 'gpio_pin': None,
                 'pixel_order': '',
                 'backend': '',
@@ -1609,6 +1617,9 @@ class RoverWebGateway(Node):
             'brightness': float(raw_message.brightness),
             'effect': str(raw_message.effect),
             'effect_speed_hz': float(raw_message.effect_speed_hz),
+            'transport': str(getattr(raw_message, 'transport', '')),
+            'spi_bus': int(getattr(raw_message, 'spi_bus', 0)),
+            'spi_device': int(getattr(raw_message, 'spi_device', 0)),
             'gpio_pin': int(raw_message.gpio_pin),
             'pixel_order': str(raw_message.pixel_order),
             'backend': str(raw_message.backend),
@@ -1798,20 +1809,24 @@ class RoverWebGateway(Node):
             'parameters': parameters,
             'runtime_parameters': sorted(LED_STRIP_RUNTIME_PARAMETER_NAMES),
             'effects': [
-                'solid',
+                'fill',
                 'blink',
-                'pulse',
-                'chase',
-                'gradient',
+                'blink_fast',
+                'fade',
+                'wipe',
+                'flash',
                 'rainbow',
+                'rainbow_fill',
             ],
             'notes': {
                 'state_topic': 'Изменяется только после перезапуска ноды.',
                 'set_state_service': 'Изменяется только после перезапуска ноды.',
-                'recommended_gpio_pin': 'Для этой конфигурации рекомендован GPIO18.',
-                'gpio_pin': (
-                    'GPIO2 конфликтует с I2C SDA. Если используется Octoliner '
-                    'или другой I2C-модуль, лучше перенести ленту на отдельный GPIO.'
+                'native_state_topic': 'Нативный статус SPI-ленты публикуется отдельно.',
+                'set_effect_service': 'Нативный сервис эффекта совместим с новой реализацией.',
+                'set_leds_service': 'Нативный низкоуровневый сервис покадровой настройки.',
+                'wiring': (
+                    'Эта реализация использует SPI MOSI через Linux spidev, а не GPIO18/one-wire. '
+                    'Проверь, что data ленты подключен к MOSI соответствующей SPI шины.'
                 ),
             },
         }
@@ -1887,7 +1902,7 @@ class RoverWebGateway(Node):
             if name not in payload:
                 continue
             value = payload[name]
-            if name in {'gpio_pin', 'led_count'}:
+            if name in {'spi_bus', 'spi_device', 'led_count'}:
                 updates.append(Parameter(name, value=int(value)))
             elif name in {'brightness', 'effect_speed_hz', 'animation_rate_hz', 'state_publish_hz'}:
                 updates.append(Parameter(name, value=float(value)))
@@ -1991,7 +2006,7 @@ class RoverWebGateway(Node):
         request = handle.srv_class.Request()
         request.enabled = bool(payload.get('enabled', False))
         request.brightness = float(payload.get('brightness', 0.35))
-        request.effect = str(payload.get('effect', 'solid')).strip().lower()
+        request.effect = str(payload.get('effect', 'fill')).strip().lower()
         request.effect_speed_hz = float(payload.get('effect_speed_hz', 1.0))
 
         def parse_rgb(color_text: Any) -> tuple[int, int, int]:

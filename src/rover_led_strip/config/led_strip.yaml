@@ -1,14 +1,18 @@
 led_strip_node:
   ros__parameters:
-    gpio_pin: 18
+    led_transport: auto
+    spi_bus: 1
+    spi_device: 0
     led_count: 16
     frame_id: led_strip
-    pixel_order: GRB
     state_topic: /led_strip/state
     set_state_service: /led_strip/set_state
+    native_state_topic: /led/state
+    set_effect_service: /led/set_effect
+    set_leds_service: /led/set_leds
     enabled: false
     brightness: 0.35
-    effect: solid
+    effect: fill
     effect_speed_hz: 1.0
     primary_color: "#16B8F3"
     secondary_color: "#FFFFFF"

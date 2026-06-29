@@ -472,12 +472,14 @@ angular.z: 0.00</pre>
               <div class="form-grid compact-grid">
                 <label>Эффект
                   <select id="led-strip-effect">
-                    <option value="solid">solid</option>
+                    <option value="fill">fill</option>
                     <option value="blink">blink</option>
-                    <option value="pulse">pulse</option>
-                    <option value="chase">chase</option>
-                    <option value="gradient">gradient</option>
+                    <option value="blink_fast">blink_fast</option>
+                    <option value="fade">fade</option>
+                    <option value="wipe">wipe</option>
+                    <option value="flash">flash</option>
                     <option value="rainbow">rainbow</option>
+                    <option value="rainbow_fill">rainbow_fill</option>
                   </select>
                 </label>
                 <label>Brightness <output id="led-strip-brightness-output">0.35</output>
@@ -510,10 +512,11 @@ angular.z: 0.00</pre>
                 <button class="secondary" id="led-strip-settings-refresh">Обновить</button>
               </div>
               <div class="form-grid compact-grid">
-                <label>GPIO pin<input id="led-strip-setting-gpio" type="number" min="0" max="27" step="1" value="18"></label>
+                <label>Transport<input id="led-strip-setting-transport" value="auto"></label>
+                <label>SPI bus<input id="led-strip-setting-spi-bus" type="number" min="0" max="8" step="1" value="1"></label>
+                <label>SPI device<input id="led-strip-setting-spi-device" type="number" min="0" max="8" step="1" value="0"></label>
                 <label>LED count<input id="led-strip-setting-count" type="number" min="1" max="1024" step="1" value="16"></label>
                 <label>Frame ID<input id="led-strip-setting-frame-id" value="led_strip"></label>
-                <label>Pixel order<input id="led-strip-setting-order" value="GRB"></label>
                 <label>Animation rate, Hz<input id="led-strip-setting-animation-rate" type="number" min="1" max="120" step="1" value="30"></label>
                 <label>State publish, Hz<input id="led-strip-setting-publish-rate" type="number" min="0.5" max="30" step="0.5" value="5"></label>
               </div>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import signal
 import sys
 import time
@@ -16,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         '--backend',
-        choices=['auto', 'rpi_ws281x', 'adafruit_pi5'],
+        choices=['auto', 'spidev', 'rpi_ws281x', 'adafruit_pi5'],
         default='auto',
         help='Driver backend to use (default: auto)',
     )
@@ -24,7 +25,7 @@ def parse_args() -> argparse.Namespace:
         '--pin',
         type=int,
         default=18,
-        help='BCM GPIO pin number for the LED data line (default: 18)',
+        help='BCM GPIO pin number for one-wire backends (default: 18)',
     )
     parser.add_argument(
         '--count',
@@ -49,6 +50,18 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default='GRB',
         help='Pixel byte order, for example GRB or RGB (default: GRB)',
+    )
+    parser.add_argument(
+        '--spi-bus',
+        type=int,
+        default=1,
+        help='SPI bus for the spidev backend (default: 1)',
+    )
+    parser.add_argument(
+        '--spi-device',
+        type=int,
+        default=0,
+        help='SPI device/chip select for the spidev backend (default: 0)',
     )
     parser.add_argument(
         '--frequency',
@@ -126,6 +139,45 @@ def build_adafruit_pixels(pin_number: int, led_count: int, pixel_order: str):
     return AdafruitController()
 
 
+def build_spidev_pixels(spi_bus: int, spi_device: int, led_count: int):
+    try:
+        from rover_led_strip.ws2812_spidev import Color, WS2812SpiDriver
+    except ImportError:
+        repo_package = Path(__file__).resolve().parent / 'src' / 'rover_led_strip'
+        if str(repo_package) not in sys.path:
+            sys.path.insert(0, str(repo_package))
+        try:
+            from rover_led_strip.ws2812_spidev import Color, WS2812SpiDriver
+        except ImportError as exc:
+            raise RuntimeError(
+                'spidev backend is not available from the current workspace.'
+            ) from exc
+
+    try:
+        strip = WS2812SpiDriver(
+            spi_bus=int(spi_bus),
+            spi_device=int(spi_device),
+            led_count=int(led_count),
+        ).get_strip()
+    except Exception as exc:
+        raise RuntimeError(
+            f'spidev backend failed to initialize on {spi_bus}.{spi_device}: {exc}'
+        ) from exc
+
+    class SpiDevController:
+        backend_name = f'spidev:{int(spi_bus)}.{int(spi_device)}'
+
+        def on(self) -> None:
+            strip.set_brightness(1.0)
+            strip.set_all_pixels(Color(255, 255, 255))
+            strip.show()
+
+        def off(self) -> None:
+            strip.clear()
+
+    return SpiDevController()
+
+
 def build_rpi_ws281x_pixels(
     pin_number: int,
     led_count: int,
@@ -193,14 +245,20 @@ def build_controller(args: argparse.Namespace):
     errors: list[str] = []
 
     backends = (
-        ['rpi_ws281x', 'adafruit_pi5']
+        ['spidev', 'rpi_ws281x', 'adafruit_pi5']
         if args.backend == 'auto'
         else [args.backend]
     )
 
     for backend in backends:
         try:
-            if backend == 'rpi_ws281x':
+            if backend == 'spidev':
+                controller = build_spidev_pixels(
+                    args.spi_bus,
+                    args.spi_device,
+                    args.count,
+                )
+            elif backend == 'rpi_ws281x':
                 controller = build_rpi_ws281x_pixels(
                     args.pin,
                     args.count,
@@ -246,7 +304,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop_handler)
 
     print(
-        f'Started LED blink test using {controller.backend_name} on GPIO {args.pin} '
+        f'Started LED blink test using {controller.backend_name} '
         f'with {args.count} LEDs, white at full brightness.'
     )
 

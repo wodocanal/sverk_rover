@@ -10,6 +10,9 @@ uint32 gpio_pin
 string pixel_order
 string backend
 string status_message
+string transport
+uint32 spi_bus
+uint32 spi_device
 uint8 red
 uint8 green
 uint8 blue
