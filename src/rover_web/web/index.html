@@ -31,6 +31,7 @@
         <button class="nav-item" data-page="ros" data-nav-group="ros">ROS State</button>
         <button class="nav-item" data-page="drive" data-nav-group="movement">Движение</button>
         <button class="nav-item" data-page="camera" data-nav-group="peripherals">Периферия</button>
+        <button class="nav-item" data-page="hackathon" data-nav-group="hackathon">Хакатон</button>
         <button class="nav-item" id="nav-terminal" data-page="terminal" data-nav-group="terminal">Терминал</button>
         <button class="nav-item" data-page="diagnostics" data-nav-group="service">Сервис</button>
       </nav>
@@ -410,17 +411,52 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="actuators">Приводы</button>
         </div>
         <div class="sensor-layout">
-          <article class="panel sensor-source-panel">
-            <h2>Источник лидара</h2>
-            <label>LaserScan topic
-              <select id="lidar-topic-select"></select>
-            </label>
-            <div class="button-row">
-              <button id="lidar-connect">Подключить</button>
-            </div>
-            <dl class="detail-list" id="lidar-meta"></dl>
-            <div class="status-note" id="lidar-status">Выбери LaserScan topic.</div>
-          </article>
+          <div class="sensor-side-column">
+            <article class="panel sensor-source-panel">
+              <h2>Источник лидара</h2>
+              <label>LaserScan topic
+                <select id="lidar-topic-select"></select>
+              </label>
+              <div class="button-row">
+                <button id="lidar-connect">Подключить</button>
+              </div>
+              <dl class="detail-list" id="lidar-meta"></dl>
+              <div class="status-note" id="lidar-status">Выбери LaserScan topic.</div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2>Настройки лидара</h2>
+                  <p>Параметры драйвера `sllidar_node`. Часть параметров применяется после перезапуска драйвера.</p>
+                </div>
+                <button class="secondary" id="lidar-settings-refresh">Обновить</button>
+              </div>
+              <div class="form-grid compact-grid">
+                <label>Channel type
+                  <select id="lidar-setting-channel-type">
+                    <option value="serial">serial</option>
+                    <option value="tcp">tcp</option>
+                    <option value="udp">udp</option>
+                  </select>
+                </label>
+                <label>Serial port<input id="lidar-setting-serial-port" value="/tmp/rover_devices/lidar"></label>
+                <label>Serial baudrate<input id="lidar-setting-serial-baudrate" type="number" min="9600" step="100" value="460800"></label>
+                <label>Frame ID<input id="lidar-setting-frame-id" value="lidar_link"></label>
+                <label>Scan mode<input id="lidar-setting-scan-mode" value="Standard"></label>
+                <label>Scan frequency, Hz<input id="lidar-setting-scan-frequency" type="number" min="1" max="30" step="0.1" value="10.0"></label>
+              </div>
+              <div class="inline-form camera-setting-flags">
+                <label class="check-label"><input id="lidar-setting-inverted" type="checkbox"> Inverted</label>
+                <label class="check-label"><input id="lidar-setting-angle-compensate" type="checkbox" checked> Angle compensate</label>
+              </div>
+              <div class="button-row">
+                <button id="lidar-settings-apply">Применить</button>
+              </div>
+              <div class="status-note" id="lidar-settings-status">Ожидание параметров лидара.</div>
+              <pre class="message-box" id="lidar-settings-details">—</pre>
+            </article>
+          </div>
           <article class="panel canvas-panel sensor-canvas-panel">
             <div class="panel-title-overlay">LaserScan</div>
             <canvas id="lidar-canvas" width="1000" height="640"></canvas>
@@ -636,6 +672,57 @@ angular.z: 0.00</pre>
             <div class="canvas-legend">Каждый сегмент соответствует одному светодиоду.</div>
           </article>
         </div>
+        <div class="two-column peripheral-tools">
+          <article class="panel">
+            <div class="panel-heading-row">
+              <div>
+                <h2>Пресеты</h2>
+                <p>Быстрые сценарии для ленты и сохранённые пользовательские статические кадры.</p>
+              </div>
+            </div>
+            <div class="preset-chip-grid" id="led-strip-built-in-presets">
+              <button class="secondary preset-chip" data-led-preset="off">Выкл</button>
+              <button class="secondary preset-chip" data-led-preset="white">Белый</button>
+              <button class="secondary preset-chip" data-led-preset="cyan">Голубой</button>
+              <button class="secondary preset-chip" data-led-preset="green">Зелёный</button>
+              <button class="secondary preset-chip" data-led-preset="alert">Красный alert</button>
+              <button class="secondary preset-chip" data-led-preset="rainbow">Радуга</button>
+            </div>
+            <div class="form-grid compact-grid">
+              <label>Имя статического пресета<input id="led-strip-custom-preset-name" placeholder="например: status-blue"></label>
+              <label>Сохранённые пресеты
+                <select id="led-strip-custom-preset-select"></select>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="led-strip-custom-preset-save">Сохранить текущий кадр</button>
+              <button class="secondary" id="led-strip-custom-preset-load">В редактор</button>
+              <button class="secondary" id="led-strip-custom-preset-send">Отправить</button>
+              <button class="secondary" id="led-strip-custom-preset-delete">Удалить</button>
+            </div>
+            <div class="status-note" id="led-strip-preset-status">Пресеты хранятся локально в браузере.</div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading-row">
+              <div>
+                <h2>Покадровое управление</h2>
+                <p>Ручная установка цвета каждого отдельного светодиода.</p>
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="secondary" id="led-strip-manual-fill-primary">Заполнить основным</button>
+              <button class="secondary" id="led-strip-manual-fill-secondary">Заполнить вторичным</button>
+              <button class="secondary" id="led-strip-manual-clear">Очистить</button>
+              <button class="secondary" id="led-strip-manual-sync">Взять из превью</button>
+            </div>
+            <div id="led-strip-pixel-grid" class="led-pixel-grid"></div>
+            <div class="button-row">
+              <button id="led-strip-manual-apply">Отправить кадр</button>
+            </div>
+            <div class="status-note" id="led-strip-manual-status">Редактор ещё не отправлял кадр.</div>
+          </article>
+        </div>
         <div class="sensor-readout">
           <span id="led-strip-effect-readout">Effect: —</span>
           <span id="led-strip-brightness-readout">Brightness: —</span>
@@ -701,6 +788,26 @@ angular.z: 0.00</pre>
 - ручное управление
 - безопасные пределы
 - предустановленные позиции</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-hackathon">
+        <div class="page-heading">
+          <div><h1>Хакатон</h1><p>Отдельный раздел для будущих хакатонных сценариев и быстрых экспериментальных инструментов.</p></div>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <h2>Страница в разработке</h2>
+            <p>Здесь можно будет собирать временные инструменты, демо-сценарии и отдельные хакатонные панели без перегрузки основных разделов.</p>
+            <div class="notice">Пока что раздел пустой.</div>
+          </article>
+          <article class="panel">
+            <h2>План наполнения</h2>
+            <pre class="message-box">- отдельные сценарии демонстрации
+- быстрые кнопки для экспериментов
+- интеграция с конкурсными заданиями
+- временные панели без влияния на основную структуру</pre>
           </article>
         </div>
       </section>

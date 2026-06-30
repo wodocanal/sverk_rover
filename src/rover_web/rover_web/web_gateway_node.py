@@ -68,6 +68,26 @@ CAMERA_PARAMETER_NAMES = [
     'jpeg_quality',
     'reconnect_interval_sec',
 ]
+LIDAR_PARAMETER_NAMES = [
+    'channel_type',
+    'serial_port',
+    'serial_baudrate',
+    'frame_id',
+    'inverted',
+    'angle_compensate',
+    'scan_mode',
+    'scan_frequency',
+]
+LIDAR_RUNTIME_PARAMETER_NAMES = {
+    'channel_type',
+    'serial_port',
+    'serial_baudrate',
+    'frame_id',
+    'inverted',
+    'angle_compensate',
+    'scan_mode',
+    'scan_frequency',
+}
 LED_STRIP_PARAMETER_NAMES = [
     'led_transport',
     'spi_bus',
@@ -377,6 +397,7 @@ class RoverWebGateway(Node):
         )
         self.declare_parameter('command_topic', '/cmd_vel')
         self.declare_parameter('camera_node_name', '/usb_camera_node')
+        self.declare_parameter('lidar_node_name', '/sllidar_node')
         self.declare_parameter('led_strip_node_name', '/led_strip_node')
         self.declare_parameter('octoliner_node_name', '/octoliner_node')
         self.declare_parameter('terminal_enabled', False)
@@ -422,6 +443,9 @@ class RoverWebGateway(Node):
         self.camera_node_name = str(
             self.get_parameter('camera_node_name').value
         ).strip() or '/usb_camera_node'
+        self.lidar_node_name = str(
+            self.get_parameter('lidar_node_name').value
+        ).strip() or '/sllidar_node'
         self.led_strip_node_name = str(
             self.get_parameter('led_strip_node_name').value
         ).strip() or '/led_strip_node'
@@ -1028,6 +1052,7 @@ class RoverWebGateway(Node):
             'imu_topic': self.imu_topic,
             'diagnostics_topic': self.diagnostics_topic,
             'camera_node_name': self.camera_node_name,
+            'lidar_node_name': self.lidar_node_name,
             'led_strip_node_name': self.led_strip_node_name,
             'octoliner_node_name': self.octoliner_node_name,
             'plans_directory': str(self.plans_directory),
@@ -1713,6 +1738,23 @@ class RoverWebGateway(Node):
             values[name] = parameter_value_to_python(value)
         return values
 
+    def _lidar_parameter_values(self) -> dict[str, Any]:
+        client = self._ensure_parameter_client(self.lidar_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                f'Lidar parameter services are not available for {self.lidar_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.get_parameters(LIDAR_PARAMETER_NAMES),
+            timeout_sec=2.0,
+            label='lidar parameters',
+        )
+        values = {}
+        for name, value in zip(LIDAR_PARAMETER_NAMES, response.values):
+            values[name] = parameter_value_to_python(value)
+        return values
+
     def _led_strip_parameter_values(self) -> dict[str, Any]:
         client = self._ensure_parameter_client(self.led_strip_node_name)
         if not client.wait_for_services(timeout_sec=1.0):
@@ -1799,6 +1841,23 @@ class RoverWebGateway(Node):
             'node_name': self.camera_node_name,
             'parameters': parameters,
             'capabilities': capabilities,
+        }
+
+    def lidar_settings(self) -> dict[str, Any]:
+        parameters = self._lidar_parameter_values()
+        return {
+            'ok': True,
+            'node_name': self.lidar_node_name,
+            'parameters': parameters,
+            'runtime_parameters': sorted(LIDAR_RUNTIME_PARAMETER_NAMES),
+            'notes': {
+                'channel_type': 'Смена транспорта и serial-параметров обычно требует перезапуска драйвера.',
+                'serial_port': 'Если устройство переобнаружено под новым путём, перезапусти lidar node.',
+                'serial_baudrate': 'Изменение baudrate вступает в силу надёжнее после перезапуска ноды.',
+                'scan_mode': 'Поддерживаемые режимы зависят от модели лидара.',
+                'scan_frequency': 'Частота влияет на плотность точек и нагрузку.',
+                'range_min': 'Минимальная дальность сейчас читается из самого LaserScan и не меняется отсюда.',
+            },
         }
 
     def led_strip_settings(self) -> dict[str, Any]:
@@ -1892,6 +1951,53 @@ class RoverWebGateway(Node):
             sanitize_payload(payload),
         )
         return self.camera_settings()
+
+    def update_lidar_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('Lidar settings payload must be an object')
+
+        updates: list[Parameter] = []
+        for name in LIDAR_RUNTIME_PARAMETER_NAMES:
+            if name not in payload:
+                continue
+            value = payload[name]
+            if name in {'serial_baudrate'}:
+                updates.append(Parameter(name, value=int(value)))
+            elif name in {'scan_frequency'}:
+                updates.append(Parameter(name, value=float(value)))
+            elif name in {'inverted', 'angle_compensate'}:
+                updates.append(Parameter(name, value=bool(value)))
+            else:
+                updates.append(Parameter(name, value=str(value)))
+
+        if not updates:
+            raise ValueError('No supported lidar settings were provided')
+
+        client = self._ensure_parameter_client(self.lidar_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                f'Lidar parameter services are not available for {self.lidar_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.set_parameters(updates),
+            timeout_sec=3.0,
+            label='lidar parameter update',
+        )
+        failures = [
+            result.reason.strip() or 'parameter update rejected'
+            for result in response.results
+            if not result.successful
+        ]
+        if failures:
+            raise RuntimeError('; '.join(failures))
+
+        self.record_activity(
+            'lidar',
+            'Lidar settings updated',
+            sanitize_payload(payload),
+        )
+        return self.lidar_settings()
 
     def update_led_strip_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -2050,6 +2156,59 @@ class RoverWebGateway(Node):
                 'service': service_name,
                 'duration_sec': duration,
                 'payload': sanitize_payload(payload),
+            },
+        )
+        return {
+            'ok': True,
+            'service': service_name,
+            'duration_sec': duration,
+            'response': sanitize_payload(message_to_ordereddict(response)),
+            'settings': self.led_strip_settings(),
+        }
+
+    def set_led_strip_pixels(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('LED strip pixels payload must be an object')
+
+        parameters = self._led_strip_parameter_values()
+        service_name = str(parameters.get('set_leds_service') or '').strip()
+        if not service_name:
+            raise RuntimeError('LED strip set_leds service is not configured')
+
+        leds_payload = payload.get('leds', [])
+        if not isinstance(leds_payload, list):
+            raise ValueError('Field "leds" must be an array')
+
+        handle = self._ensure_service_client(
+            service_name,
+            'rover_interfaces/srv/SetLEDs',
+        )
+        if not handle.client.wait_for_service(timeout_sec=1.5):
+            raise RuntimeError(f'Service {service_name} is not available')
+
+        request = handle.srv_class.Request()
+        set_message_fields(request, {'leds': leds_payload})
+
+        started = time.monotonic()
+        future = handle.client.call_async(request)
+        response = self._wait_for_future(
+            future,
+            timeout_sec=3.0,
+            label='led strip set_leds',
+        )
+        if response is None:
+            raise RuntimeError('LED strip set_leds service returned no response')
+        if hasattr(response, 'success') and not bool(response.success):
+            raise RuntimeError('LED strip manual frame was rejected')
+
+        duration = time.monotonic() - started
+        self.record_activity(
+            'lights',
+            'LED strip manual frame sent',
+            {
+                'service': service_name,
+                'duration_sec': duration,
+                'led_count': len(leds_payload),
             },
         )
         return {
@@ -2457,6 +2616,9 @@ class RoverWebGateway(Node):
                     if path == '/api/octoliner/topics':
                         self._send_json(gateway.octoliner_topics(), HTTPStatus.OK)
                         return
+                    if path == '/api/lidar/settings':
+                        self._send_json(gateway.lidar_settings(), HTTPStatus.OK)
+                        return
                     if path == '/api/led_strip/settings':
                         self._send_json(gateway.led_strip_settings(), HTTPStatus.OK)
                         return
@@ -2602,6 +2764,12 @@ class RoverWebGateway(Node):
                             HTTPStatus.OK,
                         )
                         return
+                    if parsed.path == '/api/lidar/settings':
+                        self._send_json(
+                            gateway.update_lidar_settings(payload),
+                            HTTPStatus.OK,
+                        )
+                        return
                     if parsed.path == '/api/led_strip/settings':
                         self._send_json(
                             gateway.update_led_strip_settings(payload),
@@ -2611,6 +2779,12 @@ class RoverWebGateway(Node):
                     if parsed.path == '/api/led_strip/command':
                         self._send_json(
                             gateway.command_led_strip(payload),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/led_strip/leds':
+                        self._send_json(
+                            gateway.set_led_strip_pixels(payload),
                             HTTPStatus.OK,
                         )
                         return

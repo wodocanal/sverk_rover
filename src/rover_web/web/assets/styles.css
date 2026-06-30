@@ -1013,6 +1013,52 @@ textarea {
   padding: 4px;
 }
 
+.peripheral-tools {
+  margin-top: 18px;
+}
+
+.preset-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.preset-chip {
+  padding-inline: 12px !important;
+}
+
+.led-pixel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 10px;
+  margin: 14px 0 16px;
+}
+
+.led-pixel-cell {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdfe;
+}
+
+.led-pixel-index {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.led-pixel-cell input[type="color"] {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 4px;
+}
+
 .visualization-controls {
   align-items: center;
 }
