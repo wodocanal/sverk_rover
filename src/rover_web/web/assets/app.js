@@ -9,6 +9,39 @@ const STORAGE_KEYS = {
   vizScale: 'rover_web.viz_scale',
   vizFollow: 'rover_web.viz_follow',
   sessionId: 'rover_web.session_id',
+  movementPage: 'rover_web.movement_page',
+  peripheralsPage: 'rover_web.peripherals_page',
+  servicePage: 'rover_web.service_page',
+};
+
+const PAGE_GROUPS = {
+  overview: 'home',
+  ros: 'ros',
+  drive: 'movement',
+  routes: 'movement',
+  visualization: 'movement',
+  camera: 'peripherals',
+  lidar: 'peripherals',
+  lights: 'peripherals',
+  octoliner: 'peripherals',
+  terminal: 'terminal',
+  diagnostics: 'service',
+  settings: 'service',
+};
+
+const GROUP_DEFAULT_PAGES = {
+  home: 'overview',
+  ros: 'ros',
+  movement: 'drive',
+  peripherals: 'camera',
+  terminal: 'terminal',
+  service: 'diagnostics',
+};
+
+const GROUP_PAGE_STORAGE = {
+  movement: STORAGE_KEYS.movementPage,
+  peripherals: STORAGE_KEYS.peripheralsPage,
+  service: STORAGE_KEYS.servicePage,
 };
 
 const ROUTE_STEP_LABELS = {
@@ -226,7 +259,7 @@ function safeArray(value) {
 
 function currentPageTitle(page) {
   return {
-    overview: 'Обзор',
+    overview: 'Главная',
     ros: 'ROS State',
     camera: 'Камера',
     drive: 'Управление',
@@ -239,6 +272,27 @@ function currentPageTitle(page) {
     diagnostics: 'Диагностика',
     settings: 'Настройки',
   }[page] || 'Rover';
+}
+
+function groupForPage(page) {
+  return PAGE_GROUPS[page] || 'home';
+}
+
+function resolveGroupPage(group, fallback = null) {
+  const storageKey = GROUP_PAGE_STORAGE[group];
+  const stored = storageKey ? localStorage.getItem(storageKey) : null;
+  if (stored && groupForPage(stored) === group) {
+    return stored;
+  }
+  return fallback || GROUP_DEFAULT_PAGES[group] || 'overview';
+}
+
+function rememberGroupPage(page) {
+  const group = groupForPage(page);
+  const storageKey = GROUP_PAGE_STORAGE[group];
+  if (storageKey) {
+    localStorage.setItem(storageKey, page);
+  }
 }
 
 async function api(path, options = {}) {
@@ -294,14 +348,19 @@ function closeSidebar() {
 
 function setPage(page) {
   state.page = page;
+  rememberGroupPage(page);
   localStorage.setItem(STORAGE_KEYS.page, page);
   document.title = `${currentPageTitle(page)} · СВЕРХ Rover`;
 
   $$('.nav-item').forEach((button) => {
-    button.classList.toggle('active', button.dataset.page === page);
+    const navGroup = button.dataset.navGroup || groupForPage(button.dataset.page);
+    button.classList.toggle('active', navGroup === groupForPage(page));
   });
   $$('.page').forEach((section) => {
     section.classList.toggle('active', section.id === `page-${page}`);
+  });
+  $$('.section-tab[data-page]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.page === page);
   });
 
   if (page !== 'camera') {
@@ -2547,11 +2606,20 @@ function bindNavigation() {
   $$('.nav-item[data-page]').forEach((button) => {
     button.addEventListener('click', () => {
       if (button.disabled) return;
-      setPage(button.dataset.page);
+      const group = button.dataset.navGroup || groupForPage(button.dataset.page);
+      setPage(resolveGroupPage(group, button.dataset.page));
     });
   });
   $('#menu-toggle').addEventListener('click', () => {
     $('#sidebar').classList.toggle('open');
+  });
+}
+
+function bindSectionTabs() {
+  $$('.section-tab[data-page]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setPage(button.dataset.page);
+    });
   });
 }
 
@@ -2863,6 +2931,7 @@ function refreshPeriodicData() {
 
 async function initialize() {
   bindNavigation();
+  bindSectionTabs();
   bindOverviewPage();
   bindRosPage();
   bindCameraPage();
