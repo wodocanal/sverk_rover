@@ -23,8 +23,11 @@ const PAGE_GROUPS = {
   visualization: 'movement',
   camera: 'peripherals',
   lidar: 'peripherals',
+  display: 'peripherals',
   lights: 'peripherals',
+  audio: 'peripherals',
   octoliner: 'peripherals',
+  actuators: 'peripherals',
   terminal: 'terminal',
   diagnostics: 'service',
   settings: 'service',
@@ -270,8 +273,11 @@ function currentPageTitle(page) {
     routes: 'Маршруты',
     visualization: 'Визуализация',
     lidar: 'Лидар',
+    display: 'Дисплей',
     lights: 'Свет',
+    audio: 'Динамик и микрофон',
     octoliner: 'Octoliner',
+    actuators: 'Приводы',
     terminal: 'Терминал',
     diagnostics: 'Диагностика',
     settings: 'Настройки',
@@ -3020,7 +3026,7 @@ async function initialize() {
     await loadPlan(state.route.selectedName);
   }
 
-  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'lights', 'octoliner', 'terminal', 'diagnostics', 'settings'].includes(state.page)
+  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'display', 'lights', 'audio', 'octoliner', 'actuators', 'terminal', 'diagnostics', 'settings'].includes(state.page)
     ? state.page
     : 'overview');
   setRosTab(state.rosTab);

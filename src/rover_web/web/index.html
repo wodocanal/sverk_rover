@@ -190,8 +190,11 @@
         <div class="section-tabs" data-tab-group="peripherals">
           <button class="section-tab active" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
+          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
+          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
+          <button class="section-tab" data-page="actuators">Приводы</button>
         </div>
 
         <div class="camera-grid">
@@ -400,8 +403,11 @@ angular.z: 0.00</pre>
         <div class="section-tabs" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab active" data-page="lidar">Лидар</button>
+          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
+          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
+          <button class="section-tab" data-page="actuators">Приводы</button>
         </div>
         <div class="sensor-layout">
           <article class="panel sensor-source-panel">
@@ -430,6 +436,35 @@ angular.z: 0.00</pre>
         </div>
       </section>
 
+      <section class="page" id="page-display">
+        <div class="page-heading">
+          <div><h1>Дисплей</h1><p>Будущая страница для управления экраном и вывода информации на дисплей.</p></div>
+        </div>
+        <div class="section-tabs" data-tab-group="peripherals">
+          <button class="section-tab" data-page="camera">Камера</button>
+          <button class="section-tab" data-page="lidar">Лидар</button>
+          <button class="section-tab active" data-page="display">Дисплей</button>
+          <button class="section-tab" data-page="lights">Свет</button>
+          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="octoliner">Octoliner</button>
+          <button class="section-tab" data-page="actuators">Приводы</button>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <h2>Страница в разработке</h2>
+            <p>Здесь появятся состояние дисплея, шаблоны экранов и инструменты для быстрого вывода сервисной информации.</p>
+            <div class="notice">Пока что раздел пустой.</div>
+          </article>
+          <article class="panel">
+            <h2>План наполнения</h2>
+            <pre class="message-box">- подключение драйвера дисплея
+- статус экрана
+- ручной вывод текста и служебных экранов
+- интеграция с состоянием робота</pre>
+          </article>
+        </div>
+      </section>
+
       <section class="page" id="page-octoliner">
         <div class="page-heading">
           <div><h1>Octoliner</h1><p>Состояние 8 сенсоров линии, pattern и положение линии в реальном времени.</p></div>
@@ -438,8 +473,11 @@ angular.z: 0.00</pre>
         <div class="section-tabs" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
+          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
+          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab active" data-page="octoliner">Octoliner</button>
+          <button class="section-tab" data-page="actuators">Приводы</button>
         </div>
         <div class="sensor-layout">
           <div class="sensor-side-column">
@@ -505,8 +543,11 @@ angular.z: 0.00</pre>
         <div class="section-tabs" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
+          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab active" data-page="lights">Свет</button>
+          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
+          <button class="section-tab" data-page="actuators">Приводы</button>
         </div>
         <div class="sensor-layout">
           <div class="sensor-side-column">
@@ -601,6 +642,66 @@ angular.z: 0.00</pre>
           <span id="led-strip-backend">Backend: —</span>
           <span id="led-strip-connection">Состояние: —</span>
           <span id="led-strip-age">Возраст: —</span>
+        </div>
+      </section>
+
+      <section class="page" id="page-audio">
+        <div class="page-heading">
+          <div><h1>Динамик и микрофон</h1><p>Будущий раздел для воспроизведения звука, тестов ввода и настройки аудиоканалов.</p></div>
+        </div>
+        <div class="section-tabs" data-tab-group="peripherals">
+          <button class="section-tab" data-page="camera">Камера</button>
+          <button class="section-tab" data-page="lidar">Лидар</button>
+          <button class="section-tab" data-page="display">Дисплей</button>
+          <button class="section-tab" data-page="lights">Свет</button>
+          <button class="section-tab active" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="octoliner">Octoliner</button>
+          <button class="section-tab" data-page="actuators">Приводы</button>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <h2>Страница в разработке</h2>
+            <p>Здесь появятся проверка динамика, запись с микрофона, выбор аудиоустройств и быстрые тесты.</p>
+            <div class="notice">Пока что раздел пустой.</div>
+          </article>
+          <article class="panel">
+            <h2>План наполнения</h2>
+            <pre class="message-box">- список аудиоустройств
+- тест воспроизведения
+- тест записи
+- настройка уровней
+- интеграция с голосовыми сценариями</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="page-actuators">
+        <div class="page-heading">
+          <div><h1>Приводы</h1><p>Будущий раздел для сервоприводов и других исполнительных механизмов периферии.</p></div>
+        </div>
+        <div class="section-tabs" data-tab-group="peripherals">
+          <button class="section-tab" data-page="camera">Камера</button>
+          <button class="section-tab" data-page="lidar">Лидар</button>
+          <button class="section-tab" data-page="display">Дисплей</button>
+          <button class="section-tab" data-page="lights">Свет</button>
+          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="octoliner">Octoliner</button>
+          <button class="section-tab active" data-page="actuators">Приводы</button>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <h2>Страница в разработке</h2>
+            <p>Здесь появятся состояние приводов, ручное позиционирование, пресеты положений и сервисные команды.</p>
+            <div class="notice">Пока что раздел пустой.</div>
+          </article>
+          <article class="panel">
+            <h2>План наполнения</h2>
+            <pre class="message-box">- список приводов
+- текущие положения
+- ручное управление
+- безопасные пределы
+- предустановленные позиции</pre>
+          </article>
         </div>
       </section>
 
