@@ -94,64 +94,91 @@
           <article class="metric-card"><span>Image topics</span><strong id="ros-image-count">—</strong><small>шт</small></article>
         </div>
 
-        <div class="ros-layout">
-          <article class="panel list-panel">
-            <h2>Ноды</h2>
-            <label>Фильтр нод<input id="nodes-filter" placeholder="например: imu, nav, camera"></label>
-            <div class="scroll-list" id="nodes-list"></div>
-          </article>
+        <div class="section-tabs" data-tab-group="ros-state">
+          <button class="section-tab active" data-ros-tab="nodes">Ноды</button>
+          <button class="section-tab" data-ros-tab="topics">Топики</button>
+          <button class="section-tab" data-ros-tab="services">Сервисы</button>
+        </div>
 
-          <article class="panel list-panel">
-            <h2>Топики</h2>
-            <label>Фильтр топиков<input id="topics-filter" placeholder="например: odom, cmd_vel, image"></label>
-            <div class="scroll-list" id="topics-list"></div>
-          </article>
+        <div class="ros-section active" id="ros-section-nodes">
+          <div class="two-column ros-detail-layout">
+            <article class="panel list-panel">
+              <h2>Ноды</h2>
+              <label>Фильтр нод<input id="nodes-filter" placeholder="например: imu, nav, camera"></label>
+              <div class="scroll-list" id="nodes-list"></div>
+            </article>
 
-          <article class="panel detail-panel">
-            <div class="panel-heading-row">
-              <div>
-                <h2 id="topic-detail-title">Выбери топик</h2>
-                <p>Для image topic кадр лучше смотреть на странице камеры.</p>
+            <article class="panel detail-panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2 id="node-detail-title">Выбери ноду</h2>
+                  <p>Базовая информация о зарегистрированной ROS-ноде.</p>
+                </div>
               </div>
-              <button class="secondary" id="topic-refresh">Обновить</button>
-            </div>
-            <dl class="detail-list" id="topic-meta"></dl>
-            <label>JSON для публикации
-              <textarea id="topic-payload" class="code-input" rows="10"></textarea>
-            </label>
-            <div class="button-row">
-              <button class="secondary" id="topic-template">Шаблон</button>
-              <button id="topic-publish">Опубликовать</button>
-            </div>
-            <div class="status-note" id="topic-action-status">Выбери топик, чтобы посмотреть данные.</div>
-            <pre class="message-box" id="topic-latest-message">Нет данных.</pre>
-          </article>
+              <dl class="detail-list" id="node-meta"></dl>
+              <pre class="message-box" id="node-detail-json">Нет данных.</pre>
+            </article>
+          </div>
+        </div>
 
-          <article class="panel list-panel">
-            <h2>Сервисы</h2>
-            <label>Фильтр сервисов<input id="services-filter" placeholder="например: list_parameters"></label>
-            <div class="scroll-list" id="services-list"></div>
-          </article>
+        <div class="ros-section" id="ros-section-topics">
+          <div class="two-column ros-detail-layout">
+            <article class="panel list-panel">
+              <h2>Топики</h2>
+              <label>Фильтр топиков<input id="topics-filter" placeholder="например: odom, cmd_vel, image"></label>
+              <div class="scroll-list" id="topics-list"></div>
+            </article>
 
-          <article class="panel detail-panel wide">
-            <div class="panel-heading-row">
-              <div>
-                <h2 id="service-detail-title">Выбери сервис</h2>
-                <p>Вызов строится прямо через backend без rosbridge.</p>
+            <article class="panel detail-panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2 id="topic-detail-title">Выбери топик</h2>
+                  <p>Для image topic кадр лучше смотреть на странице камеры.</p>
+                </div>
+                <button class="secondary" id="topic-refresh">Обновить</button>
               </div>
-              <button class="secondary" id="service-refresh">Обновить</button>
-            </div>
-            <dl class="detail-list" id="service-meta"></dl>
-            <label>JSON запроса
-              <textarea id="service-request" class="code-input" rows="10"></textarea>
-            </label>
-            <div class="button-row">
-              <button class="secondary" id="service-template">Шаблон</button>
-              <button id="service-call">Вызвать</button>
-            </div>
-            <div class="status-note" id="service-action-status">Выбери сервис, чтобы подготовить вызов.</div>
-            <pre class="message-box" id="service-response">Нет ответа.</pre>
-          </article>
+              <dl class="detail-list" id="topic-meta"></dl>
+              <label>JSON для публикации
+                <textarea id="topic-payload" class="code-input" rows="10"></textarea>
+              </label>
+              <div class="button-row">
+                <button class="secondary" id="topic-template">Шаблон</button>
+                <button id="topic-publish">Опубликовать</button>
+              </div>
+              <div class="status-note" id="topic-action-status">Выбери топик, чтобы посмотреть данные.</div>
+              <pre class="message-box" id="topic-latest-message">Нет данных.</pre>
+            </article>
+          </div>
+        </div>
+
+        <div class="ros-section" id="ros-section-services">
+          <div class="two-column ros-detail-layout">
+            <article class="panel list-panel">
+              <h2>Сервисы</h2>
+              <label>Фильтр сервисов<input id="services-filter" placeholder="например: list_parameters"></label>
+              <div class="scroll-list" id="services-list"></div>
+            </article>
+
+            <article class="panel detail-panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2 id="service-detail-title">Выбери сервис</h2>
+                  <p>Вызов строится прямо через backend без rosbridge.</p>
+                </div>
+                <button class="secondary" id="service-refresh">Обновить</button>
+              </div>
+              <dl class="detail-list" id="service-meta"></dl>
+              <label>JSON запроса
+                <textarea id="service-request" class="code-input" rows="10"></textarea>
+              </label>
+              <div class="button-row">
+                <button class="secondary" id="service-template">Шаблон</button>
+                <button id="service-call">Вызвать</button>
+              </div>
+              <div class="status-note" id="service-action-status">Выбери сервис, чтобы подготовить вызов.</div>
+              <pre class="message-box" id="service-response">Нет ответа.</pre>
+            </article>
+          </div>
         </div>
       </section>
 

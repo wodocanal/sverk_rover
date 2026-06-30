@@ -646,15 +646,17 @@ textarea {
   background: var(--accent-soft) !important;
 }
 
-.ros-layout {
-  display: grid;
-  grid-template-columns: minmax(250px, 0.72fr) minmax(280px, 0.95fr) minmax(0, 1.35fr);
-  gap: 16px;
-  align-items: start;
+.ros-section {
+  display: none;
 }
 
-.detail-panel.wide {
-  grid-column: 2 / 4;
+.ros-section.active {
+  display: block;
+}
+
+.ros-detail-layout {
+  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+  align-items: start;
 }
 
 .list-panel {
@@ -1153,8 +1155,8 @@ textarea {
 }
 
 @media (max-width: 1320px) {
-  .ros-layout {
-    grid-template-columns: minmax(240px, 0.78fr) minmax(260px, 0.9fr) minmax(0, 1.2fr);
+  .ros-detail-layout {
+    grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
   }
 }
 
@@ -1178,12 +1180,8 @@ textarea {
   .route-layout,
   .camera-grid,
   .sensor-layout,
-  .ros-layout {
+  .ros-detail-layout {
     grid-template-columns: 1fr;
-  }
-
-  .detail-panel.wide {
-    grid-column: auto;
   }
 
   .list-panel {

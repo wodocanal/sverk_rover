@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   vizScale: 'rover_web.viz_scale',
   vizFollow: 'rover_web.viz_follow',
   sessionId: 'rover_web.session_id',
+  rosTab: 'rover_web.ros_tab',
   movementPage: 'rover_web.movement_page',
   peripheralsPage: 'rover_web.peripherals_page',
   servicePage: 'rover_web.service_page',
@@ -101,6 +102,9 @@ const state = {
   config: null,
   activity: [],
   rosGraph: null,
+  rosTab: localStorage.getItem(STORAGE_KEYS.rosTab) || 'nodes',
+  selectedNode: null,
+  selectedNodeInfo: null,
   selectedTopic: null,
   selectedTopicType: null,
   selectedTopicInfo: null,
@@ -830,6 +834,18 @@ function renderList(element, items, selectedKey, factory) {
   });
 }
 
+function setRosTab(tab) {
+  const next = ['nodes', 'topics', 'services'].includes(tab) ? tab : 'nodes';
+  state.rosTab = next;
+  localStorage.setItem(STORAGE_KEYS.rosTab, next);
+  $$('.section-tab[data-ros-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.rosTab === next);
+  });
+  $$('.ros-section').forEach((section) => {
+    section.classList.toggle('active', section.id === `ros-section-${next}`);
+  });
+}
+
 function filterByText(items, text, mapper) {
   const needle = text.trim().toLowerCase();
   if (!needle) return items;
@@ -847,6 +863,11 @@ async function refreshRosGraph() {
     $('#ros-services-count').textContent = payload.services.length;
     $('#ros-image-count').textContent = payload.image_topics.length;
     renderNodes();
+    if (state.selectedNode) {
+      selectNode(state.selectedNode);
+    } else {
+      renderNodeDetails();
+    }
     renderTopics();
     renderServices();
     renderCameraTopics();
@@ -865,14 +886,40 @@ function renderNodes() {
     $('#nodes-filter').value,
     (item) => `${item.full_name || ''} ${item.namespace || ''}`,
   );
-  renderList($('#nodes-list'), items, null, (item) => {
+  renderList($('#nodes-list'), items, state.selectedNode, (item) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'list-item';
     button.dataset.key = item.full_name || '';
     button.innerHTML = `<strong>${item.full_name || item.name || 'node'}</strong><small>${item.namespace || '/'}</small>`;
+    button.addEventListener('click', () => selectNode(item.full_name));
     return button;
   });
+}
+
+function renderNodeDetails(info) {
+  const node = info || state.selectedNodeInfo;
+  if (!node) {
+    $('#node-detail-title').textContent = 'Выбери ноду';
+    renderDetailList($('#node-meta'), []);
+    $('#node-detail-json').textContent = 'Нет данных.';
+    return;
+  }
+  $('#node-detail-title').textContent = node.full_name || node.name || 'Нода';
+  renderDetailList($('#node-meta'), [
+    { label: 'Имя', value: node.name || '—' },
+    { label: 'Namespace', value: node.namespace || '/' },
+    { label: 'Полный путь', value: node.full_name || '—' },
+  ]);
+  $('#node-detail-json').textContent = pretty(node);
+}
+
+function selectNode(fullName) {
+  const info = safeArray(state.rosGraph?.nodes).find((item) => item.full_name === fullName) || null;
+  state.selectedNode = fullName || null;
+  state.selectedNodeInfo = info;
+  renderNodes();
+  renderNodeDetails(info);
 }
 
 function renderTopics() {
@@ -2630,6 +2677,11 @@ function bindOverviewPage() {
 }
 
 function bindRosPage() {
+  $$('.section-tab[data-ros-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setRosTab(button.dataset.rosTab);
+    });
+  });
   $('#nodes-filter').addEventListener('input', renderNodes);
   $('#topics-filter').addEventListener('input', renderTopics);
   $('#services-filter').addEventListener('input', renderServices);
@@ -2971,6 +3023,8 @@ async function initialize() {
   setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'lights', 'octoliner', 'terminal', 'diagnostics', 'settings'].includes(state.page)
     ? state.page
     : 'overview');
+  setRosTab(state.rosTab);
+  renderNodeDetails();
   renderSettings();
   renderVisualization();
   drawLidarVisualization();
