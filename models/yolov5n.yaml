@@ -1,6 +1,6 @@
 id: yolov5n
 name: YOLOv5 Nano
-description: Tiny official Ultralytics YOLOv5 detection model in ONNX format.
+description: Tiny official Ultralytics YOLOv5 detection model in ONNX FP32 format for OpenCV DNN.
 task: detection
 format: yolov5
 model: yolov5n.onnx

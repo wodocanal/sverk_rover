@@ -106,6 +106,7 @@ class CameraDetectorNode(Node):
         self._manifest: ModelManifest | None = None
         self._models_directory = resolve_models_directory('models')
         self._last_error = ''
+        self._last_status_log: tuple[str, str] | None = None
         self._active = False
 
         self._latest_frame: np.ndarray | None = None
@@ -269,6 +270,19 @@ class CameraDetectorNode(Node):
             raise RuntimeError('Selected model does not define model_path')
         return cv2.dnn.readNet(str(manifest.model_path))
 
+    def _log_status(self, level: str, message: str) -> None:
+        status = (level, message)
+        if self._last_status_log == status:
+            return
+        self._last_status_log = status
+        logger = self.get_logger()
+        if level == 'error':
+            logger.error(message)
+        elif level == 'warning':
+            logger.warning(message)
+        else:
+            logger.info(message)
+
     def _reconfigure_pipeline(self, *, initial: bool = False) -> None:
         with self._config_lock:
             self._destroy_io()
@@ -279,12 +293,12 @@ class CameraDetectorNode(Node):
 
             if not self.enabled:
                 if not initial:
-                    self.get_logger().info('Camera detector disabled')
+                    self._log_status('info', 'Camera detector disabled')
                 return
 
             if not self.model_name:
                 self._last_error = 'Model is not selected'
-                self.get_logger().warning(self._last_error)
+                self._log_status('warning', self._last_error)
                 return
 
             manifest = self._find_selected_manifest()
@@ -292,18 +306,18 @@ class CameraDetectorNode(Node):
                 self._last_error = (
                     f'Selected model "{self.model_name}" was not found in {self._models_directory}'
                 )
-                self.get_logger().warning(self._last_error)
+                self._log_status('warning', self._last_error)
                 return
             if not manifest.valid:
                 self._last_error = manifest.error or 'Selected model manifest is invalid'
-                self.get_logger().warning(self._last_error)
+                self._log_status('warning', self._last_error)
                 return
 
             try:
                 self._net = self._load_model(manifest)
             except Exception as exc:
                 self._last_error = f'Could not load model {manifest.display_name}: {exc}'
-                self.get_logger().error(self._last_error)
+                self._log_status('error', self._last_error)
                 return
 
             self._manifest = manifest
@@ -326,10 +340,11 @@ class CameraDetectorNode(Node):
                     qos_profile_sensor_data,
                 )
             self._active = True
-            self.get_logger().info(
+            self._log_status(
+                'info',
                 'Camera detector enabled: '
                 f'{manifest.display_name} ({manifest.model_format}) -> '
-                f'{self.processed_image_topic}'
+                f'{self.processed_image_topic}',
             )
 
     def _image_callback(self, message: Image) -> None:
