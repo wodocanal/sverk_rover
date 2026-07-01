@@ -39,6 +39,7 @@ def launch_setup(context):
     use_imu = as_bool(LaunchConfiguration('use_imu').perform(context))
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
     use_camera = as_bool(LaunchConfiguration('use_camera').perform(context))
+    use_vision = as_bool(LaunchConfiguration('use_vision').perform(context))
     use_led_strip = as_bool(LaunchConfiguration('use_led_strip').perform(context))
     use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
     use_web = as_bool(LaunchConfiguration('use_web').perform(context))
@@ -110,6 +111,16 @@ def launch_setup(context):
     imu_params['use_sim_time'] = use_sim_time
     camera_params = dict(config.get('camera', {}))
     camera_params['use_sim_time'] = use_sim_time
+    vision_params = dict(config.get('vision', {}))
+    vision_params.setdefault(
+        'input_topic',
+        str(camera_params.get('image_topic', '/camera/image_raw')),
+    )
+    vision_params.setdefault(
+        'frame_id',
+        str(camera_params.get('frame_id', 'camera_optical_frame')),
+    )
+    vision_params['use_sim_time'] = use_sim_time
     led_strip_params = dict(config.get('led_strip', {}))
     led_strip_params['use_sim_time'] = use_sim_time
     octoliner_params = dict(config.get('octoliner', {}))
@@ -235,6 +246,14 @@ def launch_setup(context):
             output='screen',
             parameters=[camera_params],
         ))
+    if use_camera and use_vision:
+        actions.append(Node(
+            package='rover_vision',
+            executable='camera_detector_node',
+            name='camera_detector_node',
+            output='screen',
+            parameters=[vision_params],
+        ))
 
     if use_led_strip:
         actions.append(Node(
@@ -324,6 +343,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
+        DeclareLaunchArgument('use_vision', default_value='true'),
         DeclareLaunchArgument('use_led_strip', default_value='false'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
         DeclareLaunchArgument('use_web', default_value='true'),

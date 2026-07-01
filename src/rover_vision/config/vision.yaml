@@ -1,0 +1,18 @@
+camera_detector_node:
+  ros__parameters:
+    enabled: false
+    model_name: ''
+    models_directory: models
+    input_topic: /camera/image_raw
+    processed_image_topic: /camera/image_processed
+    processed_compressed_image_topic: /camera/image_processed/compressed
+    frame_id: camera_optical_frame
+    publish_raw: true
+    publish_compressed: true
+    confidence_threshold: 0.25
+    nms_threshold: 0.45
+    max_processing_fps: 8.0
+    annotate_labels: true
+    annotate_confidence: true
+    line_thickness: 2
+    jpeg_quality: 85

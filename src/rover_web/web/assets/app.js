@@ -172,6 +172,7 @@ const state = {
   cameraTimer: null,
   cameraUrl: null,
   cameraSettings: null,
+  cameraVisionSettings: null,
   cameraSettingsLastRefresh: 0,
   selectedLidarTopic: null,
   selectedLidarType: null,
@@ -499,9 +500,11 @@ function setPage(page) {
     stopCameraLoop();
   } else if (state.selectedCameraTopic && state.selectedCameraType) {
     refreshCameraSettings();
+    refreshCameraVisionSettings();
     connectCamera();
   } else {
     refreshCameraSettings();
+    refreshCameraVisionSettings();
   }
 
   if (page !== 'lidar') {
@@ -1301,6 +1304,165 @@ function setCameraSettingsForm(parameters = {}) {
   $('#camera-setting-use-mjpeg').checked = Boolean(parameters.use_mjpeg ?? true);
   $('#camera-setting-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-setting-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
+}
+
+function renderCameraVisionModels(models = [], selectedModelName = '') {
+  const select = $('#camera-vision-model');
+  select.innerHTML = '';
+  if (!models.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Нет manifest-файлов моделей';
+    select.append(option);
+    return;
+  }
+
+  models.forEach((model) => {
+    const option = document.createElement('option');
+    option.value = model.id || '';
+    option.textContent = model.valid
+      ? `${model.name || model.id} (${model.format})`
+      : `${model.name || model.id} — ${model.error || 'invalid'}`;
+    option.disabled = !model.valid;
+    option.selected = option.value === selectedModelName;
+    select.append(option);
+  });
+
+  if (!select.value) {
+    const firstValid = models.find((item) => item.valid);
+    if (firstValid) {
+      select.value = firstValid.id;
+    }
+  }
+}
+
+function setCameraVisionSettingsForm(payload = {}) {
+  const parameters = payload.parameters || {};
+  $('#camera-vision-enabled').checked = Boolean(parameters.enabled ?? false);
+  renderCameraVisionModels(safeArray(payload.models), String(parameters.model_name || ''));
+  $('#camera-vision-input-topic').value = parameters.input_topic || '/camera/image_raw';
+  $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/camera/image_processed';
+  $('#camera-vision-output-compressed-topic').value = parameters.processed_compressed_image_topic || '/camera/image_processed/compressed';
+  $('#camera-vision-fps').value = String(parameters.max_processing_fps ?? 8.0);
+  $('#camera-vision-confidence').value = String(parameters.confidence_threshold ?? 0.25);
+  $('#camera-vision-nms').value = String(parameters.nms_threshold ?? 0.45);
+  $('#camera-vision-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
+  $('#camera-vision-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
+  $('#camera-vision-annotate-labels').checked = Boolean(parameters.annotate_labels ?? true);
+  $('#camera-vision-annotate-confidence').checked = Boolean(parameters.annotate_confidence ?? true);
+}
+
+function summarizeCameraVisionDetails(payload = {}) {
+  const selected = payload.selected_model || null;
+  return pretty({
+    node_name: payload.node_name || '/camera_detector_node',
+    models_directory: payload.models_directory || 'models',
+    selected_model: selected ? {
+      id: selected.id,
+      name: selected.name,
+      valid: selected.valid,
+      model_path: selected.model_path,
+      input_size: selected.input_size,
+      description: selected.description,
+      error: selected.error,
+    } : null,
+    models_count: safeArray(payload.models).length,
+    available_models: safeArray(payload.models).map((model) => ({
+      id: model.id,
+      valid: model.valid,
+      format: model.format,
+      model_path: model.model_path,
+      error: model.error,
+    })),
+    notes: payload.notes || {},
+  });
+}
+
+async function refreshCameraVisionSettings() {
+  try {
+    const payload = await api('/api/vision/settings');
+    state.cameraVisionSettings = payload;
+    setCameraVisionSettingsForm(payload);
+    $('#camera-vision-details').textContent = summarizeCameraVisionDetails(payload);
+    const selected = payload.selected_model;
+    if (payload.parameters?.enabled) {
+      $('#camera-vision-status').textContent = selected?.valid
+        ? `Выбрана модель ${selected.name || selected.id}.`
+        : 'Обработка включена, но модель ещё не готова.';
+    } else {
+      $('#camera-vision-status').textContent = 'Обработка нейросетью выключена.';
+    }
+    return payload;
+  } catch (error) {
+    $('#camera-vision-status').textContent = String(error.message || error);
+    $('#camera-vision-details').textContent = 'Не удалось получить параметры обработки.';
+    return null;
+  }
+}
+
+function cameraVisionSettingsPayloadFromForm() {
+  return {
+    enabled: $('#camera-vision-enabled').checked,
+    model_name: $('#camera-vision-model').value.trim(),
+    input_topic: $('#camera-vision-input-topic').value.trim(),
+    processed_image_topic: $('#camera-vision-output-topic').value.trim(),
+    processed_compressed_image_topic: $('#camera-vision-output-compressed-topic').value.trim(),
+    publish_raw: $('#camera-vision-publish-raw').checked,
+    publish_compressed: $('#camera-vision-publish-compressed').checked,
+    confidence_threshold: Number($('#camera-vision-confidence').value || '0.25'),
+    nms_threshold: Number($('#camera-vision-nms').value || '0.45'),
+    max_processing_fps: Number($('#camera-vision-fps').value || '8'),
+    annotate_labels: $('#camera-vision-annotate-labels').checked,
+    annotate_confidence: $('#camera-vision-annotate-confidence').checked,
+  };
+}
+
+async function applyCameraVisionSettings() {
+  try {
+    $('#camera-vision-status').textContent = 'Применение параметров обработки...';
+    const payload = await api('/api/vision/settings', {
+      method: 'POST',
+      body: JSON.stringify(cameraVisionSettingsPayloadFromForm()),
+    });
+    state.cameraVisionSettings = payload;
+    setCameraVisionSettingsForm(payload);
+    $('#camera-vision-details').textContent = summarizeCameraVisionDetails(payload);
+    $('#camera-vision-status').textContent = 'Параметры обработки применены.';
+    showToast('Настройки обработки камеры применены');
+    await Promise.all([
+      refreshRosGraph(),
+      refreshCameraVisionSettings(),
+    ]);
+    renderCameraTopics();
+  } catch (error) {
+    $('#camera-vision-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+  }
+}
+
+async function openProcessedCameraStream() {
+  const parameters = state.cameraVisionSettings?.parameters || cameraVisionSettingsPayloadFromForm();
+  const targetTopic = parameters.publish_compressed
+    ? parameters.processed_compressed_image_topic
+    : parameters.processed_image_topic;
+  if (!targetTopic) {
+    showToast('Не задан topic для обработанного потока', 'error');
+    return;
+  }
+  await refreshRosGraph();
+  const topic = safeArray(state.rosGraph?.image_topics).find((item) => item.name === targetTopic);
+  if (!topic) {
+    showToast('Обработанный поток пока не появился в ROS graph', 'error');
+    $('#camera-vision-status').textContent = 'Обработанный image topic пока недоступен.';
+    renderCameraTopics();
+    return;
+  }
+  state.selectedCameraTopic = topic.name;
+  state.selectedCameraType = safeArray(topic.types)[0] || null;
+  renderCameraTopics();
+  $('#camera-topic-select').value = topic.name;
+  $('#camera-vision-status').textContent = `Открыт обработанный поток: ${topic.name}`;
+  await connectCamera();
 }
 
 async function refreshCameraSettings() {
@@ -3095,7 +3257,12 @@ function bindRosPage() {
 
 function bindCameraPage() {
   $('#camera-refresh-topics').addEventListener('click', async () => {
-    await Promise.all([refreshRosGraph(), refreshCameraSettings()]);
+    await Promise.all([
+      refreshRosGraph(),
+      refreshCameraSettings(),
+      refreshCameraVisionSettings(),
+    ]);
+    renderCameraTopics();
   });
   $('#camera-connect').addEventListener('click', connectCamera);
   $('#camera-topic-select').addEventListener('change', () => {
@@ -3104,6 +3271,9 @@ function bindCameraPage() {
   });
   $('#camera-settings-refresh').addEventListener('click', refreshCameraSettings);
   $('#camera-settings-apply').addEventListener('click', applyCameraSettings);
+  $('#camera-vision-refresh').addEventListener('click', refreshCameraVisionSettings);
+  $('#camera-vision-apply').addEventListener('click', applyCameraVisionSettings);
+  $('#camera-vision-open-processed').addEventListener('click', openProcessedCameraStream);
   $('#camera-preset-720p').addEventListener('click', () => applyCameraPreset(1280, 720, 30));
   $('#camera-preset-1080p').addEventListener('click', () => applyCameraPreset(1920, 1080, 30));
   $('#camera-preset-vga').addEventListener('click', () => applyCameraPreset(640, 480, 30));
@@ -3471,6 +3641,7 @@ async function initialize() {
     refreshStatus(),
     refreshRosGraph(),
     refreshCameraSettings(),
+    refreshCameraVisionSettings(),
     refreshLidarSettings(),
     refreshLedStripSettings(),
     refreshOctolinerSettings(),

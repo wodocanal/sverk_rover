@@ -13,6 +13,7 @@
   <exec_depend>rover_device_manager</exec_depend>
   <exec_depend>rover_base_driver</exec_depend>
   <exec_depend>rover_camera</exec_depend>
+  <exec_depend>rover_vision</exec_depend>
   <exec_depend>rover_led_strip</exec_depend>
   <exec_depend>rover_octoliner</exec_depend>
   <exec_depend>rover_web</exec_depend>

@@ -244,6 +244,40 @@
               <div class="status-note" id="camera-settings-status">Ожидание текущих параметров камеры.</div>
               <pre class="message-box" id="camera-capabilities">—</pre>
             </article>
+
+            <article class="panel camera-settings-panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2>Обработка нейросетью</h2>
+                  <p>YOLO-подобная обработка кадров с публикацией отдельного обработанного image topic.</p>
+                </div>
+                <button class="secondary" id="camera-vision-refresh">Обновить</button>
+              </div>
+              <div class="form-grid compact-grid">
+                <label class="check-label"><input id="camera-vision-enabled" type="checkbox"> Использовать обработку</label>
+                <label>Модель
+                  <select id="camera-vision-model"></select>
+                </label>
+                <label>Input topic<input id="camera-vision-input-topic" value="/camera/image_raw"></label>
+                <label>Processed raw topic<input id="camera-vision-output-topic" value="/camera/image_processed"></label>
+                <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/camera/image_processed/compressed"></label>
+                <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="8.0"></label>
+                <label>Confidence<input id="camera-vision-confidence" type="number" min="0.01" max="1" step="0.01" value="0.25"></label>
+                <label>NMS<input id="camera-vision-nms" type="number" min="0.01" max="1" step="0.01" value="0.45"></label>
+              </div>
+              <div class="inline-form camera-setting-flags">
+                <label class="check-label"><input id="camera-vision-publish-raw" type="checkbox" checked> Публиковать raw</label>
+                <label class="check-label"><input id="camera-vision-publish-compressed" type="checkbox" checked> Публиковать compressed</label>
+                <label class="check-label"><input id="camera-vision-annotate-labels" type="checkbox" checked> Подписи классов</label>
+                <label class="check-label"><input id="camera-vision-annotate-confidence" type="checkbox" checked> Confidence</label>
+              </div>
+              <div class="button-row">
+                <button id="camera-vision-apply">Применить</button>
+                <button class="secondary" id="camera-vision-open-processed">Показать обработанный поток</button>
+              </div>
+              <div class="status-note" id="camera-vision-status">Ожидание параметров обработки.</div>
+              <pre class="message-box" id="camera-vision-details">—</pre>
+            </article>
           </div>
 
           <article class="panel camera-preview-panel">

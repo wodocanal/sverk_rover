@@ -38,6 +38,11 @@ from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.set_message import set_message_fields
 from rosidl_runtime_py.utilities import get_message, get_service
+from rover_vision.model_registry import (
+    discover_model_manifests,
+    manifest_to_dict,
+    resolve_models_directory,
+)
 from sensor_msgs.msg import CompressedImage, Image, Imu, LaserScan
 import yaml
 
@@ -68,6 +73,42 @@ CAMERA_PARAMETER_NAMES = [
     'jpeg_quality',
     'reconnect_interval_sec',
 ]
+VISION_PARAMETER_NAMES = [
+    'enabled',
+    'model_name',
+    'models_directory',
+    'input_topic',
+    'processed_image_topic',
+    'processed_compressed_image_topic',
+    'frame_id',
+    'publish_raw',
+    'publish_compressed',
+    'confidence_threshold',
+    'nms_threshold',
+    'max_processing_fps',
+    'annotate_labels',
+    'annotate_confidence',
+    'line_thickness',
+    'jpeg_quality',
+]
+VISION_RUNTIME_PARAMETER_NAMES = {
+    'enabled',
+    'model_name',
+    'models_directory',
+    'input_topic',
+    'processed_image_topic',
+    'processed_compressed_image_topic',
+    'frame_id',
+    'publish_raw',
+    'publish_compressed',
+    'confidence_threshold',
+    'nms_threshold',
+    'max_processing_fps',
+    'annotate_labels',
+    'annotate_confidence',
+    'line_thickness',
+    'jpeg_quality',
+}
 LIDAR_PARAMETER_NAMES = [
     'channel_type',
     'serial_port',
@@ -397,6 +438,7 @@ class RoverWebGateway(Node):
         )
         self.declare_parameter('command_topic', '/cmd_vel')
         self.declare_parameter('camera_node_name', '/usb_camera_node')
+        self.declare_parameter('vision_node_name', '/camera_detector_node')
         self.declare_parameter('lidar_node_name', '/sllidar_node')
         self.declare_parameter('led_strip_node_name', '/led_strip_node')
         self.declare_parameter('octoliner_node_name', '/octoliner_node')
@@ -443,6 +485,9 @@ class RoverWebGateway(Node):
         self.camera_node_name = str(
             self.get_parameter('camera_node_name').value
         ).strip() or '/usb_camera_node'
+        self.vision_node_name = str(
+            self.get_parameter('vision_node_name').value
+        ).strip() or '/camera_detector_node'
         self.lidar_node_name = str(
             self.get_parameter('lidar_node_name').value
         ).strip() or '/sllidar_node'
@@ -1052,6 +1097,7 @@ class RoverWebGateway(Node):
             'imu_topic': self.imu_topic,
             'diagnostics_topic': self.diagnostics_topic,
             'camera_node_name': self.camera_node_name,
+            'vision_node_name': self.vision_node_name,
             'lidar_node_name': self.lidar_node_name,
             'led_strip_node_name': self.led_strip_node_name,
             'octoliner_node_name': self.octoliner_node_name,
@@ -1738,6 +1784,23 @@ class RoverWebGateway(Node):
             values[name] = parameter_value_to_python(value)
         return values
 
+    def _vision_parameter_values(self) -> dict[str, Any]:
+        client = self._ensure_parameter_client(self.vision_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                f'Vision parameter services are not available for {self.vision_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.get_parameters(VISION_PARAMETER_NAMES),
+            timeout_sec=2.0,
+            label='vision parameters',
+        )
+        values = {}
+        for name, value in zip(VISION_PARAMETER_NAMES, response.values):
+            values[name] = parameter_value_to_python(value)
+        return values
+
     def _lidar_parameter_values(self) -> dict[str, Any]:
         client = self._ensure_parameter_client(self.lidar_node_name)
         if not client.wait_for_services(timeout_sec=1.0):
@@ -1841,6 +1904,40 @@ class RoverWebGateway(Node):
             'node_name': self.camera_node_name,
             'parameters': parameters,
             'capabilities': capabilities,
+        }
+
+    def vision_settings(self) -> dict[str, Any]:
+        parameters = self._vision_parameter_values()
+        models_directory = resolve_models_directory(
+            parameters.get('models_directory') or 'models'
+        )
+        models = [
+            manifest_to_dict(manifest)
+            for manifest in discover_model_manifests(models_directory)
+        ]
+        selected_model_name = str(parameters.get('model_name') or '').strip()
+        selected_model = next(
+            (item for item in models if item.get('id') == selected_model_name),
+            None,
+        )
+        return {
+            'ok': True,
+            'node_name': self.vision_node_name,
+            'parameters': parameters,
+            'models_directory': str(models_directory),
+            'models': models,
+            'selected_model': selected_model,
+            'runtime_parameters': sorted(VISION_RUNTIME_PARAMETER_NAMES),
+            'notes': {
+                'input_topic': 'Для обработки должен поступать raw image topic.',
+                'processed_topics': (
+                    'Новые image topics появятся в ROS graph, когда обработка включена '
+                    'и модель успешно загружена.'
+                ),
+                'models_directory': (
+                    'В директории models ожидаются manifest-файлы YAML и соответствующие веса.'
+                ),
+            },
         }
 
     def lidar_settings(self) -> dict[str, Any]:
@@ -1951,6 +2048,53 @@ class RoverWebGateway(Node):
             sanitize_payload(payload),
         )
         return self.camera_settings()
+
+    def update_vision_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('Vision settings payload must be an object')
+
+        updates: list[Parameter] = []
+        for name in VISION_RUNTIME_PARAMETER_NAMES:
+            if name not in payload:
+                continue
+            value = payload[name]
+            if name in {'enabled', 'publish_raw', 'publish_compressed', 'annotate_labels', 'annotate_confidence'}:
+                updates.append(Parameter(name, value=bool(value)))
+            elif name in {'confidence_threshold', 'nms_threshold', 'max_processing_fps'}:
+                updates.append(Parameter(name, value=float(value)))
+            elif name in {'line_thickness', 'jpeg_quality'}:
+                updates.append(Parameter(name, value=int(value)))
+            else:
+                updates.append(Parameter(name, value=str(value)))
+
+        if not updates:
+            raise ValueError('No supported vision settings were provided')
+
+        client = self._ensure_parameter_client(self.vision_node_name)
+        if not client.wait_for_services(timeout_sec=1.0):
+            raise RuntimeError(
+                f'Vision parameter services are not available for {self.vision_node_name}'
+            )
+
+        response = self._wait_for_future(
+            client.set_parameters(updates),
+            timeout_sec=3.0,
+            label='vision parameter update',
+        )
+        failures = [
+            result.reason.strip() or 'parameter update rejected'
+            for result in response.results
+            if not result.successful
+        ]
+        if failures:
+            raise RuntimeError('; '.join(failures))
+
+        self.record_activity(
+            'camera',
+            'Vision settings updated',
+            sanitize_payload(payload),
+        )
+        return self.vision_settings()
 
     def update_lidar_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -2616,6 +2760,9 @@ class RoverWebGateway(Node):
                     if path == '/api/octoliner/topics':
                         self._send_json(gateway.octoliner_topics(), HTTPStatus.OK)
                         return
+                    if path == '/api/vision/settings':
+                        self._send_json(gateway.vision_settings(), HTTPStatus.OK)
+                        return
                     if path == '/api/lidar/settings':
                         self._send_json(gateway.lidar_settings(), HTTPStatus.OK)
                         return
@@ -2761,6 +2908,12 @@ class RoverWebGateway(Node):
                     if parsed.path == '/api/camera/settings':
                         self._send_json(
                             gateway.update_camera_settings(payload),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/vision/settings':
+                        self._send_json(
+                            gateway.update_vision_settings(payload),
                             HTTPStatus.OK,
                         )
                         return
