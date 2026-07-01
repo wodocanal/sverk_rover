@@ -103,6 +103,10 @@ class CameraDetectorNode(Node):
         self._timer = None
 
         self._net = None
+        self._ort_session = None
+        self._ort_input_name = ''
+        self._ort_output_names: list[str] = []
+        self._backend_kind = ''
         self._manifest: ModelManifest | None = None
         self._models_directory = resolve_models_directory('models')
         self._last_error = ''
@@ -268,7 +272,47 @@ class CameraDetectorNode(Node):
     def _load_model(self, manifest: ModelManifest) -> Any:
         if manifest.model_path is None:
             raise RuntimeError('Selected model does not define model_path')
-        return cv2.dnn.readNet(str(manifest.model_path))
+        model_path = str(manifest.model_path)
+        errors: list[str] = []
+
+        try:
+            import onnxruntime as ort
+        except Exception:
+            ort = None
+
+        if ort is None:
+            errors.append(
+                'ONNX Runtime is not installed. Install it with: '
+                'python3 -m pip install onnxruntime'
+            )
+        else:
+            try:
+                session = ort.InferenceSession(
+                    model_path,
+                    providers=['CPUExecutionProvider'],
+                )
+                input_name = session.get_inputs()[0].name
+                output_names = [output.name for output in session.get_outputs()]
+                return (
+                    'onnxruntime',
+                    session,
+                    input_name,
+                    output_names,
+                )
+            except Exception as exc:
+                errors.append(f'ONNX Runtime: {exc}')
+
+        try:
+            return (
+                'opencv_dnn',
+                cv2.dnn.readNet(model_path),
+                '',
+                [],
+            )
+        except Exception as exc:
+            errors.append(f'OpenCV DNN: {exc}')
+
+        raise RuntimeError(' ; '.join(errors))
 
     def _log_status(self, level: str, message: str) -> None:
         status = (level, message)
@@ -287,6 +331,10 @@ class CameraDetectorNode(Node):
         with self._config_lock:
             self._destroy_io()
             self._net = None
+            self._ort_session = None
+            self._ort_input_name = ''
+            self._ort_output_names = []
+            self._backend_kind = ''
             self._manifest = None
             self._active = False
             self._last_error = ''
@@ -314,7 +362,16 @@ class CameraDetectorNode(Node):
                 return
 
             try:
-                self._net = self._load_model(manifest)
+                (
+                    self._backend_kind,
+                    backend_model,
+                    self._ort_input_name,
+                    self._ort_output_names,
+                ) = self._load_model(manifest)
+                if self._backend_kind == 'onnxruntime':
+                    self._ort_session = backend_model
+                else:
+                    self._net = backend_model
             except Exception as exc:
                 self._last_error = f'Could not load model {manifest.display_name}: {exc}'
                 self._log_status('error', self._last_error)
@@ -344,7 +401,7 @@ class CameraDetectorNode(Node):
                 'info',
                 'Camera detector enabled: '
                 f'{manifest.display_name} ({manifest.model_format}) -> '
-                f'{self.processed_image_topic}',
+                f'{self.processed_image_topic} via {self._backend_kind}',
             )
 
     def _image_callback(self, message: Image) -> None:
@@ -362,7 +419,11 @@ class CameraDetectorNode(Node):
             self._frames_received += 1
 
     def _should_process_now(self) -> bool:
-        if not self._active or self._manifest is None or self._net is None:
+        if (
+            not self._active
+            or self._manifest is None
+            or (self._net is None and self._ort_session is None)
+        ):
             return False
         if (
             self._raw_publisher is not None
@@ -406,7 +467,6 @@ class CameraDetectorNode(Node):
 
     def _run_inference(self, frame: np.ndarray) -> tuple[np.ndarray, int]:
         assert self._manifest is not None
-        assert self._net is not None
 
         blob = cv2.dnn.blobFromImage(
             frame,
@@ -415,8 +475,15 @@ class CameraDetectorNode(Node):
             swapRB=self._manifest.swap_rb,
             crop=False,
         )
-        self._net.setInput(blob)
-        outputs = self._net.forward()
+        if self._ort_session is not None:
+            outputs = self._ort_session.run(
+                self._ort_output_names,
+                {self._ort_input_name: blob},
+            )
+        else:
+            assert self._net is not None
+            self._net.setInput(blob)
+            outputs = self._net.forward()
         detections = self._decode_detections(outputs, frame.shape[1], frame.shape[0])
         annotated = self._annotate_detections(frame, detections)
         return annotated, len(detections)

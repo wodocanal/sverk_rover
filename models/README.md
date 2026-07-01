@@ -39,3 +39,10 @@ labels_file: coco.names
 - `yolov5n.onnx`
 - `yolov5n.yaml`
 - `coco80.names`
+
+Если на роботе стоит старый `OpenCV DNN`, рекомендуется установить `onnxruntime`,
+тогда `rover_vision` сможет использовать его как более совместимый backend для ONNX:
+
+```bash
+python3 -m pip install onnxruntime
+```
