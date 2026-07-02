@@ -1251,7 +1251,8 @@ function renderCameraTopics() {
     select.append(option);
     state.selectedCameraTopic = null;
     state.selectedCameraType = null;
-    $('#camera-status').textContent = 'Камера не найдена.';
+    stopCameraLoop();
+    $('#camera-empty').classList.remove('hidden');
     return;
   }
 
@@ -1340,9 +1341,17 @@ function renderCameraVisionModels(models = [], selectedModelName = '') {
   }
 }
 
+function setCameraVisionPanelExpanded(enabled) {
+  $('#camera-vision-body').classList.toggle('hidden', !enabled);
+  $('#camera-vision-status').classList.toggle('hidden', !enabled);
+  $('#camera-vision-details').classList.toggle('hidden', !enabled);
+}
+
 function setCameraVisionSettingsForm(payload = {}) {
   const parameters = payload.parameters || {};
-  $('#camera-vision-enabled').checked = Boolean(parameters.enabled ?? false);
+  const enabled = Boolean(parameters.enabled ?? false);
+  $('#camera-vision-enabled').checked = enabled;
+  setCameraVisionPanelExpanded(enabled);
   renderCameraVisionModels(safeArray(payload.models), String(parameters.model_name || ''));
   $('#camera-vision-input-topic').value = parameters.input_topic || '/camera/image_raw';
   $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/camera/image_processed';
@@ -1401,6 +1410,35 @@ async function refreshCameraVisionSettings() {
     $('#camera-vision-status').textContent = String(error.message || error);
     $('#camera-vision-details').textContent = 'Не удалось получить параметры обработки.';
     return null;
+  }
+}
+
+async function toggleCameraVisionEnabled() {
+  const enabled = $('#camera-vision-enabled').checked;
+  setCameraVisionPanelExpanded(enabled);
+  try {
+    $('#camera-vision-status').textContent = enabled
+      ? 'Включение обработки нейросетью...'
+      : 'Выключение обработки нейросетью...';
+    const payload = await api('/api/vision/settings', {
+      method: 'POST',
+      body: JSON.stringify(cameraVisionSettingsPayloadFromForm()),
+    });
+    state.cameraVisionSettings = payload;
+    setCameraVisionSettingsForm(payload);
+    $('#camera-vision-details').textContent = summarizeCameraVisionDetails(payload);
+    $('#camera-vision-status').textContent = enabled
+      ? 'Обработка нейросетью включена.'
+      : 'Обработка нейросетью выключена.';
+    await Promise.all([
+      refreshRosGraph(),
+      refreshCameraVisionSettings(),
+    ]);
+    renderCameraTopics();
+  } catch (error) {
+    $('#camera-vision-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+    await refreshCameraVisionSettings();
   }
 }
 
@@ -1529,21 +1567,8 @@ async function refreshCameraStatus() {
   if (!state.selectedCameraTopic || !state.selectedCameraType) return;
   try {
     const info = await api(`/api/camera/status?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}`);
-    renderDetailList($('#camera-meta'), [
-      { label: 'Topic', value: info.topic || '—' },
-      { label: 'Type', value: info.type || '—' },
-      { label: 'Encoding', value: info.encoding || '—' },
-      { label: 'Resolution', value: info.width && info.height ? `${info.width}×${info.height}` : '—' },
-      { label: 'Frames', value: String(info.message_count ?? '—') },
-      { label: 'Age', value: info.age_sec == null ? '—' : formatAge(info.age_sec) },
-      { label: 'Preview', value: info.type?.includes('CompressedImage') ? 'MJPEG stream' : 'JPEG snapshot stream' },
-    ]);
-    $('#camera-status').textContent = info.last_error
-      ? `Ошибка: ${info.last_error}`
-      : (info.frame_ready ? 'Кадры поступают.' : 'Ожидание первого кадра.');
     return info;
   } catch (error) {
-    $('#camera-status').textContent = String(error.message || error);
     return null;
   }
 }
@@ -1576,10 +1601,9 @@ async function connectCamera() {
   state.selectedCameraType = select.selectedOptions[0]?.dataset.type || null;
   stopCameraLoop();
   if (!state.selectedCameraTopic || !state.selectedCameraType) {
-    $('#camera-status').textContent = 'Нет выбранного источника.';
+    showToast('Нет выбранного источника', 'error');
     return;
   }
-  $('#camera-status').textContent = 'Подключение...';
   await recordActivity('Выбран источник камеры', { topic: state.selectedCameraTopic, type: state.selectedCameraType }, 'camera');
   const info = await refreshCameraStatus();
   if (!info) {
@@ -3276,6 +3300,7 @@ function bindCameraPage() {
     state.selectedCameraTopic = $('#camera-topic-select').value || null;
     state.selectedCameraType = $('#camera-topic-select').selectedOptions[0]?.dataset.type || null;
   });
+  $('#camera-vision-enabled').addEventListener('change', toggleCameraVisionEnabled);
   $('#camera-settings-refresh').addEventListener('click', refreshCameraSettings);
   $('#camera-settings-apply').addEventListener('click', applyCameraSettings);
   $('#camera-vision-refresh').addEventListener('click', refreshCameraVisionSettings);

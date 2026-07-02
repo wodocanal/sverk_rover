@@ -746,6 +746,30 @@ textarea {
   margin: 8px 0 12px;
 }
 
+.camera-source-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.camera-source-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.camera-source-row button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.camera-vision-toggle-row {
+  align-items: center;
+}
+
+.camera-vision-body {
+  margin-top: 10px;
+}
+
 .camera-frame-wrap {
   position: relative;
   min-height: 420px;

@@ -165,47 +165,43 @@ ROS State — ноды, топики и сервисы
           <div class="camera-side-column">
             <article class="panel camera-source-panel">
               <h2>Источник изображения</h2>
-              <label>Image topic
-                <select id="camera-topic-select"></select>
-              </label>
-              <div class="button-row">
+              <div class="camera-source-row">
+                <select id="camera-topic-select" aria-label="Image topic"></select>
                 <button id="camera-connect">Подключить</button>
               </div>
-              <dl class="detail-list" id="camera-meta"></dl>
-              <div class="status-note" id="camera-status">Выбери image topic.</div>
             </article>
 
             <article class="panel camera-settings-panel">
-              <div class="panel-heading-row">
-                <div>
-                  <h2>Обработка нейросетью</h2>
-                </div>
-                <button class="secondary" id="camera-vision-refresh">Обновить</button>
-              </div>
-              <div class="form-grid compact-grid">
+              <div class="panel-heading-row camera-vision-toggle-row">
+                <h2>Обработка нейросетью</h2>
                 <label class="check-label"><input id="camera-vision-enabled" type="checkbox"> Использовать обработку</label>
-                <label>Модель
-                  <select id="camera-vision-model"></select>
-                </label>
-                <label>Input topic<input id="camera-vision-input-topic" value="/camera/image_raw"></label>
-                <label>Processed raw topic<input id="camera-vision-output-topic" value="/camera/image_processed"></label>
-                <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/camera/image_processed/compressed"></label>
-                <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="8.0"></label>
-                <label>Confidence<input id="camera-vision-confidence" type="number" min="0.01" max="1" step="0.01" value="0.25"></label>
-                <label>NMS<input id="camera-vision-nms" type="number" min="0.01" max="1" step="0.01" value="0.45"></label>
               </div>
-              <div class="inline-form camera-setting-flags">
-                <label class="check-label"><input id="camera-vision-publish-raw" type="checkbox" checked> Публиковать raw</label>
-                <label class="check-label"><input id="camera-vision-publish-compressed" type="checkbox" checked> Публиковать compressed</label>
-                <label class="check-label"><input id="camera-vision-annotate-labels" type="checkbox" checked> Подписи классов</label>
-                <label class="check-label"><input id="camera-vision-annotate-confidence" type="checkbox" checked> Confidence</label>
+              <div id="camera-vision-body" class="camera-vision-body hidden">
+                <div class="form-grid compact-grid">
+                  <label>Модель
+                    <select id="camera-vision-model"></select>
+                  </label>
+                  <label>Input topic<input id="camera-vision-input-topic" value="/camera/image_raw"></label>
+                  <label>Processed raw topic<input id="camera-vision-output-topic" value="/camera/image_processed"></label>
+                  <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/camera/image_processed/compressed"></label>
+                  <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="8.0"></label>
+                  <label>Confidence<input id="camera-vision-confidence" type="number" min="0.01" max="1" step="0.01" value="0.25"></label>
+                  <label>NMS<input id="camera-vision-nms" type="number" min="0.01" max="1" step="0.01" value="0.45"></label>
+                </div>
+                <div class="inline-form camera-setting-flags">
+                  <label class="check-label"><input id="camera-vision-publish-raw" type="checkbox" checked> Публиковать raw</label>
+                  <label class="check-label"><input id="camera-vision-publish-compressed" type="checkbox" checked> Публиковать compressed</label>
+                  <label class="check-label"><input id="camera-vision-annotate-labels" type="checkbox" checked> Подписи классов</label>
+                  <label class="check-label"><input id="camera-vision-annotate-confidence" type="checkbox" checked> Confidence</label>
+                </div>
+                <div class="button-row">
+                  <button class="secondary" id="camera-vision-refresh">Обновить</button>
+                  <button id="camera-vision-apply">Применить</button>
+                  <button class="secondary" id="camera-vision-open-processed">Показать обработанный поток</button>
+                </div>
               </div>
-              <div class="button-row">
-                <button id="camera-vision-apply">Применить</button>
-                <button class="secondary" id="camera-vision-open-processed">Показать обработанный поток</button>
-              </div>
-              <div class="status-note" id="camera-vision-status">Ожидание параметров обработки.</div>
-              <pre class="message-box" id="camera-vision-details">—</pre>
+              <div class="status-note hidden" id="camera-vision-status">Ожидание параметров обработки.</div>
+              <pre class="message-box hidden" id="camera-vision-details">—</pre>
             </article>
           </div>
 
