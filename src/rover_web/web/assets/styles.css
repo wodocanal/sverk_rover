@@ -718,6 +718,7 @@ textarea {
   display: grid;
   grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
   gap: 18px;
+  align-items: start;
 }
 
 .sensor-layout {
@@ -768,6 +769,10 @@ textarea {
 
 .camera-vision-body {
   margin-top: 10px;
+}
+
+.camera-preview-panel {
+  align-self: start;
 }
 
 .camera-frame-wrap {
