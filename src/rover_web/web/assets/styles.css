@@ -342,6 +342,27 @@ p {
   margin: -6px 0 18px;
 }
 
+.section-tabs-toolbar {
+  align-items: center;
+}
+
+.section-tabs-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.section-tabs-actions .inline-form {
+  justify-content: flex-end;
+}
+
+.section-tabs-actions .warning-chip {
+  white-space: nowrap;
+}
+
 .section-tab {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1290,6 +1311,12 @@ textarea {
   .page-heading {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .section-tabs-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .metrics-grid,

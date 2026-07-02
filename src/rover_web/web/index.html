@@ -158,10 +158,7 @@ ROS State — ноды, топики и сервисы
       </section>
 
       <section class="page" id="page-camera">
-        <div class="page-heading">
-          <button class="secondary" id="camera-refresh-topics">Обновить источники</button>
-        </div>
-        <div class="section-tabs" data-tab-group="peripherals">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab active" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="display">Дисплей</button>
@@ -169,6 +166,9 @@ ROS State — ноды, топики и сервисы
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
+          <div class="section-tabs-actions">
+            <button class="secondary" id="camera-refresh-topics">Обновить источники</button>
+          </div>
         </div>
 
         <div class="camera-grid">
@@ -230,13 +230,13 @@ ROS State — ноды, топики и сервисы
       </section>
 
       <section class="page" id="page-drive">
-        <div class="page-heading">
-          <span class="warning-chip">Команды публикуются в <code id="drive-topic-label">/cmd_vel</code></span>
-        </div>
-        <div class="section-tabs" data-tab-group="movement">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="movement">
           <button class="section-tab active" data-page="drive">Управление</button>
           <button class="section-tab" data-page="routes">Маршруты</button>
           <button class="section-tab" data-page="visualization">Визуализация</button>
+          <div class="section-tabs-actions">
+            <span class="warning-chip">Команды публикуются в <code id="drive-topic-label">/cmd_vel</code></span>
+          </div>
         </div>
 
         <div class="two-column drive-layout">
@@ -274,13 +274,13 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-routes">
-        <div class="page-heading">
-          <button class="stop-button" id="route-stop">Остановить маршрут</button>
-        </div>
-        <div class="section-tabs" data-tab-group="movement">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="movement">
           <button class="section-tab" data-page="drive">Управление</button>
           <button class="section-tab active" data-page="routes">Маршруты</button>
           <button class="section-tab" data-page="visualization">Визуализация</button>
+          <div class="section-tabs-actions">
+            <button class="stop-button" id="route-stop">Остановить маршрут</button>
+          </div>
         </div>
 
         <div class="route-layout">
@@ -342,17 +342,17 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-visualization">
-        <div class="page-heading">
-          <div class="inline-form visualization-controls">
-            <label>Масштаб <input id="viz-scale" type="range" min="40" max="300" value="120"></label>
-            <label class="check-label"><input id="viz-follow" type="checkbox" checked> Следовать за ровером</label>
-            <button class="secondary" id="viz-clear">Очистить след</button>
-          </div>
-        </div>
-        <div class="section-tabs" data-tab-group="movement">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="movement">
           <button class="section-tab" data-page="drive">Управление</button>
           <button class="section-tab" data-page="routes">Маршруты</button>
           <button class="section-tab active" data-page="visualization">Визуализация</button>
+          <div class="section-tabs-actions">
+            <div class="inline-form visualization-controls">
+              <label>Масштаб <input id="viz-scale" type="range" min="40" max="300" value="120"></label>
+              <label class="check-label"><input id="viz-follow" type="checkbox" checked> Следовать за ровером</label>
+              <button class="secondary" id="viz-clear">Очистить след</button>
+            </div>
+          </div>
         </div>
         <div class="visualization-readout">
           <span id="viz-position">Позиция: —</span>
@@ -367,10 +367,7 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-lidar">
-        <div class="page-heading">
-          <button class="secondary" id="lidar-refresh-topics">Обновить источники</button>
-        </div>
-        <div class="section-tabs" data-tab-group="peripherals">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab active" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="display">Дисплей</button>
@@ -378,6 +375,9 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
+          <div class="section-tabs-actions">
+            <button class="secondary" id="lidar-refresh-topics">Обновить источники</button>
+          </div>
         </div>
         <div class="sensor-layout">
           <div class="sensor-side-column">
@@ -435,10 +435,7 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-octoliner">
-        <div class="page-heading">
-          <button class="secondary" id="octoliner-refresh-topics">Обновить источники</button>
-        </div>
-        <div class="section-tabs" data-tab-group="peripherals">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="display">Дисплей</button>
@@ -446,6 +443,9 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab active" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
+          <div class="section-tabs-actions">
+            <button class="secondary" id="octoliner-refresh-topics">Обновить источники</button>
+          </div>
         </div>
         <div class="sensor-layout">
           <div class="sensor-side-column">
@@ -478,10 +478,7 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-lights">
-        <div class="page-heading">
-          <button class="secondary" id="led-strip-refresh-topics">Обновить источники</button>
-        </div>
-        <div class="section-tabs" data-tab-group="peripherals">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="display">Дисплей</button>
@@ -489,6 +486,9 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
+          <div class="section-tabs-actions">
+            <button class="secondary" id="led-strip-refresh-topics">Обновить источники</button>
+          </div>
         </div>
         <div class="sensor-layout">
           <div class="sensor-side-column">
@@ -691,12 +691,12 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-diagnostics">
-        <div class="page-heading">
-          <button class="secondary" id="diagnostics-refresh">Обновить</button>
-        </div>
-        <div class="section-tabs" data-tab-group="service">
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="service">
           <button class="section-tab active" data-page="diagnostics">Диагностика</button>
           <button class="section-tab" data-page="settings">Настройки</button>
+          <div class="section-tabs-actions">
+            <button class="secondary" id="diagnostics-refresh">Обновить</button>
+          </div>
         </div>
         <div class="diagnostic-health-grid">
           <article class="health-card"><span>Моторы и одометрия</span><strong class="status-value" id="diagnostic-motor-status">—</strong><small id="diagnostic-motor-detail">Нет данных</small></article>
