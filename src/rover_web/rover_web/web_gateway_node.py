@@ -461,6 +461,8 @@ class RoverWebGateway(Node):
         self.declare_parameter('terminal_url', '')
         self.declare_parameter('terminal_port', 7681)
         self.declare_parameter('terminal_path', '/terminal/')
+        self.declare_parameter('rosboard_enabled', True)
+        self.declare_parameter('rosboard_port', 8888)
         self.declare_parameter('drive_command_timeout_sec', 0.25)
         self.declare_parameter('default_linear_speed_mps', 0.18)
         self.declare_parameter('default_lateral_speed_mps', 0.16)
@@ -521,6 +523,8 @@ class RoverWebGateway(Node):
         self.terminal_path = (
             str(self.get_parameter('terminal_path').value).strip() or '/terminal/'
         )
+        self.rosboard_enabled = bool(self.get_parameter('rosboard_enabled').value)
+        self.rosboard_port = int(self.get_parameter('rosboard_port').value)
         self.drive_command_timeout_sec = max(
             0.1, float(self.get_parameter('drive_command_timeout_sec').value)
         )
@@ -1127,6 +1131,8 @@ class RoverWebGateway(Node):
                 'terminal_url': self.terminal_url,
                 'terminal_port': self.terminal_port,
                 'terminal_path': self.terminal_path,
+                'rosboard_enabled': self.rosboard_enabled,
+                'rosboard_port': self.rosboard_port,
             },
             'geometry': geometry,
             'encoders': encoders,

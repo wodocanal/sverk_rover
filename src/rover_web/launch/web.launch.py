@@ -57,6 +57,8 @@ def generate_launch_description():
         DeclareLaunchArgument('terminal_bind_address', default_value='0.0.0.0'),
         DeclareLaunchArgument('terminal_port', default_value='7681'),
         DeclareLaunchArgument('terminal_path', default_value='/'),
+        DeclareLaunchArgument('rosboard_enabled', default_value='true'),
+        DeclareLaunchArgument('rosboard_port', default_value='8888'),
         DeclareLaunchArgument(
             'terminal_workspace',
             default_value=default_workspace_root(web_share),
@@ -103,6 +105,14 @@ def generate_launch_description():
                         value_type=int,
                     ),
                     'terminal_path': LaunchConfiguration('terminal_path'),
+                    'rosboard_enabled': ParameterValue(
+                        LaunchConfiguration('rosboard_enabled'),
+                        value_type=bool,
+                    ),
+                    'rosboard_port': ParameterValue(
+                        LaunchConfiguration('rosboard_port'),
+                        value_type=int,
+                    ),
                     'identity_file': str(
                         web_share / 'config' / 'robot_identity.yaml'
                     ),

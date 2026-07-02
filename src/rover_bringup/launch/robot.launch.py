@@ -43,8 +43,10 @@ def launch_setup(context):
     use_led_strip = as_bool(LaunchConfiguration('use_led_strip').perform(context))
     use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
     use_web = as_bool(LaunchConfiguration('use_web').perform(context))
+    use_rosboard = as_bool(LaunchConfiguration('use_rosboard').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
     use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context))
+    rosboard_port = LaunchConfiguration('rosboard_port').perform(context).strip() or '8888'
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
     imu_override = LaunchConfiguration('imu_device').perform(context).strip() or None
     lidar_override = LaunchConfiguration('lidar_device').perform(context).strip() or None
@@ -281,6 +283,18 @@ def launch_setup(context):
             ])),
             launch_arguments={
                 'command_topic': web_command_topic,
+                'rosboard_enabled': 'true' if use_rosboard else 'false',
+                'rosboard_port': rosboard_port,
+            }.items(),
+        ))
+
+    if use_rosboard:
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('rosboard'), 'launch', 'rosboard.launch.py'
+            ])),
+            launch_arguments={
+                'port': rosboard_port,
             }.items(),
         ))
 
@@ -347,6 +361,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_led_strip', default_value='true'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
         DeclareLaunchArgument('use_web', default_value='true'),
+        DeclareLaunchArgument('use_rosboard', default_value='true'),
+        DeclareLaunchArgument('rosboard_port', default_value='8888'),
         # Kept false for compatibility with the existing motion executor,
         # which publishes directly to /cmd_vel. Enable it for Nav2.
         DeclareLaunchArgument('use_twist_mux', default_value='false'),

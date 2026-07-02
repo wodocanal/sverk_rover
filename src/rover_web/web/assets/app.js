@@ -1021,6 +1021,24 @@ function renderSettings() {
   }
 }
 
+function rosboardUrl() {
+  const web = state.config?.web || {};
+  if (web.rosboard_enabled === false) return '';
+  const port = Number(web.rosboard_port || 8888) || 8888;
+  const protocol = location.protocol === 'https:' ? 'http:' : (location.protocol || 'http:');
+  return `${protocol}//${location.hostname}:${port}/`;
+}
+
+function updateOverviewRosboardLink() {
+  const button = $('#overview-open-rosboard');
+  const note = $('#overview-rosboard-url');
+  if (!button || !note) return;
+  const url = rosboardUrl();
+  const enabled = Boolean(url);
+  button.disabled = !enabled;
+  note.textContent = enabled ? `Rosboard: ${url}` : 'Rosboard: выключен';
+}
+
 function configureTerminal() {
   const terminalButton = $('#nav-terminal');
   const web = state.config?.web || {};
@@ -1070,6 +1088,7 @@ async function refreshIdentityAndConfig() {
     state.config = config;
     applyIdentity();
     renderSettings();
+    updateOverviewRosboardLink();
     configureTerminal();
     applyRouteDefaults(config);
     refreshDriveConfigFromConfig(config);
@@ -3417,6 +3436,14 @@ function bindOverviewPage() {
       await Promise.all([refreshSystem(), refreshStatus()]);
     });
   }
+  $('#overview-open-rosboard').addEventListener('click', () => {
+    const url = rosboardUrl();
+    if (!url) {
+      showToast('Rosboard выключен в текущем запуске', 'error');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  });
 }
 
 function bindRosPage() {
