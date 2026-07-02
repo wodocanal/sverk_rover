@@ -484,6 +484,7 @@ function setPage(page) {
   rememberGroupPage(page);
   localStorage.setItem(STORAGE_KEYS.page, page);
   document.title = `${currentPageTitle(page)} · СВЕРХ Rover`;
+  $('#page-title').textContent = currentPageTitle(page);
 
   $$('.nav-item').forEach((button) => {
     const navGroup = button.dataset.navGroup || groupForPage(button.dataset.page);
@@ -545,21 +546,21 @@ function setPage(page) {
     refreshTerminalFrame();
   }
 
+  if (page === 'settings') {
+    refreshIdentityAndConfig();
+    refreshCameraSettings();
+    refreshLidarSettings();
+    refreshLedStripSettings();
+    refreshOctolinerSettings();
+  }
+
   closeSidebar();
   sendHeartbeat();
 }
 
 function updateHealthIndicators() {
-  const graphCounts = state.rosGraph || state.system?.ros || {};
-  const rosSummary = Number.isFinite(graphCounts.topics)
-    ? `ROS ${graphCounts.topics}`
-    : 'ROS';
-  setToneClass($('#api-status'), state.apiHealthy ? 'ok' : 'error', state.apiHealthy ? 'API OK' : 'API DOWN');
   setToneClass($('#api-dot'), state.apiHealthy ? 'ok' : 'error');
-  setToneClass($('#ros-status'), state.rosHealthy ? 'ok' : 'warn', state.rosHealthy ? rosSummary : 'ROS WAIT');
   setToneClass($('#ros-dot'), state.rosHealthy ? 'ok' : 'warn');
-  const clients = state.status?.connected_clients ?? 0;
-  $('#client-count').textContent = `CLIENTS ${clients}`;
 }
 
 function applyIdentity() {
@@ -3232,9 +3233,12 @@ function bindSectionTabs() {
 }
 
 function bindOverviewPage() {
-  $('#overview-refresh').addEventListener('click', async () => {
-    await Promise.all([refreshSystem(), refreshStatus()]);
-  });
+  const button = $('#overview-refresh');
+  if (button) {
+    button.addEventListener('click', async () => {
+      await Promise.all([refreshSystem(), refreshStatus()]);
+    });
+  }
 }
 
 function bindRosPage() {
@@ -3303,7 +3307,6 @@ function bindDrivePage() {
   });
 
   $('#drive-stop').addEventListener('click', stopDrive);
-  $('#global-stop').addEventListener('click', issueGlobalStop);
 
   $$('#keypad button[data-key]').forEach((button) => {
     const activate = async () => {
@@ -3580,7 +3583,7 @@ function bindTerminalPage() {
 
 function bindDiagnosticsPage() {
   $('#diagnostics-refresh').addEventListener('click', async () => {
-    await Promise.all([refreshStatus(), refreshActivity()]);
+    await Promise.all([refreshSystem(), refreshStatus(), refreshActivity()]);
   });
 }
 
@@ -3590,7 +3593,7 @@ function bindSettingsPage() {
 
 function refreshPeriodicData() {
   refreshStatus();
-  if (state.page === 'overview' || !state.system) {
+  if (state.page === 'overview' || state.page === 'diagnostics' || !state.system) {
     refreshSystem();
   }
   if (state.page === 'ros' || !state.rosGraph) {

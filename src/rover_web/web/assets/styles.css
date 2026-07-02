@@ -61,7 +61,7 @@ textarea {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns: 210px minmax(0, 1fr);
   grid-template-rows: 64px 1fr;
   grid-template-areas:
     "top top"
@@ -73,14 +73,38 @@ textarea {
   position: sticky;
   top: 0;
   z-index: 20;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 20px;
+  gap: 12px;
   padding: 0 18px;
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(16px);
   box-shadow: 0 3px 16px rgba(31, 93, 120, 0.07);
+}
+
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.topbar-right {
+  justify-content: flex-end;
+}
+
+.topbar-title {
+  justify-self: center;
+  max-width: min(56vw, 560px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #063e5a;
 }
 
 .brand {
@@ -114,13 +138,6 @@ textarea {
   background: none;
   color: var(--text);
   font-size: 1.4rem;
-}
-
-.top-status {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .status-pill,
@@ -201,7 +218,7 @@ textarea {
   flex-direction: column;
   border-right: 1px solid var(--line);
   background: linear-gradient(180deg, #f5fbfe, #e9f7fc);
-  padding: 14px 10px;
+  padding: 14px 8px;
   z-index: 15;
 }
 
@@ -288,10 +305,10 @@ textarea {
 
 .page-heading {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-end;
   gap: 18px;
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 
 h1 {
@@ -314,9 +331,8 @@ p {
   color: var(--muted);
 }
 
-.page-heading p,
 .panel-heading-row p {
-  margin: 0;
+  display: none;
 }
 
 .section-tabs {
@@ -1252,7 +1268,7 @@ textarea {
     position: fixed;
     left: 0;
     top: 64px;
-    width: 240px;
+    width: 220px;
     transform: translateX(-105%);
     transition: transform 0.18s ease;
     box-shadow: var(--shadow);
@@ -1271,12 +1287,9 @@ textarea {
     display: none;
   }
 
-  .top-status #client-count {
-    display: none;
-  }
-
   .page-heading {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .metrics-grid,
