@@ -651,20 +651,17 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-hackathon">
-        <div class="two-column">
-          <article class="panel">
-            <h2>Страница в разработке</h2>
-            <p>Здесь можно будет собирать временные инструменты, демо-сценарии и отдельные хакатонные панели без перегрузки основных разделов.</p>
-            <div class="notice">Пока что раздел пустой.</div>
-          </article>
-          <article class="panel">
-            <h2>План наполнения</h2>
-            <pre class="message-box">- отдельные сценарии демонстрации
-- быстрые кнопки для экспериментов
-- интеграция с конкурсными заданиями
-- временные панели без влияния на основную структуру</pre>
-          </article>
+        <div class="page-heading hackathon-toolbar">
+          <select id="hackathon-file-select" aria-label="Выбор файла хакатона"></select>
+          <button id="hackathon-open-file">Открыть</button>
+          <button class="secondary" id="hackathon-refresh-files">Обновить список</button>
         </div>
+        <div class="status-note" id="hackathon-file-status">Выбери файл для просмотра.</div>
+        <article class="panel hackathon-viewer-panel">
+          <div id="hackathon-file-empty" class="notice">Файл ещё не выбран.</div>
+          <iframe id="hackathon-file-frame" class="hackathon-frame hidden" title="Hackathon file preview" src="about:blank"></iframe>
+          <div id="hackathon-markdown-view" class="hackathon-markdown hidden"></div>
+        </article>
       </section>
 
       <section class="page" id="page-terminal">

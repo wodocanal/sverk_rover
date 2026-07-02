@@ -18,6 +18,7 @@ web_gateway_node:
     max_angular_speed_radps: 1.50
 
     plans_directory: ~/.local/share/sverh-rover-web/plans
+    hackathon_files_root: ~/sverk_rover/hackathon_files
     terminal_enabled: true
     terminal_url: ''
     terminal_port: 7681

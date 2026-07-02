@@ -59,6 +59,13 @@ PLAN_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 V4L2_FMT_RE = re.compile(r"\[\d+\]: '([^']+)' \((.+)\)")
 V4L2_SIZE_RE = re.compile(r'Size:\s+Discrete\s+(\d+)x(\d+)')
 V4L2_INTERVAL_RE = re.compile(r'Interval:\s+Discrete\s+([0-9.]+)s\s+\(([0-9.]+)\s+fps\)')
+HACKATHON_FILE_TYPES = {
+    '.md': ('markdown', 'text/markdown; charset=utf-8'),
+    '.markdown': ('markdown', 'text/markdown; charset=utf-8'),
+    '.html': ('html', 'text/html; charset=utf-8'),
+    '.htm': ('html', 'text/html; charset=utf-8'),
+    '.pdf': ('pdf', 'application/pdf'),
+}
 CAMERA_PARAMETER_NAMES = [
     'device',
     'image_topic',
@@ -412,6 +419,10 @@ class RoverWebGateway(Node):
         except Exception:
             rover_share = share
         home = Path.home()
+        try:
+            workspace_root = share.parents[3]
+        except Exception:
+            workspace_root = home / 'sverk_rover'
 
         self.declare_parameter('bind_address', '0.0.0.0')
         self.declare_parameter('port', 8765)
@@ -431,6 +442,10 @@ class RoverWebGateway(Node):
         self.declare_parameter(
             'plans_directory',
             str(home / '.local' / 'share' / 'sverh-rover-web' / 'plans'),
+        )
+        self.declare_parameter(
+            'hackathon_files_root',
+            str(workspace_root / 'hackathon_files'),
         )
         self.declare_parameter(
             'seed_plans_directory',
@@ -478,6 +493,9 @@ class RoverWebGateway(Node):
         self.plans_directory = Path(
             str(self.get_parameter('plans_directory').value)
         ).expanduser()
+        self.hackathon_files_root = Path(
+            str(self.get_parameter('hackathon_files_root').value)
+        ).expanduser().resolve()
         self.seed_plans_directory = Path(
             str(self.get_parameter('seed_plans_directory').value)
         ).expanduser()
@@ -616,6 +634,7 @@ class RoverWebGateway(Node):
         self.create_timer(1.0, self._maintenance_timer)
 
         self.plans_directory.mkdir(parents=True, exist_ok=True)
+        self.hackathon_files_root.mkdir(parents=True, exist_ok=True)
         self._seed_default_plans()
         self.record_activity('system', 'Web gateway started', {'port': self.port})
 
@@ -1102,6 +1121,7 @@ class RoverWebGateway(Node):
             'led_strip_node_name': self.led_strip_node_name,
             'octoliner_node_name': self.octoliner_node_name,
             'plans_directory': str(self.plans_directory),
+            'hackathon_files_root': str(self.hackathon_files_root),
             'web': {
                 'terminal_enabled': self.terminal_enabled,
                 'terminal_url': self.terminal_url,
@@ -2665,6 +2685,53 @@ class RoverWebGateway(Node):
         with self._lock:
             return self.motion_status_payload_locked()
 
+    def _resolve_hackathon_file(self, relative_path: str) -> Path:
+        requested = relative_path.strip().replace('\\', '/').lstrip('/')
+        if not requested:
+            raise FileNotFoundError('Hackathon file name is empty')
+        candidate = (self.hackathon_files_root / requested).resolve()
+        root = self.hackathon_files_root.resolve()
+        if os.path.commonpath([str(root), str(candidate)]) != str(root):
+            raise PermissionError('Forbidden')
+        if candidate.suffix.lower() not in HACKATHON_FILE_TYPES:
+            raise PermissionError('Unsupported hackathon file type')
+        if not candidate.exists() or not candidate.is_file():
+            raise FileNotFoundError(f'{relative_path} not found')
+        return candidate
+
+    def hackathon_files_payload(self) -> dict[str, Any]:
+        root = self.hackathon_files_root.resolve()
+        files: list[dict[str, Any]] = []
+        if root.exists():
+            for path in sorted(root.rglob('*')):
+                if not path.is_file():
+                    continue
+                info = HACKATHON_FILE_TYPES.get(path.suffix.lower())
+                if info is None:
+                    continue
+                kind, content_type = info
+                relative_path = path.relative_to(root).as_posix()
+                try:
+                    size_bytes = path.stat().st_size
+                except OSError:
+                    size_bytes = 0
+                files.append({
+                    'path': relative_path,
+                    'name': path.name,
+                    'kind': kind,
+                    'content_type': content_type,
+                    'size_bytes': size_bytes,
+                })
+        return {
+            'root': str(root),
+            'files': files,
+        }
+
+    def hackathon_file(self, relative_path: str) -> tuple[bytes, str]:
+        path = self._resolve_hackathon_file(relative_path)
+        _, content_type = HACKATHON_FILE_TYPES[path.suffix.lower()]
+        return path.read_bytes(), content_type
+
     def _serve_static_file(self, request_path: str) -> tuple[bytes, str]:
         relative_path = 'index.html' if request_path in ('', '/') else request_path.lstrip('/')
         candidate = os.path.normpath(os.path.join(str(self.web_root), relative_path))
@@ -2712,6 +2779,9 @@ class RoverWebGateway(Node):
                         return
                     if path == '/api/system':
                         self._send_json(gateway._system_summary(), HTTPStatus.OK)
+                        return
+                    if path == '/api/hackathon/files':
+                        self._send_json(gateway.hackathon_files_payload(), HTTPStatus.OK)
                         return
                     if path == '/api/plans':
                         self._send_json(
@@ -2821,6 +2891,11 @@ class RoverWebGateway(Node):
                         return
                     if path == '/api/drive':
                         self._send_json(gateway.drive_payload(), HTTPStatus.OK)
+                        return
+                    if path.startswith('/hackathon-files/'):
+                        relative_path = unquote(path.removeprefix('/hackathon-files/'))
+                        payload, content_type = gateway.hackathon_file(relative_path)
+                        self._send_bytes(payload, content_type, HTTPStatus.OK, cache=False)
                         return
 
                     body, content_type = gateway._serve_static_file(path)

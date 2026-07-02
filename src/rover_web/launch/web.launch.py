@@ -45,6 +45,12 @@ def generate_launch_description():
                 Path.home() / '.local' / 'share' / 'sverh-rover-web' / 'plans'
             ),
         ),
+        DeclareLaunchArgument(
+            'hackathon_files_root',
+            default_value=str(
+                Path(default_workspace_root(web_share)) / 'hackathon_files'
+            ),
+        ),
         DeclareLaunchArgument('terminal_enabled', default_value='true'),
         DeclareLaunchArgument('start_terminal', default_value='true'),
         DeclareLaunchArgument('terminal_url', default_value=''),
@@ -86,6 +92,7 @@ def generate_launch_description():
                     'command_topic': LaunchConfiguration('command_topic'),
                     'rover_config_file': LaunchConfiguration('rover_config_file'),
                     'plans_directory': LaunchConfiguration('plans_directory'),
+                    'hackathon_files_root': LaunchConfiguration('hackathon_files_root'),
                     'terminal_enabled': ParameterValue(
                         LaunchConfiguration('terminal_enabled'),
                         value_type=bool,

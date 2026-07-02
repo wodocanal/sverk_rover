@@ -320,6 +320,17 @@ textarea {
   white-space: nowrap;
 }
 
+.hackathon-toolbar {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.hackathon-toolbar select {
+  flex: 1 1 420px;
+  min-width: min(280px, 100%);
+  max-width: 760px;
+}
+
 h1 {
   font-size: clamp(1.7rem, 3vw, 2.4rem);
   margin: 0 0 5px;
@@ -801,6 +812,78 @@ textarea {
   color: #d8eef7;
   text-align: center;
   background: rgba(13, 28, 35, 0.6);
+}
+
+.hackathon-viewer-panel {
+  min-height: 72vh;
+}
+
+.hackathon-frame,
+.hackathon-markdown {
+  width: 100%;
+  min-height: 72vh;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.hackathon-frame {
+  display: block;
+}
+
+.hackathon-markdown {
+  padding: 24px;
+  overflow: auto;
+  line-height: 1.6;
+}
+
+.hackathon-markdown h1,
+.hackathon-markdown h2,
+.hackathon-markdown h3 {
+  color: #063e5a;
+  margin-top: 0;
+}
+
+.hackathon-markdown p,
+.hackathon-markdown li,
+.hackathon-markdown blockquote {
+  color: var(--text);
+}
+
+.hackathon-markdown ul,
+.hackathon-markdown ol {
+  padding-left: 24px;
+}
+
+.hackathon-markdown blockquote {
+  margin: 0 0 16px;
+  padding-left: 14px;
+  border-left: 3px solid var(--line-strong);
+}
+
+.hackathon-markdown code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.hackathon-markdown pre {
+  margin: 0 0 16px;
+  padding: 14px;
+  border-radius: 12px;
+  overflow: auto;
+  background: #0f1d26;
+  color: #eaf8ff;
+}
+
+.hackathon-markdown pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.hackathon-markdown a {
+  color: var(--accent-dark);
 }
 
 .keypad {

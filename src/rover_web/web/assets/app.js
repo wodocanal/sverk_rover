@@ -13,6 +13,7 @@ const STORAGE_KEYS = {
   movementPage: 'rover_web.movement_page',
   peripheralsPage: 'rover_web.peripherals_page',
   servicePage: 'rover_web.service_page',
+  hackathonFile: 'rover_web.hackathon_file',
   ledStaticPresets: 'rover_web.led_static_presets',
 };
 
@@ -202,6 +203,8 @@ const state = {
     selectedName: '',
     draft: null,
   },
+  hackathonFiles: [],
+  selectedHackathonFile: localStorage.getItem(STORAGE_KEYS.hackathonFile) || '',
   viz: {
     trail: [],
     scale: Number(localStorage.getItem(STORAGE_KEYS.vizScale) || '120'),
@@ -257,6 +260,146 @@ function formatSeconds(total) {
 
 function formatFloat(value, digits = 2) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '—';
+}
+
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] || char));
+}
+
+function hackathonFileUrl(path) {
+  return `/hackathon-files/${String(path || '')
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')}`;
+}
+
+function hackathonKindLabel(kind) {
+  return {
+    markdown: 'Markdown',
+    html: 'HTML',
+    pdf: 'PDF',
+  }[String(kind || '').toLowerCase()] || 'Файл';
+}
+
+function renderMarkdownInline(text) {
+  let html = escapeHtml(text);
+  html = html.replace(
+    /\[([^\]]+)\]\(([^)\s]+)\)/g,
+    (_match, label, url) => {
+      const safeUrl = /^(https?:\/\/|mailto:|\/|#)/i.test(url) ? escapeHtml(url) : '#';
+      return `<a href="${safeUrl}" target="_blank" rel="noreferrer">${label}</a>`;
+    },
+  );
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return html;
+}
+
+function renderMarkdownDocument(text) {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  const parts = [];
+  let paragraph = [];
+  let listType = null;
+  let listItems = [];
+  let inCode = false;
+  let codeLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    parts.push(`<p>${renderMarkdownInline(paragraph.join(' '))}</p>`);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listType || !listItems.length) return;
+    const items = listItems
+      .map((item) => `<li>${renderMarkdownInline(item)}</li>`)
+      .join('');
+    parts.push(`<${listType}>${items}</${listType}>`);
+    listType = null;
+    listItems = [];
+  };
+
+  const flushCode = () => {
+    parts.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+    codeLines = [];
+  };
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith('```')) {
+      flushParagraph();
+      flushList();
+      if (inCode) {
+        flushCode();
+      }
+      inCode = !inCode;
+      continue;
+    }
+
+    if (inCode) {
+      codeLines.push(rawLine);
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length;
+      parts.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*]\s+(.*)$/);
+    if (unordered) {
+      flushParagraph();
+      if (listType && listType !== 'ul') flushList();
+      listType = 'ul';
+      listItems.push(unordered[1]);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+\.\s+(.*)$/);
+    if (ordered) {
+      flushParagraph();
+      if (listType && listType !== 'ol') flushList();
+      listType = 'ol';
+      listItems.push(ordered[1]);
+      continue;
+    }
+
+    const quote = trimmed.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      parts.push(`<blockquote>${renderMarkdownInline(quote[1])}</blockquote>`);
+      continue;
+    }
+
+    paragraph.push(trimmed);
+  }
+
+  if (inCode) {
+    flushCode();
+  }
+  flushParagraph();
+  flushList();
+  return parts.join('\n') || '<p>Файл пустой.</p>';
 }
 
 function formatAngleRad(rad) {
@@ -516,6 +659,14 @@ function setPage(page) {
   } else {
     refreshLidarSettings();
     renderLidarTopics();
+  }
+
+  if (page === 'hackathon') {
+    refreshHackathonFiles().then(() => {
+      if (state.selectedHackathonFile) {
+        openSelectedHackathonFile();
+      }
+    });
   }
 
   if (page !== 'lights') {
@@ -3603,6 +3754,145 @@ function bindOctolinerPage() {
   $('#octoliner-setting-sensitivity').addEventListener('input', updateOctolinerSensitivityOutput);
 }
 
+function currentHackathonFile() {
+  return safeArray(state.hackathonFiles).find(
+    (item) => item.path === state.selectedHackathonFile,
+  ) || null;
+}
+
+function resetHackathonViewer(message = 'Файл ещё не выбран.') {
+  $('#hackathon-file-frame').src = 'about:blank';
+  $('#hackathon-file-frame').removeAttribute('sandbox');
+  $('#hackathon-file-frame').classList.add('hidden');
+  $('#hackathon-markdown-view').innerHTML = '';
+  $('#hackathon-markdown-view').classList.add('hidden');
+  $('#hackathon-file-empty').textContent = message;
+  $('#hackathon-file-empty').classList.remove('hidden');
+}
+
+function renderHackathonFileSelector() {
+  const select = $('#hackathon-file-select');
+  const openButton = $('#hackathon-open-file');
+  const files = safeArray(state.hackathonFiles);
+  select.innerHTML = '';
+
+  if (!files.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Нет доступных файлов';
+    select.append(option);
+    select.disabled = true;
+    openButton.disabled = true;
+    state.selectedHackathonFile = '';
+    localStorage.removeItem(STORAGE_KEYS.hackathonFile);
+    $('#hackathon-file-status').textContent = 'В папке хакатона пока нет файлов.';
+    resetHackathonViewer('В папке хакатона пока нет файлов.');
+    return;
+  }
+
+  if (!files.some((item) => item.path === state.selectedHackathonFile)) {
+    state.selectedHackathonFile = files[0].path;
+  }
+
+  files.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.path;
+    option.textContent = `${item.path} (${hackathonKindLabel(item.kind)})`;
+    if (item.path === state.selectedHackathonFile) {
+      option.selected = true;
+    }
+    select.append(option);
+  });
+
+  select.disabled = false;
+  openButton.disabled = false;
+  localStorage.setItem(STORAGE_KEYS.hackathonFile, state.selectedHackathonFile);
+}
+
+async function refreshHackathonFiles() {
+  try {
+    const payload = await api('/api/hackathon/files');
+    state.hackathonFiles = safeArray(payload.files);
+    renderHackathonFileSelector();
+    return payload;
+  } catch (error) {
+    state.hackathonFiles = [];
+    renderHackathonFileSelector();
+    $('#hackathon-file-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+    return null;
+  }
+}
+
+async function openSelectedHackathonFile() {
+  const select = $('#hackathon-file-select');
+  const selectedPath = (select.value || state.selectedHackathonFile || '').trim();
+  if (!selectedPath) {
+    resetHackathonViewer('Файл ещё не выбран.');
+    $('#hackathon-file-status').textContent = 'Выбери файл для просмотра.';
+    return;
+  }
+
+  state.selectedHackathonFile = selectedPath;
+  localStorage.setItem(STORAGE_KEYS.hackathonFile, selectedPath);
+  const file = currentHackathonFile();
+  if (!file) {
+    resetHackathonViewer('Файл не найден в текущем списке.');
+    $('#hackathon-file-status').textContent = 'Файл не найден в текущем списке.';
+    return;
+  }
+
+  const url = hackathonFileUrl(file.path);
+  $('#hackathon-file-status').textContent = `Открывается ${file.path}...`;
+
+  try {
+    if (String(file.kind) === 'markdown') {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Не удалось открыть файл (${response.status})`);
+      }
+      const text = await response.text();
+      $('#hackathon-file-frame').src = 'about:blank';
+      $('#hackathon-file-frame').removeAttribute('sandbox');
+      $('#hackathon-file-frame').classList.add('hidden');
+      $('#hackathon-markdown-view').innerHTML = renderMarkdownDocument(text);
+      $('#hackathon-markdown-view').classList.remove('hidden');
+    } else {
+      $('#hackathon-markdown-view').innerHTML = '';
+      $('#hackathon-markdown-view').classList.add('hidden');
+      if (String(file.kind) === 'html') {
+        $('#hackathon-file-frame').setAttribute('sandbox', '');
+      } else {
+        $('#hackathon-file-frame').removeAttribute('sandbox');
+      }
+      $('#hackathon-file-frame').src = url;
+      $('#hackathon-file-frame').classList.remove('hidden');
+    }
+
+    $('#hackathon-file-empty').classList.add('hidden');
+    $('#hackathon-file-status').textContent = `Открыт файл: ${file.path} · ${hackathonKindLabel(file.kind)} · ${formatBytes(file.size_bytes)}`;
+  } catch (error) {
+    resetHackathonViewer('Не удалось открыть выбранный файл.');
+    $('#hackathon-file-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+  }
+}
+
+function bindHackathonPage() {
+  $('#hackathon-refresh-files').addEventListener('click', async () => {
+    const payload = await refreshHackathonFiles();
+    if (payload) {
+      await openSelectedHackathonFile();
+    }
+  });
+  $('#hackathon-open-file').addEventListener('click', openSelectedHackathonFile);
+  $('#hackathon-file-select').addEventListener('change', async (event) => {
+    state.selectedHackathonFile = event.target.value || '';
+    localStorage.setItem(STORAGE_KEYS.hackathonFile, state.selectedHackathonFile);
+    await openSelectedHackathonFile();
+  });
+}
+
 function bindTerminalPage() {
   $('#terminal-reload').addEventListener('click', () => {
     refreshTerminalFrame(true);
@@ -3658,6 +3948,7 @@ async function initialize() {
   bindLidarPage();
   bindLedStripPage();
   bindOctolinerPage();
+  bindHackathonPage();
   bindTerminalPage();
   bindDiagnosticsPage();
   bindSettingsPage();
@@ -3678,6 +3969,7 @@ async function initialize() {
     refreshOctolinerSettings(),
     refreshDriveConfig(),
     refreshPlanList(),
+    refreshHackathonFiles(),
     refreshActivity(),
   ]);
 
@@ -3700,6 +3992,7 @@ async function initialize() {
   drawLedStripVisualization();
   drawOctolinerVisualization();
   renderRoutePreview();
+  await openSelectedHackathonFile();
 
   await recordActivity('Web session started', {
     session_id: state.sessionId,
