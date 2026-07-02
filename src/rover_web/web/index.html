@@ -58,13 +58,6 @@ ROS State — ноды, топики и сервисы
       </section>
 
       <section class="page" id="page-ros">
-        <div class="card-grid ros-cards">
-          <article class="metric-card"><span>Нод</span><strong id="ros-nodes-count">—</strong><small>шт</small></article>
-          <article class="metric-card"><span>Топиков</span><strong id="ros-topics-count">—</strong><small>шт</small></article>
-          <article class="metric-card"><span>Сервисов</span><strong id="ros-services-count">—</strong><small>шт</small></article>
-          <article class="metric-card"><span>Image topics</span><strong id="ros-image-count">—</strong><small>шт</small></article>
-        </div>
-
         <div class="section-tabs section-tabs-toolbar" data-tab-group="ros-state">
           <button class="section-tab active" data-ros-tab="topics">Топики: <span id="ros-topics-tab-count">—</span></button>
           <button class="section-tab" data-ros-tab="services">Сервисы: <span id="ros-services-tab-count">—</span></button>
@@ -679,10 +672,10 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-terminal">
-        <div class="page-heading">
-          <button class="secondary" id="terminal-reload">Перезапустить iframe</button>
+        <div class="page-heading terminal-toolbar">
+          <div class="status-note terminal-note" id="terminal-title">Терминал: —</div>
+          <button class="secondary" id="terminal-reload">Перезапустить терминал</button>
         </div>
-        <div class="status-note terminal-note" id="terminal-title">Терминал: —</div>
         <div id="terminal-unavailable" class="notice hidden">Веб-терминал не настроен для этого запуска.</div>
         <iframe id="terminal-frame" class="terminal-frame" title="Web terminal" src="about:blank"></iframe>
       </section>
@@ -700,6 +693,12 @@ angular.z: 0.00</pre>
           <article class="health-card"><span>IMU</span><strong class="status-value" id="diagnostic-imu-status">—</strong><small id="diagnostic-imu-detail">Нет данных</small></article>
           <article class="health-card"><span>EKF /odom</span><strong class="status-value" id="diagnostic-odom-status">—</strong><small id="diagnostic-odom-detail">Нет данных</small></article>
           <article class="health-card"><span>/diagnostics</span><strong class="status-value" id="diagnostic-topic-status">—</strong><small id="diagnostic-topic-detail">Нет данных</small></article>
+        </div>
+        <div class="card-grid ros-cards">
+          <article class="metric-card"><span>Нод</span><strong id="ros-nodes-count">—</strong><small>шт</small></article>
+          <article class="metric-card"><span>Топиков</span><strong id="ros-topics-count">—</strong><small>шт</small></article>
+          <article class="metric-card"><span>Сервисов</span><strong id="ros-services-count">—</strong><small>шт</small></article>
+          <article class="metric-card"><span>Image topics</span><strong id="ros-image-count">—</strong><small>шт</small></article>
         </div>
         <div class="card-grid metrics-grid">
           <article class="metric-card"><span>Позиция X</span><strong id="metric-x">—</strong><small>м</small></article>
