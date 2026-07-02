@@ -654,6 +654,9 @@ textarea {
   display: grid;
   gap: 6px;
   margin-top: 4px;
+  min-height: 340px;
+  max-height: 520px;
+  padding-right: 4px;
 }
 
 .list-item {

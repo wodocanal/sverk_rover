@@ -158,7 +158,7 @@ const state = {
   config: null,
   activity: [],
   rosGraph: null,
-  rosTab: localStorage.getItem(STORAGE_KEYS.rosTab) || 'nodes',
+  rosTab: localStorage.getItem(STORAGE_KEYS.rosTab) || 'topics',
   selectedNode: null,
   selectedNodeInfo: null,
   selectedTopic: null,
@@ -973,7 +973,7 @@ function renderList(element, items, selectedKey, factory) {
 }
 
 function setRosTab(tab) {
-  const next = ['nodes', 'topics', 'services'].includes(tab) ? tab : 'nodes';
+  const next = ['topics', 'services', 'nodes'].includes(tab) ? tab : 'topics';
   state.rosTab = next;
   localStorage.setItem(STORAGE_KEYS.rosTab, next);
   $$('.section-tab[data-ros-tab]').forEach((button) => {
@@ -999,15 +999,18 @@ async function refreshRosGraph() {
     $('#ros-nodes-count').textContent = payload.nodes.length;
     $('#ros-topics-count').textContent = payload.topics.length;
     $('#ros-services-count').textContent = payload.services.length;
+    $('#ros-nodes-tab-count').textContent = payload.nodes.length;
+    $('#ros-topics-tab-count').textContent = payload.topics.length;
+    $('#ros-services-tab-count').textContent = payload.services.length;
     $('#ros-image-count').textContent = payload.image_topics.length;
+    renderTopics();
+    renderServices();
     renderNodes();
     if (state.selectedNode) {
       selectNode(state.selectedNode);
     } else {
       renderNodeDetails();
     }
-    renderTopics();
-    renderServices();
     renderCameraTopics();
     renderLidarTopics();
     renderOctolinerTopics();
@@ -1029,7 +1032,7 @@ function renderNodes() {
     button.type = 'button';
     button.className = 'list-item';
     button.dataset.key = item.full_name || '';
-    button.innerHTML = `<strong>${item.full_name || item.name || 'node'}</strong><small>${item.namespace || '/'}</small>`;
+    button.innerHTML = `<strong>${item.full_name || item.name || 'node'}</strong>`;
     button.addEventListener('click', () => selectNode(item.full_name));
     return button;
   });

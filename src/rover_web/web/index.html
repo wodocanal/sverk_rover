@@ -58,10 +58,6 @@ ROS State — ноды, топики и сервисы
       </section>
 
       <section class="page" id="page-ros">
-        <div class="page-heading">
-          <button class="secondary" id="ros-refresh">Обновить граф</button>
-        </div>
-
         <div class="card-grid ros-cards">
           <article class="metric-card"><span>Нод</span><strong id="ros-nodes-count">—</strong><small>шт</small></article>
           <article class="metric-card"><span>Топиков</span><strong id="ros-topics-count">—</strong><small>шт</small></article>
@@ -69,13 +65,16 @@ ROS State — ноды, топики и сервисы
           <article class="metric-card"><span>Image topics</span><strong id="ros-image-count">—</strong><small>шт</small></article>
         </div>
 
-        <div class="section-tabs" data-tab-group="ros-state">
-          <button class="section-tab active" data-ros-tab="nodes">Ноды</button>
-          <button class="section-tab" data-ros-tab="topics">Топики</button>
-          <button class="section-tab" data-ros-tab="services">Сервисы</button>
+        <div class="section-tabs section-tabs-toolbar" data-tab-group="ros-state">
+          <button class="section-tab active" data-ros-tab="topics">Топики: <span id="ros-topics-tab-count">—</span></button>
+          <button class="section-tab" data-ros-tab="services">Сервисы: <span id="ros-services-tab-count">—</span></button>
+          <button class="section-tab" data-ros-tab="nodes">Ноды: <span id="ros-nodes-tab-count">—</span></button>
+          <div class="section-tabs-actions">
+            <button class="secondary" id="ros-refresh">Обновить</button>
+          </div>
         </div>
 
-        <div class="ros-section active" id="ros-section-nodes">
+        <div class="ros-section" id="ros-section-nodes">
           <div class="two-column ros-detail-layout">
             <article class="panel list-panel">
               <h2>Ноды</h2>
@@ -96,7 +95,7 @@ ROS State — ноды, топики и сервисы
           </div>
         </div>
 
-        <div class="ros-section" id="ros-section-topics">
+        <div class="ros-section active" id="ros-section-topics">
           <div class="two-column ros-detail-layout">
             <article class="panel list-panel">
               <h2>Топики</h2>
@@ -108,11 +107,12 @@ ROS State — ноды, топики и сервисы
               <div class="panel-heading-row">
                 <div>
                   <h2 id="topic-detail-title">Выбери топик</h2>
-                  <p>Для image topic кадр лучше смотреть на странице камеры.</p>
                 </div>
                 <button class="secondary" id="topic-refresh">Обновить</button>
               </div>
               <dl class="detail-list" id="topic-meta"></dl>
+              <div class="status-note" id="topic-action-status">Выбери топик, чтобы посмотреть данные.</div>
+              <pre class="message-box" id="topic-latest-message">Нет данных.</pre>
               <label>JSON для публикации
                 <textarea id="topic-payload" class="code-input" rows="10"></textarea>
               </label>
@@ -120,8 +120,6 @@ ROS State — ноды, топики и сервисы
                 <button class="secondary" id="topic-template">Шаблон</button>
                 <button id="topic-publish">Опубликовать</button>
               </div>
-              <div class="status-note" id="topic-action-status">Выбери топик, чтобы посмотреть данные.</div>
-              <pre class="message-box" id="topic-latest-message">Нет данных.</pre>
             </article>
           </div>
         </div>
@@ -138,7 +136,6 @@ ROS State — ноды, топики и сервисы
               <div class="panel-heading-row">
                 <div>
                   <h2 id="service-detail-title">Выбери сервис</h2>
-                  <p>Вызов строится прямо через backend без rosbridge.</p>
                 </div>
                 <button class="secondary" id="service-refresh">Обновить</button>
               </div>
