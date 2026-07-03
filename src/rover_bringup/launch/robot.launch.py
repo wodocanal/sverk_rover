@@ -13,7 +13,7 @@ from launch.actions import (
     OpaqueFunction,
 )
 from launch.events import Shutdown
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.launch_description_sources import AnyLaunchDescriptionSource, PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -44,9 +44,11 @@ def launch_setup(context):
     use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
     use_web = as_bool(LaunchConfiguration('use_web').perform(context))
     use_rosboard = as_bool(LaunchConfiguration('use_rosboard').perform(context))
+    use_foxglove = as_bool(LaunchConfiguration('use_foxglove').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
     use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context))
     rosboard_port = LaunchConfiguration('rosboard_port').perform(context).strip() or '8888'
+    foxglove_port = LaunchConfiguration('foxglove_port').perform(context).strip() or '8766'
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
     imu_override = LaunchConfiguration('imu_device').perform(context).strip() or None
     lidar_override = LaunchConfiguration('lidar_device').perform(context).strip() or None
@@ -89,6 +91,21 @@ def launch_setup(context):
             f'Device mode={discovery_mode}; ' + '; '.join(detected)
         )
     )]
+    foxglove_launch_path: Path | None = None
+    if use_foxglove:
+        try:
+            foxglove_launch_path = (
+                Path(get_package_share_directory('foxglove_bridge'))
+                / 'launch'
+                / 'foxglove_bridge_launch.xml'
+            )
+        except Exception:
+            actions.append(LogInfo(
+                msg=(
+                    '[WARN] foxglove_bridge package is not installed. '
+                    'Foxglove button will be disabled until it is available.'
+                )
+            ))
 
     geometry = config['geometry']
     encoders = config['encoders']
@@ -285,6 +302,8 @@ def launch_setup(context):
                 'command_topic': web_command_topic,
                 'rosboard_enabled': 'true' if use_rosboard else 'false',
                 'rosboard_port': rosboard_port,
+                'foxglove_enabled': 'true' if foxglove_launch_path is not None else 'false',
+                'foxglove_port': foxglove_port,
             }.items(),
         ))
 
@@ -295,6 +314,15 @@ def launch_setup(context):
             ])),
             launch_arguments={
                 'port': rosboard_port,
+            }.items(),
+        ))
+
+    if foxglove_launch_path is not None:
+        actions.append(IncludeLaunchDescription(
+            AnyLaunchDescriptionSource(str(foxglove_launch_path)),
+            launch_arguments={
+                'address': '0.0.0.0',
+                'port': foxglove_port,
             }.items(),
         ))
 
@@ -363,6 +391,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_web', default_value='true'),
         DeclareLaunchArgument('use_rosboard', default_value='true'),
         DeclareLaunchArgument('rosboard_port', default_value='8888'),
+        DeclareLaunchArgument('use_foxglove', default_value='true'),
+        DeclareLaunchArgument('foxglove_port', default_value='8766'),
         # Kept false for compatibility with the existing motion executor,
         # which publishes directly to /cmd_vel. Enable it for Nav2.
         DeclareLaunchArgument('use_twist_mux', default_value='false'),

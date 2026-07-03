@@ -59,6 +59,8 @@ def generate_launch_description():
         DeclareLaunchArgument('terminal_path', default_value='/'),
         DeclareLaunchArgument('rosboard_enabled', default_value='true'),
         DeclareLaunchArgument('rosboard_port', default_value='8888'),
+        DeclareLaunchArgument('foxglove_enabled', default_value='false'),
+        DeclareLaunchArgument('foxglove_port', default_value='8766'),
         DeclareLaunchArgument(
             'terminal_workspace',
             default_value=default_workspace_root(web_share),
@@ -111,6 +113,14 @@ def generate_launch_description():
                     ),
                     'rosboard_port': ParameterValue(
                         LaunchConfiguration('rosboard_port'),
+                        value_type=int,
+                    ),
+                    'foxglove_enabled': ParameterValue(
+                        LaunchConfiguration('foxglove_enabled'),
+                        value_type=bool,
+                    ),
+                    'foxglove_port': ParameterValue(
+                        LaunchConfiguration('foxglove_port'),
                         value_type=int,
                     ),
                     'identity_file': str(

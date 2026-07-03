@@ -1029,6 +1029,24 @@ function rosboardUrl() {
   return `${protocol}//${location.hostname}:${port}/`;
 }
 
+function foxgloveWebSocketUrl() {
+  const web = state.config?.web || {};
+  if (web.foxglove_enabled === false) return '';
+  const port = Number(web.foxglove_port || 8766) || 8766;
+  return `ws://${location.hostname}:${port}`;
+}
+
+function foxgloveAppUrl() {
+  const websocketUrl = foxgloveWebSocketUrl();
+  if (!websocketUrl) return '';
+  const params = new URLSearchParams({
+    ds: 'foxglove-websocket',
+    'ds.url': websocketUrl,
+    openIn: 'web',
+  });
+  return `https://app.foxglove.dev/~/view?${params.toString()}`;
+}
+
 function updateOverviewRosboardLink() {
   const button = $('#overview-open-rosboard');
   const note = $('#overview-rosboard-url');
@@ -1037,6 +1055,22 @@ function updateOverviewRosboardLink() {
   const enabled = Boolean(url);
   button.disabled = !enabled;
   note.textContent = enabled ? `Rosboard: ${url}` : 'Rosboard: выключен';
+}
+
+function updateExternalToolButtons() {
+  const terminalButton = $('#nav-terminal-external');
+  const foxgloveButton = $('#nav-foxglove-external');
+  const terminalLink = terminalUrl();
+  const foxgloveLink = foxgloveAppUrl();
+
+  if (terminalButton) {
+    terminalButton.disabled = !terminalLink;
+    terminalButton.title = terminalLink || 'Терминал недоступен в текущем запуске';
+  }
+  if (foxgloveButton) {
+    foxgloveButton.disabled = !foxgloveLink;
+    foxgloveButton.title = foxgloveLink || 'Foxglove недоступен в текущем запуске';
+  }
 }
 
 function configureTerminal() {
@@ -1056,6 +1090,7 @@ function configureTerminal() {
 
   notice.classList.add('hidden');
   frame.classList.remove('hidden');
+  updateExternalToolButtons();
 }
 
 function terminalUrl() {
@@ -1090,6 +1125,7 @@ async function refreshIdentityAndConfig() {
     renderSettings();
     updateOverviewRosboardLink();
     configureTerminal();
+    updateExternalToolButtons();
     applyRouteDefaults(config);
     refreshDriveConfigFromConfig(config);
   } catch (error) {
@@ -3418,6 +3454,22 @@ function bindNavigation() {
   });
   $('#menu-toggle').addEventListener('click', () => {
     $('#sidebar').classList.toggle('open');
+  });
+  $('#nav-terminal-external').addEventListener('click', () => {
+    const url = terminalUrl();
+    if (!url) {
+      showToast('Терминал недоступен в текущем запуске', 'error');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  });
+  $('#nav-foxglove-external').addEventListener('click', () => {
+    const url = foxgloveAppUrl();
+    if (!url) {
+      showToast('Foxglove недоступен в текущем запуске', 'error');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
   });
 }
 
