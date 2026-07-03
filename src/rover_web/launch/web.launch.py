@@ -1,8 +1,9 @@
 from pathlib import Path
+import shutil
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo
 from launch.conditions import IfCondition
 from launch.substitutions import FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
@@ -30,8 +31,10 @@ def default_workspace_root(web_share: Path) -> str:
 def generate_launch_description():
     web_share = Path(get_package_share_directory('rover_web'))
     terminal_shell = str(web_share / 'tools' / 'rover_terminal_shell.sh')
-
-    return LaunchDescription([
+    code_server_shell = str(web_share / 'tools' / 'rover_code_server.sh')
+    code_server_bin = shutil.which('code-server')
+    vscode_runtime_available = code_server_bin is not None
+    actions = [
         DeclareLaunchArgument('bind_address', default_value='0.0.0.0'),
         DeclareLaunchArgument('port', default_value='8765'),
         DeclareLaunchArgument('command_topic', default_value='/cmd_vel'),
@@ -61,8 +64,18 @@ def generate_launch_description():
         DeclareLaunchArgument('rosboard_port', default_value='8888'),
         DeclareLaunchArgument('foxglove_enabled', default_value='false'),
         DeclareLaunchArgument('foxglove_port', default_value='8766'),
+        DeclareLaunchArgument('vscode_enabled', default_value='true'),
+        DeclareLaunchArgument('start_vscode', default_value='true'),
+        DeclareLaunchArgument('vscode_url', default_value=''),
+        DeclareLaunchArgument('vscode_bind_address', default_value='0.0.0.0'),
+        DeclareLaunchArgument('vscode_port', default_value='13337'),
+        DeclareLaunchArgument('vscode_auth', default_value='password'),
         DeclareLaunchArgument(
             'terminal_workspace',
+            default_value=default_workspace_root(web_share),
+        ),
+        DeclareLaunchArgument(
+            'vscode_workspace',
             default_value=default_workspace_root(web_share),
         ),
         ExecuteProcess(
@@ -80,7 +93,27 @@ def generate_launch_description():
             ],
             output='screen',
         ),
-        Node(
+    ]
+
+    if vscode_runtime_available:
+        actions.append(ExecuteProcess(
+            condition=IfCondition(LaunchConfiguration('start_vscode')),
+            cmd=[
+                '/bin/bash',
+                code_server_shell,
+                LaunchConfiguration('vscode_workspace'),
+                LaunchConfiguration('vscode_bind_address'),
+                LaunchConfiguration('vscode_port'),
+                LaunchConfiguration('vscode_auth'),
+            ],
+            output='screen',
+        ))
+    else:
+        actions.append(LogInfo(
+            msg='[WARN] code-server is not installed. Browser VS Code will be disabled.'
+        ))
+
+    actions.append(Node(
             package='rover_web',
             executable='web_gateway_node',
             name='web_gateway_node',
@@ -123,6 +156,18 @@ def generate_launch_description():
                         LaunchConfiguration('foxglove_port'),
                         value_type=int,
                     ),
+                    'vscode_enabled': ParameterValue(
+                        LaunchConfiguration('vscode_enabled')
+                        if vscode_runtime_available
+                        else 'false',
+                        value_type=bool,
+                    ),
+                    'vscode_url': LaunchConfiguration('vscode_url'),
+                    'vscode_port': ParameterValue(
+                        LaunchConfiguration('vscode_port'),
+                        value_type=int,
+                    ),
+                    'vscode_auth': LaunchConfiguration('vscode_auth'),
                     'identity_file': str(
                         web_share / 'config' / 'robot_identity.yaml'
                     ),
@@ -133,5 +178,6 @@ def generate_launch_description():
                     'seed_plans_directory': str(web_share / 'plans'),
                 },
             ],
-        ),
-    ])
+        ))
+
+    return LaunchDescription(actions)

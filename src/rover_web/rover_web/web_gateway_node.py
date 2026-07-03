@@ -465,6 +465,10 @@ class RoverWebGateway(Node):
         self.declare_parameter('rosboard_port', 8888)
         self.declare_parameter('foxglove_enabled', False)
         self.declare_parameter('foxglove_port', 8766)
+        self.declare_parameter('vscode_enabled', False)
+        self.declare_parameter('vscode_url', '')
+        self.declare_parameter('vscode_port', 13337)
+        self.declare_parameter('vscode_auth', 'password')
         self.declare_parameter('drive_command_timeout_sec', 0.25)
         self.declare_parameter('default_linear_speed_mps', 0.18)
         self.declare_parameter('default_lateral_speed_mps', 0.16)
@@ -529,6 +533,10 @@ class RoverWebGateway(Node):
         self.rosboard_port = int(self.get_parameter('rosboard_port').value)
         self.foxglove_enabled = bool(self.get_parameter('foxglove_enabled').value)
         self.foxglove_port = int(self.get_parameter('foxglove_port').value)
+        self.vscode_enabled = bool(self.get_parameter('vscode_enabled').value)
+        self.vscode_url = str(self.get_parameter('vscode_url').value).strip()
+        self.vscode_port = int(self.get_parameter('vscode_port').value)
+        self.vscode_auth = str(self.get_parameter('vscode_auth').value).strip() or 'password'
         self.drive_command_timeout_sec = max(
             0.1, float(self.get_parameter('drive_command_timeout_sec').value)
         )
@@ -1139,6 +1147,10 @@ class RoverWebGateway(Node):
                 'rosboard_port': self.rosboard_port,
                 'foxglove_enabled': self.foxglove_enabled,
                 'foxglove_port': self.foxglove_port,
+                'vscode_enabled': self.vscode_enabled,
+                'vscode_url': self.vscode_url,
+                'vscode_port': self.vscode_port,
+                'vscode_auth': self.vscode_auth,
             },
             'geometry': geometry,
             'encoders': encoders,

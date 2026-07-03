@@ -1047,6 +1047,15 @@ function foxgloveAppUrl() {
   return `https://app.foxglove.dev/~/view?${params.toString()}`;
 }
 
+function vscodeUrl() {
+  const web = state.config?.web || {};
+  if (web.vscode_enabled === false) return '';
+  if (web.vscode_url) return web.vscode_url;
+  const port = Number(web.vscode_port || 13337) || 13337;
+  const protocol = location.protocol === 'https:' ? 'http:' : (location.protocol || 'http:');
+  return `${protocol}//${location.hostname}:${port}/`;
+}
+
 function updateOverviewRosboardLink() {
   const button = $('#overview-open-rosboard');
   const note = $('#overview-rosboard-url');
@@ -1058,10 +1067,12 @@ function updateOverviewRosboardLink() {
 }
 
 function updateExternalToolButtons() {
-  const terminalButton = $('#nav-terminal-external');
-  const foxgloveButton = $('#nav-foxglove-external');
+  const terminalButton = $('#overview-open-terminal');
+  const foxgloveButton = $('#overview-open-foxglove');
+  const vscodeButton = $('#overview-open-vscode');
   const terminalLink = terminalUrl();
   const foxgloveLink = foxgloveAppUrl();
+  const vscodeLink = vscodeUrl();
 
   if (terminalButton) {
     terminalButton.disabled = !terminalLink;
@@ -1070,6 +1081,10 @@ function updateExternalToolButtons() {
   if (foxgloveButton) {
     foxgloveButton.disabled = !foxgloveLink;
     foxgloveButton.title = foxgloveLink || 'Foxglove недоступен в текущем запуске';
+  }
+  if (vscodeButton) {
+    vscodeButton.disabled = !vscodeLink;
+    vscodeButton.title = vscodeLink || 'VS Code недоступен в текущем запуске';
   }
 }
 
@@ -3455,22 +3470,6 @@ function bindNavigation() {
   $('#menu-toggle').addEventListener('click', () => {
     $('#sidebar').classList.toggle('open');
   });
-  $('#nav-terminal-external').addEventListener('click', () => {
-    const url = terminalUrl();
-    if (!url) {
-      showToast('Терминал недоступен в текущем запуске', 'error');
-      return;
-    }
-    window.open(url, '_blank', 'noopener');
-  });
-  $('#nav-foxglove-external').addEventListener('click', () => {
-    const url = foxgloveAppUrl();
-    if (!url) {
-      showToast('Foxglove недоступен в текущем запуске', 'error');
-      return;
-    }
-    window.open(url, '_blank', 'noopener');
-  });
 }
 
 function bindSectionTabs() {
@@ -3492,6 +3491,30 @@ function bindOverviewPage() {
     const url = rosboardUrl();
     if (!url) {
       showToast('Rosboard выключен в текущем запуске', 'error');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  });
+  $('#overview-open-terminal').addEventListener('click', () => {
+    const url = terminalUrl();
+    if (!url) {
+      showToast('Терминал недоступен в текущем запуске', 'error');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  });
+  $('#overview-open-foxglove').addEventListener('click', () => {
+    const url = foxgloveAppUrl();
+    if (!url) {
+      showToast('Foxglove недоступен в текущем запуске', 'error');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  });
+  $('#overview-open-vscode').addEventListener('click', () => {
+    const url = vscodeUrl();
+    if (!url) {
+      showToast('VS Code недоступен в текущем запуске', 'error');
       return;
     }
     window.open(url, '_blank', 'noopener');

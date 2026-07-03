@@ -33,10 +33,6 @@
         <button class="nav-item" id="nav-terminal" data-page="terminal" data-nav-group="terminal">Терминал</button>
         <button class="nav-item" data-page="diagnostics" data-nav-group="service">Сервис</button>
       </nav>
-      <div class="sidebar-tools">
-        <button class="nav-item nav-item-external" id="nav-terminal-external">Терминал ↗</button>
-        <button class="nav-item nav-item-external" id="nav-foxglove-external">Foxglove ↗</button>
-      </div>
       <div class="sidebar-footer">
         <div class="connection-row"><span>Web gateway</span><span id="api-dot" class="dot unknown"></span></div>
         <div class="connection-row"><span>ROS state</span><span id="ros-dot" class="dot unknown"></span></div>
@@ -51,6 +47,9 @@
             <p>Главная теперь оставлена максимально лёгкой. Детальная телеметрия, загрузка системы, потоки данных и устройства перенесены в раздел диагностики.</p>
             <div class="button-row">
               <button id="overview-open-rosboard">Открыть rosboard</button>
+              <button id="overview-open-terminal">Открыть терминал</button>
+              <button id="overview-open-foxglove">Открыть Foxglove</button>
+              <button id="overview-open-vscode">Открыть VS Code</button>
             </div>
             <div class="status-note" id="overview-rosboard-url">Rosboard: —</div>
           </article>
