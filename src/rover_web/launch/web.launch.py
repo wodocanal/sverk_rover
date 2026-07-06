@@ -159,7 +159,7 @@ def generate_launch_description():
                     'vscode_enabled': ParameterValue(
                         LaunchConfiguration('vscode_enabled')
                         if vscode_runtime_available
-                        else 'false',
+                        else False,
                         value_type=bool,
                     ),
                     'vscode_url': LaunchConfiguration('vscode_url'),
