@@ -72,14 +72,15 @@ class RoverStatusDisplayNode(Node):
         self.declare_parameter('text_color', '#F4FBFF')
         self.declare_parameter('muted_text_color', '#8CB5C7')
         self.declare_parameter('wifi_interface', 'wlan0')
-        self.declare_parameter('wifi_uplink_connection', '')
-        self.declare_parameter('wifi_hotspot_connection', 'rover-ap')
+        self.declare_parameter('wifi_control_script', '/usr/local/sbin/rover-hotspot-control.sh')
         self.declare_parameter('wifi_hotspot_ssid', 'Rover-AP')
         self.declare_parameter('wifi_hotspot_password', 'StrongPassword123')
         self.declare_parameter('wifi_hotspot_address', '192.168.50.1/24')
-        self.declare_parameter('wifi_hotspot_dhcp_range', '192.168.50.10,192.168.50.200')
+        self.declare_parameter('wifi_hotspot_dhcp_start', '192.168.50.10')
+        self.declare_parameter('wifi_hotspot_dhcp_end', '192.168.50.200')
         self.declare_parameter('wifi_hotspot_band', 'bg')
         self.declare_parameter('wifi_hotspot_channel', 1)
+        self.declare_parameter('wifi_hotspot_country', 'RU')
 
         display_env = str(self.get_parameter('display_env').value).strip()
         xauthority_path = str(self.get_parameter('xauthority_path').value).strip()
@@ -112,11 +113,9 @@ class RoverStatusDisplayNode(Node):
         self._muted_text_color = str(self.get_parameter('muted_text_color').value)
 
         self._wifi_interface = str(self.get_parameter('wifi_interface').value).strip() or 'wlan0'
-        self._wifi_uplink_connection = (
-            str(self.get_parameter('wifi_uplink_connection').value).strip()
-        )
-        self._wifi_hotspot_connection = (
-            str(self.get_parameter('wifi_hotspot_connection').value).strip() or 'rover-ap'
+        self._wifi_control_script = (
+            str(self.get_parameter('wifi_control_script').value).strip()
+            or '/usr/local/sbin/rover-hotspot-control.sh'
         )
         self._wifi_hotspot_ssid = (
             str(self.get_parameter('wifi_hotspot_ssid').value).strip() or 'Rover-AP'
@@ -129,17 +128,25 @@ class RoverStatusDisplayNode(Node):
             str(self.get_parameter('wifi_hotspot_address').value).strip()
             or '192.168.50.1/24'
         )
-        self._wifi_hotspot_dhcp_range = (
-            str(self.get_parameter('wifi_hotspot_dhcp_range').value).strip()
-            or '192.168.50.10,192.168.50.200'
+        self._wifi_hotspot_dhcp_start = (
+            str(self.get_parameter('wifi_hotspot_dhcp_start').value).strip()
+            or '192.168.50.10'
+        )
+        self._wifi_hotspot_dhcp_end = (
+            str(self.get_parameter('wifi_hotspot_dhcp_end').value).strip()
+            or '192.168.50.200'
         )
         self._wifi_hotspot_band = (
             str(self.get_parameter('wifi_hotspot_band').value).strip() or 'bg'
         )
         self._wifi_hotspot_channel = int(self.get_parameter('wifi_hotspot_channel').value)
-        self._nmcli_path = shutil.which('nmcli') or (
-            '/usr/bin/nmcli' if Path('/usr/bin/nmcli').exists() else ''
+        self._wifi_hotspot_country = (
+            str(self.get_parameter('wifi_hotspot_country').value).strip() or 'RU'
         )
+        self._networkctl_path = shutil.which('networkctl') or (
+            '/usr/bin/networkctl' if Path('/usr/bin/networkctl').exists() else ''
+        )
+        self._sudo_path = shutil.which('sudo') or '/usr/bin/sudo'
 
         self._root = self._create_window()
         screen_width = max(1, int(self._root.winfo_screenwidth()))
@@ -446,43 +453,52 @@ class RoverStatusDisplayNode(Node):
         except FileNotFoundError:
             return subprocess.CompletedProcess(command, 127, '', 'command not found')
 
-    def _nmcli_available(self) -> bool:
-        return bool(self._nmcli_path)
+    def _networkctl_available(self) -> bool:
+        return bool(self._networkctl_path)
 
-    def _wifi_connectivity_state(self) -> str:
+    def _wifi_control_available(self) -> bool:
+        return bool(self._wifi_control_script) and Path(self._wifi_control_script).exists()
+
+    def _wifi_control_status(self) -> str:
+        if not self._wifi_control_available():
+            return 'unavailable'
+
         completed = self._run_command(
-            [self._nmcli_path, '-t', '-f', 'CONNECTIVITY', 'general', 'status'],
-            timeout=2.0,
+            [self._wifi_control_script, 'status', self._wifi_interface],
+            timeout=3.0,
         )
         if completed.returncode != 0:
-            return 'unknown'
-        return completed.stdout.strip() or 'unknown'
+            return 'unavailable'
+        return completed.stdout.strip() or 'unavailable'
 
-    def _active_wifi_connection(self) -> str:
+    def _networkctl_status_text(self) -> str:
+        if not self._networkctl_available():
+            return ''
+
         completed = self._run_command(
-            [self._nmcli_path, '-g', 'GENERAL.CONNECTION', 'device', 'show', self._wifi_interface],
-            timeout=2.0,
+            [self._networkctl_path, 'status', self._wifi_interface],
+            timeout=3.0,
         )
         if completed.returncode != 0:
             return ''
-        value = completed.stdout.strip()
-        if value in {'', '--'}:
-            return ''
-        return value
+        return completed.stdout
 
     def _current_wifi_mode_key(self) -> str:
-        if not self._nmcli_available():
-            return 'unknown'
-
-        active_connection = self._active_wifi_connection()
-        if active_connection == self._wifi_hotspot_connection:
+        helper_status = self._wifi_control_status()
+        if helper_status == 'share':
             return 'share'
-        if active_connection:
-            return 'connect'
+        if helper_status == 'disconnected':
+            return 'disconnected'
 
-        connectivity = self._wifi_connectivity_state()
-        if connectivity == 'full':
+        status_text = self._networkctl_status_text()
+        if 'Wi-Fi access point:' in status_text and 'State: routable' in status_text:
             return 'connect'
+        if 'Wi-Fi access point:' in status_text and 'Online state: online' in status_text:
+            return 'connect'
+        if 'State: routable' in status_text or 'Online state: online' in status_text:
+            return 'connect'
+        if self._networkctl_available():
+            return 'disconnected'
         return 'disconnected'
 
     def _wifi_mode_label(self, mode_key: str) -> str:
@@ -514,84 +530,6 @@ class RoverStatusDisplayNode(Node):
             self._settings_status_var.set('Выберите режим и нажмите подтвердить.')
         self._settings_screen.tkraise()
 
-    def _ensure_hotspot_profile(self) -> tuple[bool, str]:
-        if len(self._wifi_hotspot_password) < 8:
-            return False, 'Пароль точки доступа должен быть не короче 8 символов.'
-
-        existing = self._run_command(
-            [self._nmcli_path, '-t', '-f', 'NAME', 'connection', 'show'],
-            timeout=3.0,
-        )
-        if existing.returncode != 0:
-            details = existing.stderr.strip() or existing.stdout.strip() or 'nmcli error'
-            return False, f'Не удалось получить список профилей: {details}'
-
-        existing_names = {
-            line.strip() for line in existing.stdout.splitlines() if line.strip()
-        }
-
-        if self._wifi_hotspot_connection not in existing_names:
-            created = self._run_command(
-                [
-                    self._nmcli_path,
-                    'connection',
-                    'add',
-                    'type',
-                    'wifi',
-                    'ifname',
-                    self._wifi_interface,
-                    'mode',
-                    'ap',
-                    'con-name',
-                    self._wifi_hotspot_connection,
-                    'ssid',
-                    self._wifi_hotspot_ssid,
-                ],
-                timeout=8.0,
-            )
-            if created.returncode != 0:
-                details = created.stderr.strip() or created.stdout.strip() or 'nmcli error'
-                return False, f'Не удалось создать профиль точки доступа: {details}'
-
-        updated = self._run_command(
-            [
-                self._nmcli_path,
-                'connection',
-                'modify',
-                self._wifi_hotspot_connection,
-                'connection.interface-name',
-                self._wifi_interface,
-                'connection.autoconnect',
-                'no',
-                '802-11-wireless.mode',
-                'ap',
-                '802-11-wireless.band',
-                self._wifi_hotspot_band,
-                '802-11-wireless.channel',
-                str(self._wifi_hotspot_channel),
-                '802-11-wireless.ssid',
-                self._wifi_hotspot_ssid,
-                'ipv4.method',
-                'shared',
-                'ipv4.addresses',
-                self._wifi_hotspot_address,
-                'ipv4.shared-dhcp-range',
-                self._wifi_hotspot_dhcp_range,
-                'ipv6.method',
-                'disabled',
-                'wifi-sec.key-mgmt',
-                'wpa-psk',
-                'wifi-sec.psk',
-                self._wifi_hotspot_password,
-            ],
-            timeout=8.0,
-        )
-        if updated.returncode != 0:
-            details = updated.stderr.strip() or updated.stdout.strip() or 'nmcli error'
-            return False, f'Не удалось настроить точку доступа: {details}'
-
-        return True, 'Профиль точки доступа готов.'
-
     def _request_apply_wifi_mode(self) -> None:
         if self._wifi_switch_in_progress:
             return
@@ -614,9 +552,7 @@ class RoverStatusDisplayNode(Node):
         message = 'Неизвестная ошибка'
 
         try:
-            if not self._nmcli_available():
-                message = 'nmcli не найден. Установи и включи NetworkManager.'
-            elif desired_mode == 'connect':
+            if desired_mode == 'connect':
                 success, message = self._activate_uplink_mode()
             elif desired_mode == 'share':
                 success, message = self._activate_hotspot_mode()
@@ -635,56 +571,48 @@ class RoverStatusDisplayNode(Node):
         )
 
     def _activate_uplink_mode(self) -> tuple[bool, str]:
-        if not self._wifi_uplink_connection:
-            return False, 'Не задан параметр wifi_uplink_connection.'
+        if not self._wifi_control_available():
+            return False, 'Не найден helper для Wi-Fi. Установи rover-hotspot-control.sh.'
 
-        self._run_command([self._nmcli_path, 'radio', 'wifi', 'on'], timeout=4.0)
-        self._run_command(
-            [self._nmcli_path, 'connection', 'down', 'id', self._wifi_hotspot_connection],
-            timeout=6.0,
-        )
         completed = self._run_command(
-            [
-                self._nmcli_path,
-                'connection',
-                'up',
-                'id',
-                self._wifi_uplink_connection,
-                'ifname',
-                self._wifi_interface,
-            ],
-            timeout=15.0,
+            [self._sudo_path, '-n', self._wifi_control_script, 'stop', self._wifi_interface],
+            timeout=25.0,
         )
         if completed.returncode != 0:
-            details = completed.stderr.strip() or completed.stdout.strip() or 'nmcli error'
-            return False, f'Не удалось подключиться к сети: {details}'
-        return True, f'Подключение к сети включено: {self._wifi_uplink_connection}'
+            details = completed.stderr.strip() or completed.stdout.strip() or 'helper error'
+            if 'password is required' in details.lower():
+                return False, 'Нужен sudoers NOPASSWD для rover-hotspot-control.sh.'
+            return False, f'Не удалось вернуть режим подключения: {details}'
+        return True, 'Режим подключения к сети включён.'
 
     def _activate_hotspot_mode(self) -> tuple[bool, str]:
-        ensured, ensure_message = self._ensure_hotspot_profile()
-        if not ensured:
-            return False, ensure_message
+        if not self._wifi_control_available():
+            return False, 'Не найден helper для Wi-Fi. Установи rover-hotspot-control.sh.'
+        if len(self._wifi_hotspot_password) < 8:
+            return False, 'Пароль точки доступа должен быть не короче 8 символов.'
 
-        self._run_command([self._nmcli_path, 'radio', 'wifi', 'on'], timeout=4.0)
-        if self._wifi_uplink_connection:
-            self._run_command(
-                [self._nmcli_path, 'connection', 'down', 'id', self._wifi_uplink_connection],
-                timeout=6.0,
-            )
         completed = self._run_command(
             [
-                self._nmcli_path,
-                'connection',
-                'up',
-                'id',
-                self._wifi_hotspot_connection,
-                'ifname',
+                self._sudo_path,
+                '-n',
+                self._wifi_control_script,
+                'start',
                 self._wifi_interface,
+                self._wifi_hotspot_ssid,
+                self._wifi_hotspot_password,
+                self._wifi_hotspot_address,
+                self._wifi_hotspot_dhcp_start,
+                self._wifi_hotspot_dhcp_end,
+                str(self._wifi_hotspot_channel),
+                self._wifi_hotspot_country,
+                self._wifi_hotspot_band,
             ],
-            timeout=15.0,
+            timeout=30.0,
         )
         if completed.returncode != 0:
-            details = completed.stderr.strip() or completed.stdout.strip() or 'nmcli error'
+            details = completed.stderr.strip() or completed.stdout.strip() or 'helper error'
+            if 'password is required' in details.lower():
+                return False, 'Нужен sudoers NOPASSWD для rover-hotspot-control.sh.'
             return False, f'Не удалось включить точку доступа: {details}'
         return True, f'Точка доступа включена: {self._wifi_hotspot_ssid}'
 
