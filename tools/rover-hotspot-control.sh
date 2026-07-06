@@ -97,7 +97,9 @@ start_hotspot() {
   stop_runtime
   systemctl stop wpa_supplicant.service || true
 
-  rfkill unblock wifi || true
+  if command -v rfkill >/dev/null 2>&1; then
+    rfkill unblock wifi || true
+  fi
   ip link set "$iface" down || true
   ip addr flush dev "$iface" || true
   ip link set "$iface" up
