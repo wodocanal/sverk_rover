@@ -137,9 +137,15 @@ class RoverStatusDisplayNode(Node):
             str(self.get_parameter('wifi_hotspot_band').value).strip() or 'bg'
         )
         self._wifi_hotspot_channel = int(self.get_parameter('wifi_hotspot_channel').value)
-        self._nmcli_path = shutil.which('nmcli') or ''
+        self._nmcli_path = shutil.which('nmcli') or (
+            '/usr/bin/nmcli' if Path('/usr/bin/nmcli').exists() else ''
+        )
 
         self._root = self._create_window()
+        screen_width = max(1, int(self._root.winfo_screenwidth()))
+        screen_height = max(1, int(self._root.winfo_screenheight()))
+        self._ui_scale = max(0.58, min(1.0, screen_width / 1280.0, screen_height / 720.0))
+        self._screen_wraplength = max(360, int(screen_width * 0.82))
         self._screen_mode = 'main'
         self._wifi_switch_in_progress = False
 
@@ -155,6 +161,9 @@ class RoverStatusDisplayNode(Node):
         self._build_layout()
         self._show_main_screen()
         self._refresh_display_data()
+
+    def _scaled(self, value: int, *, minimum: int = 1) -> int:
+        return max(minimum, int(round(value * self._ui_scale)))
 
     def _create_window(self):
         try:
@@ -178,17 +187,22 @@ class RoverStatusDisplayNode(Node):
         root = self._root
 
         container = tk.Frame(root, bg=self._background_color)
-        container.pack(fill='both', expand=True, padx=36, pady=28)
+        container.pack(
+            fill='both',
+            expand=True,
+            padx=self._scaled(36, minimum=12),
+            pady=self._scaled(28, minimum=10),
+        )
 
         header_frame = tk.Frame(container, bg=self._background_color)
-        header_frame.pack(fill='x', pady=(0, 18))
+        header_frame.pack(fill='x', pady=(0, self._scaled(18, minimum=8)))
 
         header = tk.Label(
             header_frame,
             text=self._header_text,
             bg=self._background_color,
             fg=self._accent_color,
-            font=('DejaVu Sans', 32, 'bold'),
+            font=('DejaVu Sans', self._scaled(32, minimum=18), 'bold'),
             anchor='center',
         )
         header.pack(fill='x')
@@ -201,11 +215,11 @@ class RoverStatusDisplayNode(Node):
             fg=self._background_color,
             activebackground=self._text_color,
             activeforeground=self._background_color,
-            font=('DejaVu Sans', 16, 'bold'),
+            font=('DejaVu Sans', self._scaled(16, minimum=10), 'bold'),
             relief='flat',
             bd=0,
-            padx=18,
-            pady=10,
+            padx=self._scaled(18, minimum=8),
+            pady=self._scaled(10, minimum=6),
             highlightthickness=0,
             cursor='hand2',
         )
@@ -241,72 +255,80 @@ class RoverStatusDisplayNode(Node):
             text='Hostname',
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', 18, 'bold'),
+            font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
             anchor='center',
         )
-        hostname_label.pack(fill='x', pady=(48, 6))
+        hostname_label.pack(
+            fill='x',
+            pady=(self._scaled(40, minimum=16), self._scaled(6, minimum=3)),
+        )
 
         hostname_value = tk.Label(
             panel,
             textvariable=self._hostname_var,
             bg=self._panel_color,
             fg=self._text_color,
-            font=('DejaVu Sans', 24, 'bold'),
+            font=('DejaVu Sans', self._scaled(24, minimum=14), 'bold'),
             anchor='center',
         )
-        hostname_value.pack(fill='x', pady=(0, 26))
+        hostname_value.pack(fill='x', pady=(0, self._scaled(20, minimum=8)))
 
         wifi_mode_label = tk.Label(
             panel,
             text='Текущий режим Wi-Fi',
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', 18, 'bold'),
+            font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
             anchor='center',
         )
-        wifi_mode_label.pack(fill='x', pady=(0, 6))
+        wifi_mode_label.pack(fill='x', pady=(0, self._scaled(6, minimum=3)))
 
         wifi_mode_value = tk.Label(
             panel,
             textvariable=self._wifi_mode_var,
             bg=self._panel_color,
             fg=self._accent_color,
-            font=('DejaVu Sans', 24, 'bold'),
+            font=('DejaVu Sans', self._scaled(24, minimum=14), 'bold'),
             anchor='center',
         )
-        wifi_mode_value.pack(fill='x', pady=(0, 26))
+        wifi_mode_value.pack(fill='x', pady=(0, self._scaled(18, minimum=8)))
 
         ip_label = tk.Label(
             panel,
             text='IP адрес',
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', 22, 'bold'),
+            font=('DejaVu Sans', self._scaled(20, minimum=12), 'bold'),
             anchor='center',
         )
-        ip_label.pack(fill='x', pady=(0, 8))
+        ip_label.pack(fill='x', pady=(0, self._scaled(8, minimum=4)))
 
         ip_value = tk.Label(
             panel,
             textvariable=self._ip_var,
             bg=self._panel_color,
             fg=self._text_color,
-            font=('DejaVu Sans Mono', 34, 'bold'),
+            font=('DejaVu Sans Mono', self._scaled(26, minimum=14), 'bold'),
             justify='center',
             anchor='center',
-            wraplength=1200,
+            wraplength=self._screen_wraplength,
         )
-        ip_value.pack(fill='both', expand=True, padx=28, pady=(0, 24))
+        ip_value.pack(
+            fill='both',
+            expand=True,
+            padx=self._scaled(24, minimum=10),
+            pady=(0, self._scaled(16, minimum=6)),
+        )
 
         footer = tk.Label(
             panel,
             textvariable=self._status_var,
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', 16),
+            font=('DejaVu Sans', self._scaled(15, minimum=9)),
             anchor='center',
         )
-        footer.pack(fill='x', pady=(0, 18))
+        footer.pack(fill='x', pady=(0, self._scaled(14, minimum=6)))
 
     def _build_settings_screen(self) -> None:
         tk = self._tk
@@ -317,33 +339,40 @@ class RoverStatusDisplayNode(Node):
             text='Настройки Wi-Fi',
             bg=self._panel_color,
             fg=self._text_color,
-            font=('DejaVu Sans', 28, 'bold'),
+            font=('DejaVu Sans', self._scaled(26, minimum=16), 'bold'),
             anchor='center',
         )
-        settings_title.pack(fill='x', pady=(44, 18))
+        settings_title.pack(
+            fill='x',
+            pady=(self._scaled(34, minimum=14), self._scaled(16, minimum=8)),
+        )
 
         current_mode_label = tk.Label(
             panel,
             text='Текущий режим',
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', 18, 'bold'),
+            font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
             anchor='center',
         )
-        current_mode_label.pack(fill='x', pady=(0, 6))
+        current_mode_label.pack(fill='x', pady=(0, self._scaled(6, minimum=3)))
 
         current_mode_value = tk.Label(
             panel,
             textvariable=self._settings_wifi_mode_var,
             bg=self._panel_color,
             fg=self._accent_color,
-            font=('DejaVu Sans', 24, 'bold'),
+            font=('DejaVu Sans', self._scaled(22, minimum=13), 'bold'),
             anchor='center',
         )
-        current_mode_value.pack(fill='x', pady=(0, 30))
+        current_mode_value.pack(fill='x', pady=(0, self._scaled(20, minimum=8)))
 
         options_frame = tk.Frame(panel, bg=self._panel_color)
-        options_frame.pack(fill='x', padx=80, pady=(0, 26))
+        options_frame.pack(
+            fill='x',
+            padx=self._scaled(60, minimum=14),
+            pady=(0, self._scaled(18, minimum=8)),
+        )
 
         for value, label_text in (
             ('connect', 'Подключаться к сети'),
@@ -360,17 +389,17 @@ class RoverStatusDisplayNode(Node):
                 activebackground=self._accent_color,
                 activeforeground=self._background_color,
                 selectcolor=self._accent_color,
-                font=('DejaVu Sans', 20, 'bold'),
+                font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
                 relief='groove',
                 bd=2,
                 highlightthickness=2,
                 highlightbackground=self._accent_color,
                 highlightcolor=self._accent_color,
-                padx=14,
-                pady=20,
+                padx=self._scaled(14, minimum=8),
+                pady=self._scaled(14, minimum=8),
                 cursor='hand2',
             )
-            button.pack(fill='x', pady=10)
+            button.pack(fill='x', pady=self._scaled(8, minimum=4))
 
         apply_button = tk.Button(
             panel,
@@ -380,42 +409,49 @@ class RoverStatusDisplayNode(Node):
             fg=self._background_color,
             activebackground=self._text_color,
             activeforeground=self._background_color,
-            font=('DejaVu Sans', 20, 'bold'),
+            font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
             relief='flat',
             bd=0,
-            padx=24,
-            pady=14,
+            padx=self._scaled(22, minimum=10),
+            pady=self._scaled(12, minimum=8),
             cursor='hand2',
         )
-        apply_button.pack(pady=(10, 20))
+        apply_button.pack(pady=(self._scaled(8, minimum=4), self._scaled(16, minimum=8)))
 
         status_label = tk.Label(
             panel,
             textvariable=self._settings_status_var,
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', 16),
+            font=('DejaVu Sans', self._scaled(15, minimum=9)),
             justify='center',
-            wraplength=1200,
+            wraplength=self._screen_wraplength,
             anchor='center',
         )
-        status_label.pack(fill='x', padx=40, pady=(0, 20))
+        status_label.pack(
+            fill='x',
+            padx=self._scaled(30, minimum=10),
+            pady=(0, self._scaled(16, minimum=8)),
+        )
 
     def _run_command(self, command: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        try:
+            return subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except FileNotFoundError:
+            return subprocess.CompletedProcess(command, 127, '', 'command not found')
 
     def _nmcli_available(self) -> bool:
         return bool(self._nmcli_path)
 
     def _wifi_connectivity_state(self) -> str:
         completed = self._run_command(
-            ['nmcli', '-t', '-f', 'CONNECTIVITY', 'general', 'status'],
+            [self._nmcli_path, '-t', '-f', 'CONNECTIVITY', 'general', 'status'],
             timeout=2.0,
         )
         if completed.returncode != 0:
@@ -424,7 +460,7 @@ class RoverStatusDisplayNode(Node):
 
     def _active_wifi_connection(self) -> str:
         completed = self._run_command(
-            ['nmcli', '-g', 'GENERAL.CONNECTION', 'device', 'show', self._wifi_interface],
+            [self._nmcli_path, '-g', 'GENERAL.CONNECTION', 'device', 'show', self._wifi_interface],
             timeout=2.0,
         )
         if completed.returncode != 0:
@@ -483,7 +519,7 @@ class RoverStatusDisplayNode(Node):
             return False, 'Пароль точки доступа должен быть не короче 8 символов.'
 
         existing = self._run_command(
-            ['nmcli', '-t', '-f', 'NAME', 'connection', 'show'],
+            [self._nmcli_path, '-t', '-f', 'NAME', 'connection', 'show'],
             timeout=3.0,
         )
         if existing.returncode != 0:
@@ -497,7 +533,7 @@ class RoverStatusDisplayNode(Node):
         if self._wifi_hotspot_connection not in existing_names:
             created = self._run_command(
                 [
-                    'nmcli',
+                    self._nmcli_path,
                     'connection',
                     'add',
                     'type',
@@ -519,7 +555,7 @@ class RoverStatusDisplayNode(Node):
 
         updated = self._run_command(
             [
-                'nmcli',
+                self._nmcli_path,
                 'connection',
                 'modify',
                 self._wifi_hotspot_connection,
@@ -602,14 +638,14 @@ class RoverStatusDisplayNode(Node):
         if not self._wifi_uplink_connection:
             return False, 'Не задан параметр wifi_uplink_connection.'
 
-        self._run_command(['nmcli', 'radio', 'wifi', 'on'], timeout=4.0)
+        self._run_command([self._nmcli_path, 'radio', 'wifi', 'on'], timeout=4.0)
         self._run_command(
-            ['nmcli', 'connection', 'down', 'id', self._wifi_hotspot_connection],
+            [self._nmcli_path, 'connection', 'down', 'id', self._wifi_hotspot_connection],
             timeout=6.0,
         )
         completed = self._run_command(
             [
-                'nmcli',
+                self._nmcli_path,
                 'connection',
                 'up',
                 'id',
@@ -629,15 +665,15 @@ class RoverStatusDisplayNode(Node):
         if not ensured:
             return False, ensure_message
 
-        self._run_command(['nmcli', 'radio', 'wifi', 'on'], timeout=4.0)
+        self._run_command([self._nmcli_path, 'radio', 'wifi', 'on'], timeout=4.0)
         if self._wifi_uplink_connection:
             self._run_command(
-                ['nmcli', 'connection', 'down', 'id', self._wifi_uplink_connection],
+                [self._nmcli_path, 'connection', 'down', 'id', self._wifi_uplink_connection],
                 timeout=6.0,
             )
         completed = self._run_command(
             [
-                'nmcli',
+                self._nmcli_path,
                 'connection',
                 'up',
                 'id',
