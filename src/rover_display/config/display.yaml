@@ -1,0 +1,14 @@
+rover_status_display_node:
+  ros__parameters:
+    display_env: :0
+    xauthority_path: ~/.Xauthority
+    window_title: Rover Display
+    header_text: ROVER
+    footer_text: Touchscreen status panel
+    full_screen: true
+    refresh_sec: 1.0
+    background_color: '#07141C'
+    panel_color: '#0C202B'
+    accent_color: '#16B8F3'
+    text_color: '#F4FBFF'
+    muted_text_color: '#8CB5C7'

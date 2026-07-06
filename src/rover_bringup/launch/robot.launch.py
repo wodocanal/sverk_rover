@@ -40,6 +40,7 @@ def launch_setup(context):
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
     use_camera = as_bool(LaunchConfiguration('use_camera').perform(context))
     use_vision = as_bool(LaunchConfiguration('use_vision').perform(context))
+    use_display = as_bool(LaunchConfiguration('use_display').perform(context))
     use_led_strip = as_bool(LaunchConfiguration('use_led_strip').perform(context))
     use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
     use_web = as_bool(LaunchConfiguration('use_web').perform(context))
@@ -140,6 +141,7 @@ def launch_setup(context):
         str(camera_params.get('frame_id', 'camera_optical_frame')),
     )
     vision_params['use_sim_time'] = use_sim_time
+    display_params = dict(config.get('display', {}))
     led_strip_params = dict(config.get('led_strip', {}))
     led_strip_params['use_sim_time'] = use_sim_time
     octoliner_params = dict(config.get('octoliner', {}))
@@ -274,6 +276,15 @@ def launch_setup(context):
             parameters=[vision_params],
         ))
 
+    if use_display:
+        actions.append(Node(
+            package='rover_display',
+            executable='status_display_node',
+            name='rover_status_display_node',
+            output='screen',
+            parameters=[display_params],
+        ))
+
     if use_led_strip:
         actions.append(Node(
             package='rover_led_strip',
@@ -386,6 +397,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
         DeclareLaunchArgument('use_vision', default_value='true'),
+        DeclareLaunchArgument('use_display', default_value='false'),
         DeclareLaunchArgument('use_led_strip', default_value='true'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
         DeclareLaunchArgument('use_web', default_value='true'),
