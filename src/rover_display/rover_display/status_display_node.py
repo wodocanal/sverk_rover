@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
+import threading
 from typing import Iterable
 
 import rclpy
@@ -69,6 +71,15 @@ class RoverStatusDisplayNode(Node):
         self.declare_parameter('accent_color', '#16B8F3')
         self.declare_parameter('text_color', '#F4FBFF')
         self.declare_parameter('muted_text_color', '#8CB5C7')
+        self.declare_parameter('wifi_interface', 'wlan0')
+        self.declare_parameter('wifi_uplink_connection', '')
+        self.declare_parameter('wifi_hotspot_connection', 'rover-ap')
+        self.declare_parameter('wifi_hotspot_ssid', 'Rover-AP')
+        self.declare_parameter('wifi_hotspot_password', 'StrongPassword123')
+        self.declare_parameter('wifi_hotspot_address', '192.168.50.1/24')
+        self.declare_parameter('wifi_hotspot_dhcp_range', '192.168.50.10,192.168.50.200')
+        self.declare_parameter('wifi_hotspot_band', 'bg')
+        self.declare_parameter('wifi_hotspot_channel', 1)
 
         display_env = str(self.get_parameter('display_env').value).strip()
         xauthority_path = str(self.get_parameter('xauthority_path').value).strip()
@@ -100,13 +111,50 @@ class RoverStatusDisplayNode(Node):
         self._text_color = str(self.get_parameter('text_color').value)
         self._muted_text_color = str(self.get_parameter('muted_text_color').value)
 
+        self._wifi_interface = str(self.get_parameter('wifi_interface').value).strip() or 'wlan0'
+        self._wifi_uplink_connection = (
+            str(self.get_parameter('wifi_uplink_connection').value).strip()
+        )
+        self._wifi_hotspot_connection = (
+            str(self.get_parameter('wifi_hotspot_connection').value).strip() or 'rover-ap'
+        )
+        self._wifi_hotspot_ssid = (
+            str(self.get_parameter('wifi_hotspot_ssid').value).strip() or 'Rover-AP'
+        )
+        self._wifi_hotspot_password = (
+            str(self.get_parameter('wifi_hotspot_password').value).strip()
+            or 'StrongPassword123'
+        )
+        self._wifi_hotspot_address = (
+            str(self.get_parameter('wifi_hotspot_address').value).strip()
+            or '192.168.50.1/24'
+        )
+        self._wifi_hotspot_dhcp_range = (
+            str(self.get_parameter('wifi_hotspot_dhcp_range').value).strip()
+            or '192.168.50.10,192.168.50.200'
+        )
+        self._wifi_hotspot_band = (
+            str(self.get_parameter('wifi_hotspot_band').value).strip() or 'bg'
+        )
+        self._wifi_hotspot_channel = int(self.get_parameter('wifi_hotspot_channel').value)
+        self._nmcli_path = shutil.which('nmcli') or ''
+
         self._root = self._create_window()
+        self._screen_mode = 'main'
+        self._wifi_switch_in_progress = False
+
         self._hostname_var = tk.StringVar(value=socket.gethostname())
         self._ip_var = tk.StringVar(value='Поиск адреса...')
         self._status_var = tk.StringVar(value='Экран ровера активен')
+        self._wifi_mode_var = tk.StringVar(value='Определение режима Wi-Fi...')
+        self._settings_wifi_mode_var = tk.StringVar(value='Определение режима Wi-Fi...')
+        self._settings_status_var = tk.StringVar(value='Выберите режим и нажмите подтвердить.')
+        self._screen_button_var = tk.StringVar(value='Настройки')
+        self._selected_wifi_mode_var = tk.StringVar(value='connect')
 
         self._build_layout()
-        self._update_ip_addresses()
+        self._show_main_screen()
+        self._refresh_display_data()
 
     def _create_window(self):
         try:
@@ -132,15 +180,36 @@ class RoverStatusDisplayNode(Node):
         container = tk.Frame(root, bg=self._background_color)
         container.pack(fill='both', expand=True, padx=36, pady=28)
 
+        header_frame = tk.Frame(container, bg=self._background_color)
+        header_frame.pack(fill='x', pady=(0, 18))
+
         header = tk.Label(
-            container,
+            header_frame,
             text=self._header_text,
             bg=self._background_color,
             fg=self._accent_color,
             font=('DejaVu Sans', 32, 'bold'),
             anchor='center',
         )
-        header.pack(fill='x', pady=(0, 18))
+        header.pack(fill='x')
+
+        self._screen_button = tk.Button(
+            header_frame,
+            textvariable=self._screen_button_var,
+            command=self._toggle_settings_screen,
+            bg=self._accent_color,
+            fg=self._background_color,
+            activebackground=self._text_color,
+            activeforeground=self._background_color,
+            font=('DejaVu Sans', 16, 'bold'),
+            relief='flat',
+            bd=0,
+            padx=18,
+            pady=10,
+            highlightthickness=0,
+            cursor='hand2',
+        )
+        self._screen_button.place(relx=1.0, rely=0.5, anchor='e')
 
         panel = tk.Frame(
             container,
@@ -150,6 +219,22 @@ class RoverStatusDisplayNode(Node):
             bd=0,
         )
         panel.pack(fill='both', expand=True)
+
+        self._screen_container = tk.Frame(panel, bg=self._panel_color)
+        self._screen_container.pack(fill='both', expand=True)
+
+        self._main_screen = tk.Frame(self._screen_container, bg=self._panel_color)
+        self._settings_screen = tk.Frame(self._screen_container, bg=self._panel_color)
+
+        for frame in (self._main_screen, self._settings_screen):
+            frame.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
+
+        self._build_main_screen()
+        self._build_settings_screen()
+
+    def _build_main_screen(self) -> None:
+        tk = self._tk
+        panel = self._main_screen
 
         hostname_label = tk.Label(
             panel,
@@ -170,6 +255,26 @@ class RoverStatusDisplayNode(Node):
             anchor='center',
         )
         hostname_value.pack(fill='x', pady=(0, 26))
+
+        wifi_mode_label = tk.Label(
+            panel,
+            text='Текущий режим Wi-Fi',
+            bg=self._panel_color,
+            fg=self._muted_text_color,
+            font=('DejaVu Sans', 18, 'bold'),
+            anchor='center',
+        )
+        wifi_mode_label.pack(fill='x', pady=(0, 6))
+
+        wifi_mode_value = tk.Label(
+            panel,
+            textvariable=self._wifi_mode_var,
+            bg=self._panel_color,
+            fg=self._accent_color,
+            font=('DejaVu Sans', 24, 'bold'),
+            anchor='center',
+        )
+        wifi_mode_value.pack(fill='x', pady=(0, 26))
 
         ip_label = tk.Label(
             panel,
@@ -203,18 +308,390 @@ class RoverStatusDisplayNode(Node):
         )
         footer.pack(fill='x', pady=(0, 18))
 
-    def _update_ip_addresses(self) -> None:
+    def _build_settings_screen(self) -> None:
+        tk = self._tk
+        panel = self._settings_screen
+
+        settings_title = tk.Label(
+            panel,
+            text='Настройки Wi-Fi',
+            bg=self._panel_color,
+            fg=self._text_color,
+            font=('DejaVu Sans', 28, 'bold'),
+            anchor='center',
+        )
+        settings_title.pack(fill='x', pady=(44, 18))
+
+        current_mode_label = tk.Label(
+            panel,
+            text='Текущий режим',
+            bg=self._panel_color,
+            fg=self._muted_text_color,
+            font=('DejaVu Sans', 18, 'bold'),
+            anchor='center',
+        )
+        current_mode_label.pack(fill='x', pady=(0, 6))
+
+        current_mode_value = tk.Label(
+            panel,
+            textvariable=self._settings_wifi_mode_var,
+            bg=self._panel_color,
+            fg=self._accent_color,
+            font=('DejaVu Sans', 24, 'bold'),
+            anchor='center',
+        )
+        current_mode_value.pack(fill='x', pady=(0, 30))
+
+        options_frame = tk.Frame(panel, bg=self._panel_color)
+        options_frame.pack(fill='x', padx=80, pady=(0, 26))
+
+        for value, label_text in (
+            ('connect', 'Подключаться к сети'),
+            ('share', 'Раздавать свой Wi-Fi'),
+        ):
+            button = tk.Radiobutton(
+                options_frame,
+                text=label_text,
+                variable=self._selected_wifi_mode_var,
+                value=value,
+                indicatoron=False,
+                bg=self._panel_color,
+                fg=self._text_color,
+                activebackground=self._accent_color,
+                activeforeground=self._background_color,
+                selectcolor=self._accent_color,
+                font=('DejaVu Sans', 20, 'bold'),
+                relief='groove',
+                bd=2,
+                highlightthickness=2,
+                highlightbackground=self._accent_color,
+                highlightcolor=self._accent_color,
+                padx=14,
+                pady=20,
+                cursor='hand2',
+            )
+            button.pack(fill='x', pady=10)
+
+        apply_button = tk.Button(
+            panel,
+            text='Подтвердить',
+            command=self._request_apply_wifi_mode,
+            bg=self._accent_color,
+            fg=self._background_color,
+            activebackground=self._text_color,
+            activeforeground=self._background_color,
+            font=('DejaVu Sans', 20, 'bold'),
+            relief='flat',
+            bd=0,
+            padx=24,
+            pady=14,
+            cursor='hand2',
+        )
+        apply_button.pack(pady=(10, 20))
+
+        status_label = tk.Label(
+            panel,
+            textvariable=self._settings_status_var,
+            bg=self._panel_color,
+            fg=self._muted_text_color,
+            font=('DejaVu Sans', 16),
+            justify='center',
+            wraplength=1200,
+            anchor='center',
+        )
+        status_label.pack(fill='x', padx=40, pady=(0, 20))
+
+    def _run_command(self, command: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    def _nmcli_available(self) -> bool:
+        return bool(self._nmcli_path)
+
+    def _wifi_connectivity_state(self) -> str:
+        completed = self._run_command(
+            ['nmcli', '-t', '-f', 'CONNECTIVITY', 'general', 'status'],
+            timeout=2.0,
+        )
+        if completed.returncode != 0:
+            return 'unknown'
+        return completed.stdout.strip() or 'unknown'
+
+    def _active_wifi_connection(self) -> str:
+        completed = self._run_command(
+            ['nmcli', '-g', 'GENERAL.CONNECTION', 'device', 'show', self._wifi_interface],
+            timeout=2.0,
+        )
+        if completed.returncode != 0:
+            return ''
+        value = completed.stdout.strip()
+        if value in {'', '--'}:
+            return ''
+        return value
+
+    def _current_wifi_mode_key(self) -> str:
+        if not self._nmcli_available():
+            return 'unknown'
+
+        active_connection = self._active_wifi_connection()
+        if active_connection == self._wifi_hotspot_connection:
+            return 'share'
+        if active_connection:
+            return 'connect'
+
+        connectivity = self._wifi_connectivity_state()
+        if connectivity == 'full':
+            return 'connect'
+        return 'disconnected'
+
+    def _wifi_mode_label(self, mode_key: str) -> str:
+        if mode_key == 'connect':
+            return 'Подключение к сети'
+        if mode_key == 'share':
+            return 'Раздача Wi-Fi'
+        if mode_key == 'disconnected':
+            return 'Wi-Fi не активен'
+        return 'Режим недоступен'
+
+    def _toggle_settings_screen(self) -> None:
+        if self._screen_mode == 'settings':
+            self._show_main_screen()
+        else:
+            self._show_settings_screen()
+
+    def _show_main_screen(self) -> None:
+        self._screen_mode = 'main'
+        self._screen_button_var.set('Настройки')
+        self._main_screen.tkraise()
+
+    def _show_settings_screen(self) -> None:
+        self._screen_mode = 'settings'
+        self._screen_button_var.set('Назад')
+        mode_key = self._current_wifi_mode_key()
+        if not self._wifi_switch_in_progress:
+            self._selected_wifi_mode_var.set('share' if mode_key == 'share' else 'connect')
+            self._settings_status_var.set('Выберите режим и нажмите подтвердить.')
+        self._settings_screen.tkraise()
+
+    def _ensure_hotspot_profile(self) -> tuple[bool, str]:
+        if len(self._wifi_hotspot_password) < 8:
+            return False, 'Пароль точки доступа должен быть не короче 8 символов.'
+
+        existing = self._run_command(
+            ['nmcli', '-t', '-f', 'NAME', 'connection', 'show'],
+            timeout=3.0,
+        )
+        if existing.returncode != 0:
+            details = existing.stderr.strip() or existing.stdout.strip() or 'nmcli error'
+            return False, f'Не удалось получить список профилей: {details}'
+
+        existing_names = {
+            line.strip() for line in existing.stdout.splitlines() if line.strip()
+        }
+
+        if self._wifi_hotspot_connection not in existing_names:
+            created = self._run_command(
+                [
+                    'nmcli',
+                    'connection',
+                    'add',
+                    'type',
+                    'wifi',
+                    'ifname',
+                    self._wifi_interface,
+                    'mode',
+                    'ap',
+                    'con-name',
+                    self._wifi_hotspot_connection,
+                    'ssid',
+                    self._wifi_hotspot_ssid,
+                ],
+                timeout=8.0,
+            )
+            if created.returncode != 0:
+                details = created.stderr.strip() or created.stdout.strip() or 'nmcli error'
+                return False, f'Не удалось создать профиль точки доступа: {details}'
+
+        updated = self._run_command(
+            [
+                'nmcli',
+                'connection',
+                'modify',
+                self._wifi_hotspot_connection,
+                'connection.interface-name',
+                self._wifi_interface,
+                'connection.autoconnect',
+                'no',
+                '802-11-wireless.mode',
+                'ap',
+                '802-11-wireless.band',
+                self._wifi_hotspot_band,
+                '802-11-wireless.channel',
+                str(self._wifi_hotspot_channel),
+                '802-11-wireless.ssid',
+                self._wifi_hotspot_ssid,
+                'ipv4.method',
+                'shared',
+                'ipv4.addresses',
+                self._wifi_hotspot_address,
+                'ipv4.shared-dhcp-range',
+                self._wifi_hotspot_dhcp_range,
+                'ipv6.method',
+                'disabled',
+                'wifi-sec.key-mgmt',
+                'wpa-psk',
+                'wifi-sec.psk',
+                self._wifi_hotspot_password,
+            ],
+            timeout=8.0,
+        )
+        if updated.returncode != 0:
+            details = updated.stderr.strip() or updated.stdout.strip() or 'nmcli error'
+            return False, f'Не удалось настроить точку доступа: {details}'
+
+        return True, 'Профиль точки доступа готов.'
+
+    def _request_apply_wifi_mode(self) -> None:
+        if self._wifi_switch_in_progress:
+            return
+
+        desired_mode = self._selected_wifi_mode_var.get().strip() or 'connect'
+        self._wifi_switch_in_progress = True
+        self._settings_status_var.set('Применение настроек Wi-Fi...')
+        self._status_var.set('Применение настроек Wi-Fi...')
+        self._screen_button.configure(state='disabled')
+
+        worker = threading.Thread(
+            target=self._apply_wifi_mode_worker,
+            args=(desired_mode,),
+            daemon=True,
+        )
+        worker.start()
+
+    def _apply_wifi_mode_worker(self, desired_mode: str) -> None:
+        success = False
+        message = 'Неизвестная ошибка'
+
+        try:
+            if not self._nmcli_available():
+                message = 'nmcli не найден. Установи и включи NetworkManager.'
+            elif desired_mode == 'connect':
+                success, message = self._activate_uplink_mode()
+            elif desired_mode == 'share':
+                success, message = self._activate_hotspot_mode()
+            else:
+                message = 'Неизвестный режим Wi-Fi.'
+        except Exception as exc:  # pragma: no cover - subprocess/platform specific
+            message = f'Ошибка переключения Wi-Fi: {exc}'
+
+        self._root.after(
+            0,
+            lambda: self._finish_apply_wifi_mode(
+                success=success,
+                desired_mode=desired_mode,
+                message=message,
+            ),
+        )
+
+    def _activate_uplink_mode(self) -> tuple[bool, str]:
+        if not self._wifi_uplink_connection:
+            return False, 'Не задан параметр wifi_uplink_connection.'
+
+        self._run_command(['nmcli', 'radio', 'wifi', 'on'], timeout=4.0)
+        self._run_command(
+            ['nmcli', 'connection', 'down', 'id', self._wifi_hotspot_connection],
+            timeout=6.0,
+        )
+        completed = self._run_command(
+            [
+                'nmcli',
+                'connection',
+                'up',
+                'id',
+                self._wifi_uplink_connection,
+                'ifname',
+                self._wifi_interface,
+            ],
+            timeout=15.0,
+        )
+        if completed.returncode != 0:
+            details = completed.stderr.strip() or completed.stdout.strip() or 'nmcli error'
+            return False, f'Не удалось подключиться к сети: {details}'
+        return True, f'Подключение к сети включено: {self._wifi_uplink_connection}'
+
+    def _activate_hotspot_mode(self) -> tuple[bool, str]:
+        ensured, ensure_message = self._ensure_hotspot_profile()
+        if not ensured:
+            return False, ensure_message
+
+        self._run_command(['nmcli', 'radio', 'wifi', 'on'], timeout=4.0)
+        if self._wifi_uplink_connection:
+            self._run_command(
+                ['nmcli', 'connection', 'down', 'id', self._wifi_uplink_connection],
+                timeout=6.0,
+            )
+        completed = self._run_command(
+            [
+                'nmcli',
+                'connection',
+                'up',
+                'id',
+                self._wifi_hotspot_connection,
+                'ifname',
+                self._wifi_interface,
+            ],
+            timeout=15.0,
+        )
+        if completed.returncode != 0:
+            details = completed.stderr.strip() or completed.stdout.strip() or 'nmcli error'
+            return False, f'Не удалось включить точку доступа: {details}'
+        return True, f'Точка доступа включена: {self._wifi_hotspot_ssid}'
+
+    def _finish_apply_wifi_mode(
+        self,
+        *,
+        success: bool,
+        desired_mode: str,
+        message: str,
+    ) -> None:
+        self._wifi_switch_in_progress = False
+        self._screen_button.configure(state='normal')
+        self._settings_status_var.set(message)
+        self._status_var.set(message)
+
+        if success:
+            self._selected_wifi_mode_var.set(desired_mode)
+            self._show_main_screen()
+
+        self._refresh_display_data(reschedule=False)
+
+    def _refresh_display_data(self, *, reschedule: bool = True) -> None:
         addresses = discover_ipv4_addresses()
         if addresses:
             self._ip_var.set('\n'.join(addresses))
         else:
             self._ip_var.set('Сеть не подключена')
 
-        self._status_var.set(
-            f'{self._footer_text} · обновление каждые {self._refresh_ms / 1000.0:.1f} c · ESC для выхода'
-        )
-        if rclpy.ok():
-            self._root.after(self._refresh_ms, self._update_ip_addresses)
+        mode_key = self._current_wifi_mode_key()
+        mode_label = self._wifi_mode_label(mode_key)
+        self._wifi_mode_var.set(mode_label)
+        self._settings_wifi_mode_var.set(mode_label)
+
+        if self._screen_mode == 'settings' and not self._wifi_switch_in_progress:
+            self._selected_wifi_mode_var.set('share' if mode_key == 'share' else 'connect')
+
+        if not self._wifi_switch_in_progress:
+            self._status_var.set(
+                f'{self._footer_text} · обновление каждые {self._refresh_ms / 1000.0:.1f} c · ESC для выхода'
+            )
+
+        if reschedule and rclpy.ok():
+            self._root.after(self._refresh_ms, self._refresh_display_data)
 
     def _shutdown(self) -> None:
         try:

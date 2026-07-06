@@ -161,6 +161,15 @@ display:
   accent_color: '#16B8F3'
   text_color: '#F4FBFF'
   muted_text_color: '#8CB5C7'
+  wifi_interface: wlan0
+  wifi_uplink_connection: ''
+  wifi_hotspot_connection: rover-ap
+  wifi_hotspot_ssid: Rover-AP
+  wifi_hotspot_password: StrongPassword123
+  wifi_hotspot_address: 192.168.50.1/24
+  wifi_hotspot_dhcp_range: 192.168.50.10,192.168.50.200
+  wifi_hotspot_band: bg
+  wifi_hotspot_channel: 1
 led_strip:
   led_transport: auto
   spi_bus: 1
