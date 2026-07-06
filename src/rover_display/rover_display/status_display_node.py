@@ -123,6 +123,7 @@ class RoverStatusDisplayNode(Node):
         self._current_screen = 'network'
         self._apply_in_progress = False
         self._active_entry = None
+        self._keyboard_target_var = None
         self._keyboard_shift = False
 
         self._hostname_var = tk.StringVar(value=socket.gethostname())
@@ -134,6 +135,7 @@ class RoverStatusDisplayNode(Node):
         self._menu_status_var = tk.StringVar(value='Главное меню')
         self._connected_ssid_var = tk.StringVar(value='SSID: —')
         self._settings_button_var = tk.StringVar(value='Настройки')
+        self._keyboard_title_var = tk.StringVar(value='Ввод')
 
         self._build_layout()
         self._load_current_wifi_config()
@@ -215,13 +217,15 @@ class RoverStatusDisplayNode(Node):
         self._network_screen = tk.Frame(self._screen_container, bg=self._panel_color)
         self._settings_screen = tk.Frame(self._screen_container, bg=self._panel_color)
         self._menu_screen = tk.Frame(self._screen_container, bg=self._panel_color)
+        self._keyboard_screen = tk.Frame(self._screen_container, bg=self._panel_color)
 
-        for frame in (self._network_screen, self._settings_screen, self._menu_screen):
+        for frame in (self._network_screen, self._settings_screen, self._menu_screen, self._keyboard_screen):
             frame.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         self._build_network_screen()
         self._build_settings_screen()
         self._build_main_menu_screen()
+        self._build_keyboard_screen()
 
     def _build_network_screen(self) -> None:
         tk = self._tk
@@ -365,7 +369,6 @@ class RoverStatusDisplayNode(Node):
             bg='#0F2A38',
             fg=self._text_color,
             justify='left',
-            show='*',
         )
         self._password_entry.pack(fill='x', ipady=self._scaled(12, minimum=7))
         self._password_entry.bind('<FocusIn>', lambda _event: self._show_keyboard(self._password_entry))
@@ -397,12 +400,6 @@ class RoverStatusDisplayNode(Node):
             justify='center',
         )
         settings_status.pack(fill='x', padx=self._scaled(18, minimum=8))
-
-        self._keyboard_frame = tk.Frame(self._settings_screen, bg=self._panel_color)
-        self._keyboard_frame.pack(side='bottom', fill='x', padx=self._scaled(14, minimum=8), pady=self._scaled(12, minimum=8))
-        self._keyboard_frame.pack_forget()
-
-        self._build_keyboard()
 
     def _build_main_menu_screen(self) -> None:
         tk = self._tk
@@ -459,7 +456,57 @@ class RoverStatusDisplayNode(Node):
         )
         menu_status.pack(fill='x', padx=self._scaled(20, minimum=10), pady=(self._scaled(18, minimum=10), 0))
 
-    def _build_keyboard(self) -> None:
+    def _build_keyboard_screen(self) -> None:
+        tk = self._tk
+
+        top_frame = tk.Frame(self._keyboard_screen, bg=self._panel_color)
+        top_frame.pack(fill='x', padx=self._scaled(14, minimum=8), pady=(self._scaled(14, minimum=8), self._scaled(10, minimum=6)))
+
+        self._keyboard_title_label = tk.Label(
+            top_frame,
+            textvariable=self._keyboard_title_var,
+            bg=self._panel_color,
+            fg=self._muted_text_color,
+            font=('DejaVu Sans', self._scaled(15, minimum=10), 'bold'),
+            anchor='w',
+        )
+        self._keyboard_title_label.pack(fill='x', pady=(0, self._scaled(6, minimum=3)))
+
+        input_row = tk.Frame(top_frame, bg=self._panel_color)
+        input_row.pack(fill='x')
+
+        self._keyboard_entry = tk.Entry(
+            input_row,
+            font=('DejaVu Sans', self._scaled(20, minimum=12)),
+            relief='flat',
+            bd=0,
+            insertbackground=self._text_color,
+            bg='#F2F7FA',
+            fg='#111111',
+            justify='left',
+        )
+        self._keyboard_entry.pack(side='left', fill='x', expand=True, ipady=self._scaled(10, minimum=7), padx=(0, self._scaled(10, minimum=6)))
+
+        close_button = tk.Button(
+            input_row,
+            text='Выход',
+            command=self._close_keyboard,
+            bg='#C9CDD2',
+            fg='#111111',
+            activebackground='#E5E8EC',
+            activeforeground='#111111',
+            font=('DejaVu Sans', self._scaled(14, minimum=10), 'bold'),
+            relief='flat',
+            bd=0,
+            padx=self._scaled(16, minimum=8),
+            pady=self._scaled(12, minimum=7),
+            cursor='hand2',
+        )
+        close_button.pack(side='right')
+
+        self._keyboard_frame = tk.Frame(self._keyboard_screen, bg=self._panel_color)
+        self._keyboard_frame.pack(fill='both', expand=True, padx=self._scaled(10, minimum=6), pady=(0, self._scaled(10, minimum=6)))
+
         rows = [
             list('1234567890'),
             list('qwertyuiop'),
@@ -470,24 +517,43 @@ class RoverStatusDisplayNode(Node):
 
         for row in rows:
             row_frame = self._tk.Frame(self._keyboard_frame, bg=self._panel_color)
-            row_frame.pack(fill='x', pady=self._scaled(3, minimum=2))
+            row_frame.pack(fill='both', expand=True, pady=self._scaled(3, minimum=2))
             for key in row:
+                if key == 'SPACE':
+                    label = 'Пробел'
+                elif key == 'BACK':
+                    label = '⌫'
+                elif key == 'SHIFT':
+                    label = '⇧'
+                elif key == 'DONE':
+                    label = 'Готово'
+                elif key == 'CLEAR':
+                    label = 'Очист.'
+                else:
+                    label = key
                 button = self._tk.Button(
                     row_frame,
-                    text=key if key not in {'SPACE', 'BACK'} else ('Пробел' if key == 'SPACE' else '⌫'),
+                    text=label,
                     command=lambda value=key: self._on_keyboard_key(value),
                     bg='#12384A',
                     fg=self._text_color,
                     activebackground=self._accent_color,
                     activeforeground=self._background_color,
-                    font=('DejaVu Sans', self._scaled(13, minimum=9), 'bold'),
+                    font=('DejaVu Sans', self._scaled(15, minimum=10), 'bold'),
                     relief='flat',
                     bd=0,
                     padx=self._scaled(8, minimum=4),
-                    pady=self._scaled(8, minimum=5),
+                    pady=self._scaled(12, minimum=8),
                     cursor='hand2',
                 )
-                button.pack(side='left', fill='x', expand=True, padx=self._scaled(2, minimum=1))
+                expand = True
+                if key in {'SPACE', 'DONE', 'CLEAR'}:
+                    expand = False
+                button.pack(side='left', fill='both', expand=expand, padx=self._scaled(2, minimum=1))
+                if key == 'SPACE':
+                    button.configure(width=max(8, int(14 * self._ui_scale)))
+                elif key in {'DONE', 'CLEAR'}:
+                    button.configure(width=max(5, int(8 * self._ui_scale)))
 
     def _run_command(self, command: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
         try:
@@ -513,48 +579,64 @@ class RoverStatusDisplayNode(Node):
         self._settings_button_var.set('Назад')
         self._settings_button.configure(command=self._show_network_screen)
         self._settings_button.place_configure(relx=1.0, rely=0.5, anchor='e')
+        self._hide_keyboard()
         self._settings_screen.tkraise()
 
     def _open_main_menu_screen(self) -> None:
         self._current_screen = 'menu'
+        self._hide_keyboard()
         self._settings_button.place_forget()
         self._menu_screen.tkraise()
 
     def _show_keyboard(self, entry) -> None:
         self._active_entry = entry
-        if not self._keyboard_frame.winfo_manager():
-            self._keyboard_frame.pack(side='bottom', fill='x', padx=self._scaled(14, minimum=8), pady=self._scaled(12, minimum=8))
+        if entry == self._ssid_entry:
+            self._keyboard_target_var = self._ssid_var
+            self._keyboard_title_var.set('SSID')
+        else:
+            self._keyboard_target_var = self._password_var
+            self._keyboard_title_var.set('Пароль')
+
+        if self._keyboard_target_var is not None:
+            self._keyboard_entry.configure(textvariable=self._keyboard_target_var)
+        self._current_screen = 'keyboard'
+        self._settings_button.place_forget()
+        self._keyboard_screen.tkraise()
+        self._root.after(10, lambda: self._keyboard_entry.focus_force())
 
     def _hide_keyboard(self) -> None:
         self._active_entry = None
-        if self._keyboard_frame.winfo_manager():
-            self._keyboard_frame.pack_forget()
+        self._keyboard_target_var = None
+        self._keyboard_entry.configure(textvariable='')
+
+    def _close_keyboard(self) -> None:
+        self._hide_keyboard()
+        self._open_settings_screen()
 
     def _on_keyboard_key(self, key: str) -> None:
-        if self._active_entry is None:
+        if self._keyboard_target_var is None:
             return
 
         if key == 'SHIFT':
             self._keyboard_shift = not self._keyboard_shift
             return
         if key == 'BACK':
-            value = self._active_entry.get()
+            value = self._keyboard_entry.get()
             if value:
-                self._active_entry.delete(len(value) - 1, self._tk.END)
+                self._keyboard_entry.delete(len(value) - 1, self._tk.END)
             return
         if key == 'SPACE':
-            self._active_entry.insert(self._tk.END, ' ')
+            self._keyboard_entry.insert(self._tk.END, ' ')
             return
         if key == 'CLEAR':
-            self._active_entry.delete(0, self._tk.END)
+            self._keyboard_entry.delete(0, self._tk.END)
             return
         if key == 'DONE':
-            self._hide_keyboard()
-            self._root.focus_set()
+            self._close_keyboard()
             return
 
         symbol = key.upper() if self._keyboard_shift else key
-        self._active_entry.insert(self._tk.END, symbol)
+        self._keyboard_entry.insert(self._tk.END, symbol)
         if self._keyboard_shift and len(symbol) == 1 and symbol.isalpha():
             self._keyboard_shift = False
 
@@ -626,7 +708,7 @@ class RoverStatusDisplayNode(Node):
         self._apply_in_progress = True
         self._settings_status_var.set('Применение Wi-Fi настроек...')
         self._network_status_var.set('Применение Wi-Fi настроек...')
-        self._hide_keyboard()
+        self._close_keyboard()
         self._settings_button.configure(state='disabled')
 
         thread = threading.Thread(
