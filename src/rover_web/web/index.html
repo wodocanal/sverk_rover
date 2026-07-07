@@ -158,7 +158,6 @@ ROS State — ноды, топики и сервисы
         <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab active" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
-          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
@@ -363,7 +362,6 @@ angular.z: 0.00</pre>
         <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab active" data-page="lidar">Лидар</button>
-          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
@@ -401,37 +399,10 @@ angular.z: 0.00</pre>
         </div>
       </section>
 
-      <section class="page" id="page-display">
-        <div class="section-tabs" data-tab-group="peripherals">
-          <button class="section-tab" data-page="camera">Камера</button>
-          <button class="section-tab" data-page="lidar">Лидар</button>
-          <button class="section-tab active" data-page="display">Дисплей</button>
-          <button class="section-tab" data-page="lights">Свет</button>
-          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
-          <button class="section-tab" data-page="octoliner">Octoliner</button>
-          <button class="section-tab" data-page="actuators">Приводы</button>
-        </div>
-        <div class="two-column">
-          <article class="panel">
-            <h2>Страница в разработке</h2>
-            <p>Здесь появятся состояние дисплея, шаблоны экранов и инструменты для быстрого вывода сервисной информации.</p>
-            <div class="notice">Пока что раздел пустой.</div>
-          </article>
-          <article class="panel">
-            <h2>План наполнения</h2>
-            <pre class="message-box">- подключение драйвера дисплея
-- статус экрана
-- ручной вывод текста и служебных экранов
-- интеграция с состоянием робота</pre>
-          </article>
-        </div>
-      </section>
-
       <section class="page" id="page-octoliner">
         <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
-          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab active" data-page="octoliner">Octoliner</button>
@@ -474,7 +445,6 @@ angular.z: 0.00</pre>
         <div class="section-tabs section-tabs-toolbar" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
-          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab active" data-page="lights">Свет</button>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
@@ -540,12 +510,12 @@ angular.z: 0.00</pre>
 
           <article class="panel canvas-panel sensor-canvas-panel">
             <div class="panel-title-overlay">Preview</div>
-            <canvas id="led-strip-canvas" width="1000" height="360"></canvas>
+            <canvas id="led-strip-canvas" width="1000" height="220"></canvas>
             <div id="led-strip-empty" class="canvas-empty">Ожидание данных LED strip…</div>
             <div class="canvas-legend">Каждый сегмент соответствует одному светодиоду.</div>
           </article>
         </div>
-        <div class="two-column peripheral-tools">
+        <div class="led-strip-tools peripheral-tools">
           <article class="panel">
             <div class="panel-heading-row">
               <div>
@@ -607,7 +577,6 @@ angular.z: 0.00</pre>
         <div class="section-tabs" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
-          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
           <button class="section-tab active" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
@@ -634,7 +603,6 @@ angular.z: 0.00</pre>
         <div class="section-tabs" data-tab-group="peripherals">
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
-          <button class="section-tab" data-page="display">Дисплей</button>
           <button class="section-tab" data-page="lights">Свет</button>
           <button class="section-tab" data-page="audio">Динамик и микрофон</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>

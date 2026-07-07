@@ -1103,6 +1103,14 @@ textarea {
   background: #f9fdff;
 }
 
+#page-lights .sensor-canvas-panel {
+  min-height: 300px;
+}
+
+#led-strip-canvas {
+  height: 220px;
+}
+
 .canvas-legend {
   position: absolute;
   right: 12px;
@@ -1178,6 +1186,12 @@ textarea {
   margin-top: 18px;
 }
 
+.led-strip-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
 .preset-chip-grid {
   display: flex;
   flex-wrap: wrap;
@@ -1191,7 +1205,7 @@ textarea {
 
 .led-pixel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  grid-template-columns: repeat(8, minmax(72px, 1fr));
   gap: 10px;
   margin: 14px 0 16px;
 }

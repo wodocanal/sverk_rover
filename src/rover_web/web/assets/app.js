@@ -25,7 +25,6 @@ const PAGE_GROUPS = {
   visualization: 'movement',
   camera: 'peripherals',
   lidar: 'peripherals',
-  display: 'peripherals',
   lights: 'peripherals',
   audio: 'peripherals',
   octoliner: 'peripherals',
@@ -538,7 +537,6 @@ function currentPageTitle(page) {
     routes: 'Маршруты',
     visualization: 'Визуализация',
     lidar: 'Лидар',
-    display: 'Дисплей',
     lights: 'Свет',
     audio: 'Динамик и микрофон',
     octoliner: 'Octoliner',
@@ -2237,18 +2235,27 @@ function drawLedStripVisualization(data = state.ledStripData) {
   if (!colors.length) return;
 
   const count = colors.length;
+  const columns = Math.min(8, count);
+  const rows = Math.max(1, Math.ceil(count / Math.max(1, columns)));
   const marginX = 28;
-  const marginY = 42;
+  const marginTop = 42;
+  const marginBottom = 34;
   const usableWidth = width - marginX * 2;
-  const gap = Math.max(2, Math.min(12, usableWidth / Math.max(1, count) * 0.08));
-  const cellWidth = Math.max(8, (usableWidth - gap * (count - 1)) / count);
-  const top = marginY;
-  const cellHeight = height - marginY * 2;
+  const usableHeight = Math.max(32, height - marginTop - marginBottom);
+  const gapX = Math.max(4, Math.min(14, usableWidth / Math.max(1, columns) * 0.06));
+  const gapY = 14;
+  const cellWidth = Math.max(8, (usableWidth - gapX * (columns - 1)) / columns);
+  const rawCellHeight = (usableHeight - gapY * (rows - 1)) / rows;
+  const cellHeight = Math.max(18, Math.min(54, rawCellHeight));
+  const stripHeight = cellHeight * rows + gapY * (rows - 1);
+  const top = marginTop + Math.max(0, (usableHeight - stripHeight) / 2);
 
   colors.forEach((packed, index) => {
     const { red, green, blue } = parsePackedColor(packed);
-    const x = marginX + index * (cellWidth + gap);
-    const y = top;
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = marginX + column * (cellWidth + gapX);
+    const y = top + row * (cellHeight + gapY);
     ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
     ctx.fillRect(x, y, cellWidth, cellHeight);
     ctx.strokeStyle = 'rgba(7, 95, 137, 0.18)';
@@ -4083,7 +4090,7 @@ async function initialize() {
     await loadPlan(state.route.selectedName);
   }
 
-  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'display', 'lights', 'audio', 'octoliner', 'actuators', 'hackathon', 'terminal', 'diagnostics', 'settings'].includes(state.page)
+  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'lights', 'audio', 'octoliner', 'actuators', 'hackathon', 'terminal', 'diagnostics', 'settings'].includes(state.page)
     ? state.page
     : 'overview');
   setRosTab(state.rosTab);
