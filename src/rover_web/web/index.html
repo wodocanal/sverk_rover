@@ -453,60 +453,16 @@ angular.z: 0.00</pre>
             <button class="secondary" id="led-strip-refresh-topics">Обновить источники</button>
           </div>
         </div>
-        <div class="sensor-layout">
-          <div class="sensor-side-column">
-            <article class="panel sensor-source-panel">
-              <h2>Источник состояния</h2>
-              <label>LedStripState topic
-                <select id="led-strip-topic-select"></select>
-              </label>
-              <div class="button-row">
-                <button id="led-strip-connect">Подключить</button>
-              </div>
-              <dl class="detail-list" id="led-strip-meta"></dl>
-              <div class="status-note" id="led-strip-status">Выбери topic с LedStripState.</div>
-            </article>
-
-            <article class="panel">
-              <div class="panel-heading-row">
-                <div>
-                  <h2>Команда</h2>
-                </div>
-              </div>
-              <div class="form-grid compact-grid">
-                <label>Эффект
-                  <select id="led-strip-effect">
-                    <option value="fill">fill</option>
-                    <option value="blink">blink</option>
-                    <option value="blink_fast">blink_fast</option>
-                    <option value="fade">fade</option>
-                    <option value="wipe">wipe</option>
-                    <option value="flash">flash</option>
-                    <option value="rainbow">rainbow</option>
-                    <option value="rainbow_fill">rainbow_fill</option>
-                  </select>
-                </label>
-                <label>Brightness <output id="led-strip-brightness-output">0.35</output>
-                  <input id="led-strip-brightness" type="range" min="0" max="1" step="0.01" value="0.35">
-                </label>
-                <label>Speed, Hz <output id="led-strip-speed-output">1.00</output>
-                  <input id="led-strip-speed" type="range" min="0.05" max="20" step="0.05" value="1.0">
-                </label>
-                <label>Primary color
-                  <input id="led-strip-primary-color" type="color" value="#16B8F3">
-                </label>
-                <label>Secondary color
-                  <input id="led-strip-secondary-color" type="color" value="#FFFFFF">
-                </label>
-                <label class="check-label"><input id="led-strip-enabled" type="checkbox"> Лента включена</label>
-              </div>
-              <div class="button-row">
-                <button id="led-strip-apply">Применить</button>
-                <button class="secondary" id="led-strip-off">Выключить</button>
-              </div>
-              <div class="status-note" id="led-strip-control-status">Команда ещё не отправлялась.</div>
-            </article>
-          </div>
+        <div class="sensor-layout led-strip-layout">
+          <article class="panel camera-source-panel led-strip-source-panel">
+            <h2>Источник состояния</h2>
+            <div class="camera-source-row">
+              <select id="led-strip-topic-select" aria-label="LedStripState topic"></select>
+              <button id="led-strip-connect">Подключить</button>
+            </div>
+            <dl class="detail-list hidden" id="led-strip-meta"></dl>
+            <div class="status-note hidden" id="led-strip-status">Выбери topic с LedStripState.</div>
+          </article>
 
           <article class="panel canvas-panel sensor-canvas-panel">
             <div class="panel-title-overlay">Preview</div>
@@ -515,6 +471,45 @@ angular.z: 0.00</pre>
             <div class="canvas-legend">Каждый сегмент соответствует одному светодиоду.</div>
           </article>
         </div>
+        <article class="panel led-strip-command-panel">
+          <div class="panel-heading-row">
+            <div>
+              <h2>Команда</h2>
+            </div>
+          </div>
+          <div class="form-grid compact-grid">
+            <label>Эффект
+              <select id="led-strip-effect">
+                <option value="fill">fill</option>
+                <option value="blink">blink</option>
+                <option value="blink_fast">blink_fast</option>
+                <option value="fade">fade</option>
+                <option value="wipe">wipe</option>
+                <option value="flash">flash</option>
+                <option value="rainbow">rainbow</option>
+                <option value="rainbow_fill">rainbow_fill</option>
+              </select>
+            </label>
+            <label>Brightness <output id="led-strip-brightness-output">0.35</output>
+              <input id="led-strip-brightness" type="range" min="0" max="1" step="0.01" value="0.35">
+            </label>
+            <label>Speed, Hz <output id="led-strip-speed-output">1.00</output>
+              <input id="led-strip-speed" type="range" min="0.05" max="20" step="0.05" value="1.0">
+            </label>
+            <label>Primary color
+              <input id="led-strip-primary-color" type="color" value="#16B8F3">
+            </label>
+            <label>Secondary color
+              <input id="led-strip-secondary-color" type="color" value="#FFFFFF">
+            </label>
+            <label class="check-label"><input id="led-strip-enabled" type="checkbox"> Лента включена</label>
+          </div>
+          <div class="button-row">
+            <button id="led-strip-apply">Применить</button>
+            <button class="secondary" id="led-strip-off">Выключить</button>
+          </div>
+          <div class="status-note" id="led-strip-control-status">Команда ещё не отправлялась.</div>
+        </article>
         <div class="led-strip-tools peripheral-tools">
           <article class="panel">
             <div class="panel-heading-row">

@@ -1107,6 +1107,24 @@ textarea {
   min-height: 300px;
 }
 
+.led-strip-layout {
+  align-items: stretch;
+}
+
+.led-strip-layout > .panel {
+  min-height: 300px;
+}
+
+.led-strip-source-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.led-strip-command-panel {
+  margin-top: 18px;
+}
+
 #led-strip-canvas {
   height: 220px;
 }
@@ -1463,6 +1481,10 @@ textarea {
     justify-content: flex-start;
   }
 
+  .led-pixel-grid {
+    grid-template-columns: repeat(4, minmax(64px, 1fr));
+  }
+
   .metrics-grid,
   .ros-cards,
   .diagnostic-health-grid {
@@ -1494,6 +1516,10 @@ textarea {
   #odom-canvas,
   #route-preview-canvas {
     height: 340px;
+  }
+
+  #led-strip-canvas {
+    height: 190px;
   }
 }
 
