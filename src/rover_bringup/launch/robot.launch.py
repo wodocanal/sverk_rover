@@ -318,7 +318,7 @@ def launch_setup(context):
             }.items(),
         ))
 
-    if use_rosboard:
+    if use_rosboard and not use_web:
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('rosboard'), 'launch', 'rosboard.launch.py'
@@ -328,7 +328,7 @@ def launch_setup(context):
             }.items(),
         ))
 
-    if foxglove_launch_path is not None:
+    if foxglove_launch_path is not None and not use_web:
         actions.append(IncludeLaunchDescription(
             AnyLaunchDescriptionSource(str(foxglove_launch_path)),
             launch_arguments={
@@ -400,10 +400,10 @@ def generate_launch_description():
         DeclareLaunchArgument('use_display', default_value='false'),
         DeclareLaunchArgument('use_led_strip', default_value='true'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
-        DeclareLaunchArgument('use_web', default_value='true'),
-        DeclareLaunchArgument('use_rosboard', default_value='true'),
+        DeclareLaunchArgument('use_web', default_value='false'),
+        DeclareLaunchArgument('use_rosboard', default_value='false'),
         DeclareLaunchArgument('rosboard_port', default_value='8888'),
-        DeclareLaunchArgument('use_foxglove', default_value='true'),
+        DeclareLaunchArgument('use_foxglove', default_value='false'),
         DeclareLaunchArgument('foxglove_port', default_value='8766'),
         # Kept false for compatibility with the existing motion executor,
         # which publishes directly to /cmd_vel. Enable it for Nav2.
