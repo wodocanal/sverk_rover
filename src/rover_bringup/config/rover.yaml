@@ -119,8 +119,8 @@ lidar:
   range_min: 0.17
 camera:
   device: /dev/video0
-  image_topic: /camera/image_raw
-  compressed_image_topic: /camera/image_raw/compressed
+  image_topic: /image_raw
+  compressed_image_topic: /image_raw/compressed
   frame_id: camera_optical_frame
   width: 1280
   height: 720
@@ -133,17 +133,17 @@ camera:
   get_frame_service: get_frame
 vision:
   enabled: false
-  model_name: ''
+  model_name: yolov5n
   models_directory: models
-  input_topic: /camera/image_raw
-  processed_image_topic: /camera/image_processed
-  processed_compressed_image_topic: /camera/image_processed/compressed
+  input_topic: /image_raw
+  processed_image_topic: /image_processed
+  processed_compressed_image_topic: /image_processed/compressed
   frame_id: camera_optical_frame
   publish_raw: true
   publish_compressed: true
-  confidence_threshold: 0.25
+  confidence_threshold: 0.30
   nms_threshold: 0.45
-  max_processing_fps: 8.0
+  max_processing_fps: 10.0
   annotate_labels: true
   annotate_confidence: true
   line_thickness: 2

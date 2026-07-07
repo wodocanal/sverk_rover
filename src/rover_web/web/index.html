@@ -185,14 +185,14 @@ ROS State — ноды, топики и сервисы
               </div>
               <div id="camera-vision-body" class="camera-vision-body hidden">
                 <div class="form-grid compact-grid">
-                  <label>Модель
+                  <label>Модель (фиксированная)
                     <select id="camera-vision-model"></select>
                   </label>
-                  <label>Input topic<input id="camera-vision-input-topic" value="/camera/image_raw"></label>
-                  <label>Processed raw topic<input id="camera-vision-output-topic" value="/camera/image_processed"></label>
-                  <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/camera/image_processed/compressed"></label>
-                  <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="8.0"></label>
-                  <label>Confidence<input id="camera-vision-confidence" type="number" min="0.01" max="1" step="0.01" value="0.25"></label>
+                  <label>Input topic<input id="camera-vision-input-topic" value="/image_raw"></label>
+                  <label>Processed raw topic<input id="camera-vision-output-topic" value="/image_processed"></label>
+                  <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/image_processed/compressed"></label>
+                  <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="10.0"></label>
+                  <label>Confidence<input id="camera-vision-confidence" type="number" min="0.01" max="1" step="0.01" value="0.30"></label>
                   <label>NMS<input id="camera-vision-nms" type="number" min="0.01" max="1" step="0.01" value="0.45"></label>
                 </div>
                 <div class="inline-form camera-setting-flags">
@@ -756,8 +756,8 @@ angular.z: 0.00</pre>
             <div class="form-grid compact-grid">
               <label>Device<input id="camera-setting-device" value="/dev/video0"></label>
               <label>Frame ID<input id="camera-setting-frame-id" value="camera_optical_frame"></label>
-              <label>Raw topic<input id="camera-setting-image-topic" value="/camera/image_raw"></label>
-              <label>Compressed topic<input id="camera-setting-compressed-topic" value="/camera/image_raw/compressed"></label>
+              <label>Raw topic<input id="camera-setting-image-topic" value="/image_raw"></label>
+              <label>Compressed topic<input id="camera-setting-compressed-topic" value="/image_raw/compressed"></label>
               <label>Ширина<input id="camera-setting-width" type="number" min="160" step="1" value="1280"></label>
               <label>Высота<input id="camera-setting-height" type="number" min="120" step="1" value="720"></label>
               <label>FPS<input id="camera-setting-fps" type="number" min="1" max="120" step="1" value="30"></label>

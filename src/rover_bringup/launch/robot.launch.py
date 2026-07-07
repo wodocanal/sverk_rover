@@ -134,7 +134,7 @@ def launch_setup(context):
     vision_params = dict(config.get('vision', {}))
     vision_params.setdefault(
         'input_topic',
-        str(camera_params.get('image_topic', '/camera/image_raw')),
+        str(camera_params.get('image_topic', '/image_raw')),
     )
     vision_params.setdefault(
         'frame_id',

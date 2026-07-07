@@ -28,10 +28,10 @@ class UsbCameraNode(Node):
         super().__init__('usb_camera_node')
 
         self.declare_parameter('device', '/dev/video0')
-        self.declare_parameter('image_topic', '/camera/image_raw')
+        self.declare_parameter('image_topic', '/image_raw')
         self.declare_parameter(
             'compressed_image_topic',
-            '/camera/image_raw/compressed',
+            '/image_raw/compressed',
         )
         self.declare_parameter('frame_id', 'camera_optical_frame')
         self.declare_parameter('width', 1280)

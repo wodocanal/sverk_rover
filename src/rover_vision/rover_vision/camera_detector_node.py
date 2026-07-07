@@ -16,9 +16,11 @@ from sensor_msgs.msg import CompressedImage, Image
 
 from rover_vision.model_registry import (
     ModelManifest,
-    discover_model_manifests,
+    load_model_manifest,
     resolve_models_directory,
 )
+
+FIXED_MODEL_ID = 'yolov5n'
 
 
 @dataclass(slots=True)
@@ -76,13 +78,13 @@ class CameraDetectorNode(Node):
         super().__init__('camera_detector_node')
 
         self.declare_parameter('enabled', False)
-        self.declare_parameter('model_name', '')
+        self.declare_parameter('model_name', FIXED_MODEL_ID)
         self.declare_parameter('models_directory', 'models')
-        self.declare_parameter('input_topic', '/camera/image_raw')
-        self.declare_parameter('processed_image_topic', '/camera/image_processed')
+        self.declare_parameter('input_topic', '/image_raw')
+        self.declare_parameter('processed_image_topic', '/image_processed')
         self.declare_parameter(
             'processed_compressed_image_topic',
-            '/camera/image_processed/compressed',
+            '/image_processed/compressed',
         )
         self.declare_parameter('frame_id', 'camera_optical_frame')
         self.declare_parameter('publish_raw', True)
@@ -128,7 +130,9 @@ class CameraDetectorNode(Node):
 
     def _load_parameters(self) -> None:
         self.enabled = bool(self.get_parameter('enabled').value)
-        self.model_name = str(self.get_parameter('model_name').value).strip()
+        self.model_name = (
+            str(self.get_parameter('model_name').value).strip() or FIXED_MODEL_ID
+        )
         self.models_directory_text = str(
             self.get_parameter('models_directory').value
         ).strip() or 'models'
@@ -169,6 +173,10 @@ class CameraDetectorNode(Node):
             raise ValueError('processed_image_topic must not be empty')
         if not self.processed_compressed_image_topic:
             raise ValueError('processed_compressed_image_topic must not be empty')
+        if self.model_name != FIXED_MODEL_ID:
+            raise ValueError(
+                f'Only the fixed model {FIXED_MODEL_ID} is supported right now'
+            )
         if not self.frame_id:
             raise ValueError('frame_id must not be empty')
         if not self.publish_raw and not self.publish_compressed:
@@ -217,7 +225,7 @@ class CameraDetectorNode(Node):
                     candidate[parameter.name] = parameter.value
 
             self.enabled = bool(candidate['enabled'])
-            self.model_name = str(candidate['model_name']).strip()
+            self.model_name = str(candidate['model_name']).strip() or FIXED_MODEL_ID
             self.models_directory_text = str(candidate['models_directory']).strip() or 'models'
             self.input_topic = str(candidate['input_topic']).strip()
             self.processed_image_topic = str(candidate['processed_image_topic']).strip()
@@ -262,12 +270,15 @@ class CameraDetectorNode(Node):
             self.destroy_publisher(self._compressed_publisher)
             self._compressed_publisher = None
 
-    def _find_selected_manifest(self) -> ModelManifest | None:
-        manifests = discover_model_manifests(self._models_directory)
-        for manifest in manifests:
-            if manifest.identifier == self.model_name or manifest.display_name == self.model_name:
-                return manifest
-        return None
+    def _load_fixed_manifest(self) -> ModelManifest:
+        manifest_path = self._models_directory / f'{FIXED_MODEL_ID}.yaml'
+        manifest = load_model_manifest(manifest_path)
+        if not manifest.valid:
+            reason = manifest.error or 'Fixed model manifest is invalid'
+            raise RuntimeError(
+                f'Could not load fixed model manifest {manifest_path.name}: {reason}'
+            )
+        return manifest
 
     def _load_model(self, manifest: ModelManifest) -> Any:
         if manifest.model_path is None:
@@ -344,21 +355,11 @@ class CameraDetectorNode(Node):
                     self._log_status('info', 'Camera detector disabled')
                 return
 
-            if not self.model_name:
-                self._last_error = 'Model is not selected'
-                self._log_status('warning', self._last_error)
-                return
-
-            manifest = self._find_selected_manifest()
-            if manifest is None:
-                self._last_error = (
-                    f'Selected model "{self.model_name}" was not found in {self._models_directory}'
-                )
-                self._log_status('warning', self._last_error)
-                return
-            if not manifest.valid:
-                self._last_error = manifest.error or 'Selected model manifest is invalid'
-                self._log_status('warning', self._last_error)
+            try:
+                manifest = self._load_fixed_manifest()
+            except Exception as exc:
+                self._last_error = str(exc)
+                self._log_status('error', self._last_error)
                 return
 
             try:
@@ -400,7 +401,7 @@ class CameraDetectorNode(Node):
             self._log_status(
                 'info',
                 'Camera detector enabled: '
-                f'{manifest.display_name} ({manifest.model_format}) -> '
+                f'{manifest.display_name} -> '
                 f'{self.processed_image_topic} via {self._backend_kind}',
             )
 

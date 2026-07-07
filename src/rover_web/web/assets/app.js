@@ -1521,8 +1521,8 @@ function summarizeCameraCapabilities(capabilities) {
 function setCameraSettingsForm(parameters = {}) {
   $('#camera-setting-device').value = parameters.device || '/dev/video0';
   $('#camera-setting-frame-id').value = parameters.frame_id || 'camera_optical_frame';
-  $('#camera-setting-image-topic').value = parameters.image_topic || '/camera/image_raw';
-  $('#camera-setting-compressed-topic').value = parameters.compressed_image_topic || '/camera/image_raw/compressed';
+  $('#camera-setting-image-topic').value = parameters.image_topic || '/image_raw';
+  $('#camera-setting-compressed-topic').value = parameters.compressed_image_topic || '/image_raw/compressed';
   $('#camera-setting-width').value = String(parameters.width ?? 1280);
   $('#camera-setting-height').value = String(parameters.height ?? 720);
   $('#camera-setting-fps').value = String(parameters.fps ?? 30);
@@ -1535,6 +1535,7 @@ function setCameraSettingsForm(parameters = {}) {
 function renderCameraVisionModels(models = [], selectedModelName = '') {
   const select = $('#camera-vision-model');
   select.innerHTML = '';
+  select.disabled = true;
   if (!models.length) {
     const option = document.createElement('option');
     option.value = '';
@@ -1560,6 +1561,7 @@ function renderCameraVisionModels(models = [], selectedModelName = '') {
       select.value = firstValid.id;
     }
   }
+  select.title = 'Сейчас используется одна фиксированная модель';
 }
 
 function setCameraVisionPanelExpanded(enabled) {
@@ -1574,11 +1576,11 @@ function setCameraVisionSettingsForm(payload = {}) {
   $('#camera-vision-enabled').checked = enabled;
   setCameraVisionPanelExpanded(enabled);
   renderCameraVisionModels(safeArray(payload.models), String(parameters.model_name || ''));
-  $('#camera-vision-input-topic').value = parameters.input_topic || '/camera/image_raw';
-  $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/camera/image_processed';
-  $('#camera-vision-output-compressed-topic').value = parameters.processed_compressed_image_topic || '/camera/image_processed/compressed';
-  $('#camera-vision-fps').value = String(parameters.max_processing_fps ?? 8.0);
-  $('#camera-vision-confidence').value = String(parameters.confidence_threshold ?? 0.25);
+  $('#camera-vision-input-topic').value = parameters.input_topic || '/image_raw';
+  $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/image_processed';
+  $('#camera-vision-output-compressed-topic').value = parameters.processed_compressed_image_topic || '/image_processed/compressed';
+  $('#camera-vision-fps').value = String(parameters.max_processing_fps ?? 10.0);
+  $('#camera-vision-confidence').value = String(parameters.confidence_threshold ?? 0.30);
   $('#camera-vision-nms').value = String(parameters.nms_threshold ?? 0.45);
   $('#camera-vision-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-vision-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
