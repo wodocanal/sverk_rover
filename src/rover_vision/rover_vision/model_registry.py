@@ -8,7 +8,7 @@ from ament_index_python.packages import get_package_share_directory
 import yaml
 
 
-SUPPORTED_MODEL_FORMATS = {'yolov5', 'yolov8'}
+SUPPORTED_MODEL_FORMATS = {'yolov5', 'yolov8', 'opencv_ssd_tf'}
 
 
 @dataclass(slots=True)
@@ -18,6 +18,7 @@ class ModelManifest:
     description: str
     manifest_path: Path
     model_path: Path | None
+    config_path: Path | None
     task: str
     model_format: str
     input_width: int
@@ -99,6 +100,7 @@ def load_model_manifest(path: str | Path) -> ModelManifest:
             description='',
             manifest_path=manifest_path,
             model_path=None,
+            config_path=None,
             task='detection',
             model_format='yolov8',
             input_width=640,
@@ -119,6 +121,8 @@ def load_model_manifest(path: str | Path) -> ModelManifest:
     input_width, input_height = _parse_input_size(raw.get('input_size'))
     model_value = str(raw.get('model') or '').strip()
     model_path = (manifest_path.parent / model_value).resolve() if model_value else None
+    config_value = str(raw.get('config') or '').strip()
+    config_path = (manifest_path.parent / config_value).resolve() if config_value else None
     labels = _load_labels(raw, manifest_path.parent)
     confidence_threshold = float(raw.get('confidence_threshold', 0.25))
     nms_threshold = float(raw.get('nms_threshold', 0.45))
@@ -138,6 +142,12 @@ def load_model_manifest(path: str | Path) -> ModelManifest:
     elif not model_path.exists():
         valid = False
         error = f'Model file is missing: {model_path.name}'
+    elif model_format == 'opencv_ssd_tf' and config_path is None:
+        valid = False
+        error = 'Config file is not specified'
+    elif model_format == 'opencv_ssd_tf' and config_path is not None and not config_path.exists():
+        valid = False
+        error = f'Config file is missing: {config_path.name}'
 
     return ModelManifest(
         identifier=identifier,
@@ -145,6 +155,7 @@ def load_model_manifest(path: str | Path) -> ModelManifest:
         description=description,
         manifest_path=manifest_path,
         model_path=model_path,
+        config_path=config_path,
         task=task,
         model_format=model_format,
         input_width=input_width,
@@ -177,6 +188,7 @@ def manifest_to_dict(manifest: ModelManifest) -> dict[str, Any]:
         'description': manifest.description,
         'manifest_path': str(manifest.manifest_path),
         'model_path': str(manifest.model_path) if manifest.model_path else '',
+        'config_path': str(manifest.config_path) if manifest.config_path else '',
         'task': manifest.task,
         'format': manifest.model_format,
         'input_size': [manifest.input_width, manifest.input_height],

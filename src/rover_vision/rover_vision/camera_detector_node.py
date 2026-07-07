@@ -14,13 +14,15 @@ from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 
-from rover_vision.model_registry import (
-    ModelManifest,
-    load_model_manifest,
-    resolve_models_directory,
-)
+from rover_vision.model_registry import resolve_models_directory
 
-FIXED_MODEL_ID = 'yolov5n'
+
+FIXED_MODEL_ID = 'ssd_mobilenet_v1_coco_2017_11_17'
+FIXED_MODEL_DISPLAY_NAME = 'SSD MobileNet v1 COCO'
+FIXED_MODEL_WEIGHTS = 'frozen_inference_graph.pb'
+FIXED_MODEL_CONFIG = 'ssd_mobilenet_v1_coco_2017_11_17.pbtxt'
+FIXED_MODEL_LABELS = 'object_detection_classes_coco.txt'
+FIXED_MODEL_INPUT_SIZE = (300, 300)
 
 
 @dataclass(slots=True)
@@ -73,6 +75,11 @@ def encode_jpeg(frame: np.ndarray, quality: int) -> bytes:
     return encoded.tobytes()
 
 
+def load_labels_file(path: str) -> list[str]:
+    with open(path, 'r', encoding='utf-8') as handle:
+        return [line.strip() for line in handle.readlines() if line.strip()]
+
+
 class CameraDetectorNode(Node):
     def __init__(self) -> None:
         super().__init__('camera_detector_node')
@@ -89,9 +96,9 @@ class CameraDetectorNode(Node):
         self.declare_parameter('frame_id', 'camera_optical_frame')
         self.declare_parameter('publish_raw', True)
         self.declare_parameter('publish_compressed', True)
-        self.declare_parameter('confidence_threshold', 0.25)
+        self.declare_parameter('confidence_threshold', 0.30)
         self.declare_parameter('nms_threshold', 0.45)
-        self.declare_parameter('max_processing_fps', 8.0)
+        self.declare_parameter('max_processing_fps', 10.0)
         self.declare_parameter('annotate_labels', True)
         self.declare_parameter('annotate_confidence', True)
         self.declare_parameter('line_thickness', 2)
@@ -104,12 +111,8 @@ class CameraDetectorNode(Node):
         self._compressed_publisher = None
         self._timer = None
 
-        self._net = None
-        self._ort_session = None
-        self._ort_input_name = ''
-        self._ort_output_names: list[str] = []
-        self._backend_kind = ''
-        self._manifest: ModelManifest | None = None
+        self._detector: cv2.dnn_DetectionModel | None = None
+        self._labels: list[str] = []
         self._models_directory = resolve_models_directory('models')
         self._last_error = ''
         self._last_status_log: tuple[str, str] | None = None
@@ -130,9 +133,7 @@ class CameraDetectorNode(Node):
 
     def _load_parameters(self) -> None:
         self.enabled = bool(self.get_parameter('enabled').value)
-        self.model_name = (
-            str(self.get_parameter('model_name').value).strip() or FIXED_MODEL_ID
-        )
+        self.model_name = FIXED_MODEL_ID
         self.models_directory_text = str(
             self.get_parameter('models_directory').value
         ).strip() or 'models'
@@ -173,10 +174,6 @@ class CameraDetectorNode(Node):
             raise ValueError('processed_image_topic must not be empty')
         if not self.processed_compressed_image_topic:
             raise ValueError('processed_compressed_image_topic must not be empty')
-        if self.model_name != FIXED_MODEL_ID:
-            raise ValueError(
-                f'Only the fixed model {FIXED_MODEL_ID} is supported right now'
-            )
         if not self.frame_id:
             raise ValueError('frame_id must not be empty')
         if not self.publish_raw and not self.publish_compressed:
@@ -203,7 +200,7 @@ class CameraDetectorNode(Node):
     ) -> SetParametersResult:
         candidate = {
             'enabled': self.enabled,
-            'model_name': self.model_name,
+            'model_name': FIXED_MODEL_ID,
             'models_directory': self.models_directory_text,
             'input_topic': self.input_topic,
             'processed_image_topic': self.processed_image_topic,
@@ -225,7 +222,11 @@ class CameraDetectorNode(Node):
                     candidate[parameter.name] = parameter.value
 
             self.enabled = bool(candidate['enabled'])
-            self.model_name = str(candidate['model_name']).strip() or FIXED_MODEL_ID
+            if str(candidate['model_name']).strip() != FIXED_MODEL_ID:
+                raise ValueError(
+                    f'Only the fixed model {FIXED_MODEL_ID} is supported right now'
+                )
+            self.model_name = FIXED_MODEL_ID
             self.models_directory_text = str(candidate['models_directory']).strip() or 'models'
             self.input_topic = str(candidate['input_topic']).strip()
             self.processed_image_topic = str(candidate['processed_image_topic']).strip()
@@ -270,60 +271,31 @@ class CameraDetectorNode(Node):
             self.destroy_publisher(self._compressed_publisher)
             self._compressed_publisher = None
 
-    def _load_fixed_manifest(self) -> ModelManifest:
-        manifest_path = self._models_directory / f'{FIXED_MODEL_ID}.yaml'
-        manifest = load_model_manifest(manifest_path)
-        if not manifest.valid:
-            reason = manifest.error or 'Fixed model manifest is invalid'
+    def _resolve_model_paths(self) -> tuple[str, str, str]:
+        weights_path = self._models_directory / FIXED_MODEL_ID / FIXED_MODEL_WEIGHTS
+        config_path = self._models_directory / FIXED_MODEL_CONFIG
+        labels_path = self._models_directory / FIXED_MODEL_LABELS
+        return str(weights_path), str(config_path), str(labels_path)
+
+    def _load_detector(self) -> tuple[cv2.dnn_DetectionModel, list[str]]:
+        weights_path, config_path, labels_path = self._resolve_model_paths()
+        missing = [
+            path
+            for path in (weights_path, config_path, labels_path)
+            if not Path(path).exists()
+        ]
+        if missing:
+            missing_text = ', '.join(Path(path).name for path in missing)
             raise RuntimeError(
-                f'Could not load fixed model manifest {manifest_path.name}: {reason}'
+                f'Fixed model files are missing in {self._models_directory}: {missing_text}'
             )
-        return manifest
 
-    def _load_model(self, manifest: ModelManifest) -> Any:
-        if manifest.model_path is None:
-            raise RuntimeError('Selected model does not define model_path')
-        model_path = str(manifest.model_path)
-        errors: list[str] = []
-
-        try:
-            import onnxruntime as ort
-        except Exception:
-            ort = None
-
-        if ort is None:
-            errors.append(
-                'ONNX Runtime is not installed. Install it with: '
-                'python3 -m pip install onnxruntime'
-            )
-        else:
-            try:
-                session = ort.InferenceSession(
-                    model_path,
-                    providers=['CPUExecutionProvider'],
-                )
-                input_name = session.get_inputs()[0].name
-                output_names = [output.name for output in session.get_outputs()]
-                return (
-                    'onnxruntime',
-                    session,
-                    input_name,
-                    output_names,
-                )
-            except Exception as exc:
-                errors.append(f'ONNX Runtime: {exc}')
-
-        try:
-            return (
-                'opencv_dnn',
-                cv2.dnn.readNet(model_path),
-                '',
-                [],
-            )
-        except Exception as exc:
-            errors.append(f'OpenCV DNN: {exc}')
-
-        raise RuntimeError(' ; '.join(errors))
+        detector = cv2.dnn_DetectionModel(weights_path, config_path)
+        detector.setInputSize(*FIXED_MODEL_INPUT_SIZE)
+        detector.setInputScale(1.0 / 127.5)
+        detector.setInputMean((127.5, 127.5, 127.5))
+        detector.setInputSwapRB(True)
+        return detector, load_labels_file(labels_path)
 
     def _log_status(self, level: str, message: str) -> None:
         status = (level, message)
@@ -341,12 +313,8 @@ class CameraDetectorNode(Node):
     def _reconfigure_pipeline(self, *, initial: bool = False) -> None:
         with self._config_lock:
             self._destroy_io()
-            self._net = None
-            self._ort_session = None
-            self._ort_input_name = ''
-            self._ort_output_names = []
-            self._backend_kind = ''
-            self._manifest = None
+            self._detector = None
+            self._labels = []
             self._active = False
             self._last_error = ''
 
@@ -356,29 +324,12 @@ class CameraDetectorNode(Node):
                 return
 
             try:
-                manifest = self._load_fixed_manifest()
+                self._detector, self._labels = self._load_detector()
             except Exception as exc:
-                self._last_error = str(exc)
+                self._last_error = f'Could not load model {FIXED_MODEL_DISPLAY_NAME}: {exc}'
                 self._log_status('error', self._last_error)
                 return
 
-            try:
-                (
-                    self._backend_kind,
-                    backend_model,
-                    self._ort_input_name,
-                    self._ort_output_names,
-                ) = self._load_model(manifest)
-                if self._backend_kind == 'onnxruntime':
-                    self._ort_session = backend_model
-                else:
-                    self._net = backend_model
-            except Exception as exc:
-                self._last_error = f'Could not load model {manifest.display_name}: {exc}'
-                self._log_status('error', self._last_error)
-                return
-
-            self._manifest = manifest
             self._subscription = self.create_subscription(
                 Image,
                 self.input_topic,
@@ -401,8 +352,7 @@ class CameraDetectorNode(Node):
             self._log_status(
                 'info',
                 'Camera detector enabled: '
-                f'{manifest.display_name} -> '
-                f'{self.processed_image_topic} via {self._backend_kind}',
+                f'{FIXED_MODEL_DISPLAY_NAME} -> {self.processed_image_topic} via opencv_dnn',
             )
 
     def _image_callback(self, message: Image) -> None:
@@ -420,11 +370,7 @@ class CameraDetectorNode(Node):
             self._frames_received += 1
 
     def _should_process_now(self) -> bool:
-        if (
-            not self._active
-            or self._manifest is None
-            or (self._net is None and self._ort_session is None)
-        ):
+        if not self._active or self._detector is None:
             return False
         if (
             self._raw_publisher is not None
@@ -454,7 +400,7 @@ class CameraDetectorNode(Node):
             sequence = self._latest_seq
 
         try:
-            annotated, detection_count = self._run_inference(frame)
+            annotated, detection_count = self._run_detection(frame)
         except Exception as exc:
             self._last_error = str(exc)
             self.get_logger().warning(f'Inference failed: {exc}')
@@ -466,157 +412,48 @@ class CameraDetectorNode(Node):
         if detection_count >= 0:
             self._last_error = ''
 
-    def _run_inference(self, frame: np.ndarray) -> tuple[np.ndarray, int]:
-        assert self._manifest is not None
+    def _run_detection(self, frame: np.ndarray) -> tuple[np.ndarray, int]:
+        assert self._detector is not None
 
-        blob = cv2.dnn.blobFromImage(
+        class_ids, confidences, boxes = self._detector.detect(
             frame,
-            scalefactor=1.0 / 255.0,
-            size=(self._manifest.input_width, self._manifest.input_height),
-            swapRB=self._manifest.swap_rb,
-            crop=False,
+            confThreshold=float(self.confidence_threshold),
+            nmsThreshold=float(self.nms_threshold),
         )
-        if self._ort_session is not None:
-            outputs = self._ort_session.run(
-                self._ort_output_names,
-                {self._ort_input_name: blob},
-            )
-        else:
-            assert self._net is not None
-            self._net.setInput(blob)
-            outputs = self._net.forward()
-        detections = self._decode_detections(outputs, frame.shape[1], frame.shape[0])
+
+        detections: list[Detection] = []
+        if class_ids is not None and len(class_ids) > 0:
+            ids = np.array(class_ids).reshape(-1).tolist()
+            scores = np.array(confidences).reshape(-1).tolist()
+            box_list = np.array(boxes).reshape(-1, 4).tolist()
+            frame_height, frame_width = frame.shape[:2]
+            for class_id, score, box in zip(ids, scores, box_list):
+                x, y, width, height = [int(value) for value in box]
+                x = clamp_int(x, 0, max(0, frame_width - 1))
+                y = clamp_int(y, 0, max(0, frame_height - 1))
+                width = clamp_int(width, 1, frame_width)
+                height = clamp_int(height, 1, frame_height)
+                if x + width > frame_width:
+                    width = max(1, frame_width - x)
+                if y + height > frame_height:
+                    height = max(1, frame_height - y)
+                detections.append(Detection(
+                    class_id=int(class_id),
+                    label=self._label_for_class(int(class_id)),
+                    confidence=float(score),
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                ))
+
         annotated = self._annotate_detections(frame, detections)
         return annotated, len(detections)
 
-    def _decode_detections(
-        self,
-        outputs: Any,
-        frame_width: int,
-        frame_height: int,
-    ) -> list[Detection]:
-        assert self._manifest is not None
-
-        prediction = np.array(outputs[0] if isinstance(outputs, (list, tuple)) else outputs)
-        prediction = np.squeeze(prediction)
-        if prediction.ndim == 1:
-            prediction = prediction[np.newaxis, :]
-        if prediction.ndim != 2:
-            raise RuntimeError(f'Unsupported output shape: {prediction.shape}')
-
-        if prediction.shape[0] < prediction.shape[1] and prediction.shape[0] <= 256:
-            prediction = prediction.T
-
-        boxes: list[list[int]] = []
-        confidences: list[float] = []
-        class_ids: list[int] = []
-        labels: list[str] = []
-
-        is_yolov5 = self._manifest.model_format == 'yolov5'
-        class_offset = 5 if is_yolov5 else 4
-        threshold = float(self.confidence_threshold)
-
-        for row in prediction:
-            if row.size <= class_offset:
-                continue
-            cx, cy, width, height = [float(value) for value in row[:4]]
-            if is_yolov5:
-                objectness = float(row[4])
-                if objectness <= 0.0:
-                    continue
-                class_scores = row[5:]
-                class_id = int(np.argmax(class_scores))
-                class_confidence = float(class_scores[class_id])
-                confidence = objectness * class_confidence
-            else:
-                class_scores = row[4:]
-                class_id = int(np.argmax(class_scores))
-                confidence = float(class_scores[class_id])
-
-            if confidence < threshold:
-                continue
-
-            x, y, box_width, box_height = self._scale_box(
-                cx,
-                cy,
-                width,
-                height,
-                frame_width,
-                frame_height,
-            )
-            boxes.append([x, y, box_width, box_height])
-            confidences.append(confidence)
-            class_ids.append(class_id)
-            labels.append(self._label_for_class(class_id, class_scores.size))
-
-        if not boxes:
-            return []
-
-        indices = cv2.dnn.NMSBoxes(
-            boxes,
-            confidences,
-            float(max(0.01, self.confidence_threshold)),
-            float(max(0.01, self.nms_threshold)),
-        )
-        if len(indices) == 0:
-            return []
-
-        flat_indices = np.array(indices).reshape(-1).tolist()
-        detections: list[Detection] = []
-        for index in flat_indices:
-            x, y, width, height = boxes[index]
-            detections.append(Detection(
-                class_id=class_ids[index],
-                label=labels[index],
-                confidence=confidences[index],
-                x=x,
-                y=y,
-                width=width,
-                height=height,
-            ))
-        return detections
-
-    def _label_for_class(self, class_id: int, class_count: int) -> str:
-        assert self._manifest is not None
-        labels = self._manifest.labels
-        if 0 <= class_id < len(labels):
-            return labels[class_id]
+    def _label_for_class(self, class_id: int) -> str:
+        if 1 <= class_id <= len(self._labels):
+            return self._labels[class_id - 1]
         return f'class_{class_id}'
-
-    def _scale_box(
-        self,
-        cx: float,
-        cy: float,
-        width: float,
-        height: float,
-        frame_width: int,
-        frame_height: int,
-    ) -> tuple[int, int, int, int]:
-        assert self._manifest is not None
-
-        max_coord = max(abs(cx), abs(cy), abs(width), abs(height))
-        if max_coord <= 2.0:
-            x = (cx - width / 2.0) * frame_width
-            y = (cy - height / 2.0) * frame_height
-            box_width = width * frame_width
-            box_height = height * frame_height
-        else:
-            x_factor = frame_width / float(self._manifest.input_width)
-            y_factor = frame_height / float(self._manifest.input_height)
-            x = (cx - width / 2.0) * x_factor
-            y = (cy - height / 2.0) * y_factor
-            box_width = width * x_factor
-            box_height = height * y_factor
-
-        x_int = clamp_int(round(x), 0, max(0, frame_width - 1))
-        y_int = clamp_int(round(y), 0, max(0, frame_height - 1))
-        width_int = clamp_int(round(box_width), 1, frame_width)
-        height_int = clamp_int(round(box_height), 1, frame_height)
-        if x_int + width_int > frame_width:
-            width_int = max(1, frame_width - x_int)
-        if y_int + height_int > frame_height:
-            height_int = max(1, frame_height - y_int)
-        return x_int, y_int, width_int, height_int
 
     def _annotate_detections(
         self,

@@ -1,7 +1,7 @@
 camera_detector_node:
   ros__parameters:
     enabled: false
-    model_name: yolov5n
+    model_name: ssd_mobilenet_v1_coco_2017_11_17
     models_directory: models
     input_topic: /image_raw
     processed_image_topic: /image_processed
