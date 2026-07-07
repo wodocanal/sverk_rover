@@ -163,7 +163,7 @@ display:
   muted_text_color: '#8CB5C7'
   wifi_interface: wlan0
   wifi_config_script: /usr/local/sbin/rover-wifi-config.py
-  wifi_netplan_file: /etc/netplan/90-rover-wifi.yaml
+  wifi_netplan_file: /etc/netplan/50-cloud-init.yaml
   main_menu_text: Hello world
 led_strip:
   led_transport: auto

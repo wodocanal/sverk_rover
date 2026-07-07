@@ -73,7 +73,7 @@ class RoverStatusDisplayNode(Node):
         self.declare_parameter('muted_text_color', '#8CB5C7')
         self.declare_parameter('wifi_interface', 'wlan0')
         self.declare_parameter('wifi_config_script', '/usr/local/sbin/rover-wifi-config.py')
-        self.declare_parameter('wifi_netplan_file', '/etc/netplan/90-rover-wifi.yaml')
+        self.declare_parameter('wifi_netplan_file', '/etc/netplan/50-cloud-init.yaml')
         self.declare_parameter('main_menu_text', 'Hello world')
 
         display_env = str(self.get_parameter('display_env').value).strip()
@@ -107,7 +107,7 @@ class RoverStatusDisplayNode(Node):
         )
         self._wifi_netplan_file = (
             str(self.get_parameter('wifi_netplan_file').value).strip()
-            or '/etc/netplan/90-rover-wifi.yaml'
+            or '/etc/netplan/50-cloud-init.yaml'
         )
         self._main_menu_text = str(self.get_parameter('main_menu_text').value).strip() or 'Hello world'
 
@@ -668,7 +668,14 @@ class RoverStatusDisplayNode(Node):
             return
 
         completed = self._run_command(
-            [self._sudo_path, '-n', self._wifi_config_script, 'current', self._wifi_interface],
+            [
+                self._sudo_path,
+                '-n',
+                self._wifi_config_script,
+                'current',
+                self._wifi_interface,
+                self._wifi_netplan_file,
+            ],
             timeout=5.0,
         )
         if completed.returncode != 0:

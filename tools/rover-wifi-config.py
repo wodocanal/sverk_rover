@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 import re
@@ -26,25 +25,7 @@ def require_root() -> None:
         sys.exit(1)
 
 
-def load_netplan_tree() -> dict:
-    completed = run(['netplan', 'get'], timeout=10.0)
-    if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or 'netplan get failed')
-
-    text = completed.stdout
-    try:
-        import yaml  # type: ignore
-
-        data = yaml.safe_load(text) or {}
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-
-    return {}
-
-
-def parse_netplan_text_fallback(text: str, interface: str) -> tuple[str, str]:
+def parse_wifi_fields_from_text(text: str, interface: str) -> tuple[str, str]:
     iface_pattern = re.compile(rf'^\s+{re.escape(interface)}:\s*$')
     ap_pattern = re.compile(r'^\s+"?(.*?)"?\s*:\s*$')
     password_pattern = re.compile(r'^\s+password:\s+"?(.*?)"?\s*$')
@@ -89,42 +70,89 @@ def parse_netplan_text_fallback(text: str, interface: str) -> tuple[str, str]:
     return ssid, password
 
 
-def current_config(interface: str) -> int:
+def current_config(interface: str, netplan_file: str) -> int:
     require_root()
-    ssid = ''
-    password = ''
+    config_path = Path(netplan_file)
+    if not config_path.exists():
+        print(f'Netplan file not found: {config_path}', file=sys.stderr)
+        return 1
 
     try:
-        data = load_netplan_tree()
-        aps = (
-            data.get('network', {})
-            .get('wifis', {})
-            .get(interface, {})
-            .get('access-points', {})
-        )
-        if isinstance(aps, dict) and aps:
-            ssid = str(next(iter(aps.keys())))
-            ap_cfg = aps.get(ssid) or {}
-            if isinstance(ap_cfg, dict):
-                auth_cfg = ap_cfg.get('auth') or {}
-                if isinstance(auth_cfg, dict):
-                    password = str(auth_cfg.get('password') or '')
+        text = config_path.read_text(encoding='utf-8')
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
+    ssid, password = parse_wifi_fields_from_text(text, interface)
     if not ssid:
-        completed = run(['netplan', 'get'], timeout=10.0)
-        if completed.returncode == 0:
-            ssid, password = parse_netplan_text_fallback(completed.stdout, interface)
+        print(f'Could not find SSID for interface {interface} in {config_path}', file=sys.stderr)
+        return 1
 
     print(f'SSID={ssid}')
     print(f'PASSWORD={password}')
     return 0
 
 
-def yaml_quote(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
+def replace_first_quoted_value(line: str, new_value: str) -> str:
+    return re.sub(r'"[^"]*"', f'"{new_value}"', line, count=1)
+
+
+def update_wifi_fields_in_text(text: str, interface: str, ssid: str, password: str) -> str:
+    lines = text.splitlines(keepends=True)
+    iface_pattern = re.compile(rf'^(?P<indent>\s+){re.escape(interface)}:\s*$')
+    password_pattern = re.compile(r'^\s*password:\s*"[^"]*"\s*$')
+
+    in_iface = False
+    in_access_points = False
+    iface_indent = ''
+    ap_indent = ''
+    ssid_updated = False
+    password_updated = False
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+
+        if not in_iface:
+            match = iface_pattern.match(line)
+            if match:
+                in_iface = True
+                iface_indent = match.group('indent')
+            continue
+
+        current_indent = line[: len(line) - len(line.lstrip(' '))]
+        if stripped and not current_indent.startswith(iface_indent + '    '):
+            in_iface = False
+            in_access_points = False
+            continue
+
+        if stripped == 'access-points:':
+            in_access_points = True
+            ap_indent = current_indent
+            continue
+
+        if not in_access_points:
+            continue
+
+        if stripped and len(current_indent) <= len(ap_indent):
+            in_access_points = False
+            continue
+
+        if not ssid_updated and re.match(r'^\s*"[^"]*":\s*$', line):
+            lines[index] = replace_first_quoted_value(line, ssid)
+            ssid_updated = True
+            continue
+
+        if ssid_updated and not password_updated and password_pattern.match(line):
+            lines[index] = replace_first_quoted_value(line, password)
+            password_updated = True
+            break
+
+    if not ssid_updated or not password_updated:
+        raise RuntimeError(
+            f'Could not update SSID/password for interface {interface} in the target file'
+        )
+
+    return ''.join(lines)
 
 
 def apply_config(interface: str, netplan_file: str, ssid: str, password: str) -> int:
@@ -138,21 +166,17 @@ def apply_config(interface: str, netplan_file: str, ssid: str, password: str) ->
         return 1
 
     config_path = Path(netplan_file)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    content = (
-        'network:\n'
-        '  version: 2\n'
-        '  wifis:\n'
-        f'    {interface}:\n'
-        '      optional: true\n'
-        '      dhcp4: true\n'
-        '      access-points:\n'
-        f'        {yaml_quote(ssid)}:\n'
-        '          auth:\n'
-        '            key-management: "psk"\n'
-        f'            password: {yaml_quote(password)}\n'
-    )
-    config_path.write_text(content, encoding='utf-8')
+    if not config_path.exists():
+        print(f'Netplan file not found: {config_path}', file=sys.stderr)
+        return 1
+
+    try:
+        original_text = config_path.read_text(encoding='utf-8')
+        updated_text = update_wifi_fields_in_text(original_text, interface, ssid, password)
+        config_path.write_text(updated_text, encoding='utf-8')
+    except Exception as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     generated = run(['netplan', 'generate'], timeout=20.0)
     if generated.returncode != 0:
@@ -173,6 +197,7 @@ def main() -> int:
 
     current = subparsers.add_parser('current')
     current.add_argument('interface')
+    current.add_argument('netplan_file')
 
     apply = subparsers.add_parser('apply')
     apply.add_argument('interface')
@@ -182,7 +207,7 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == 'current':
-        return current_config(args.interface)
+        return current_config(args.interface, args.netplan_file)
     if args.command == 'apply':
         return apply_config(args.interface, args.netplan_file, args.ssid, args.password)
     return 2
