@@ -1207,17 +1207,6 @@ textarea {
   gap: 18px;
 }
 
-.preset-chip-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 16px;
-}
-
-.preset-chip {
-  padding-inline: 12px !important;
-}
-
 .led-pixel-grid {
   display: grid;
   grid-template-columns: repeat(8, minmax(72px, 1fr));

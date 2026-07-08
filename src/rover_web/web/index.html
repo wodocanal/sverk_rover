@@ -511,52 +511,31 @@ angular.z: 0.00</pre>
           <div class="status-note" id="led-strip-control-status">Команда ещё не отправлялась.</div>
         </article>
         <div class="led-strip-tools peripheral-tools">
-          <article class="panel">
-            <div class="panel-heading-row">
-              <div>
-                <h2>Пресеты</h2>
-              </div>
-            </div>
-            <div class="preset-chip-grid" id="led-strip-built-in-presets">
-              <button class="secondary preset-chip" data-led-preset="off">Выкл</button>
-              <button class="secondary preset-chip" data-led-preset="white">Белый</button>
-              <button class="secondary preset-chip" data-led-preset="cyan">Голубой</button>
-              <button class="secondary preset-chip" data-led-preset="green">Зелёный</button>
-              <button class="secondary preset-chip" data-led-preset="alert">Красный alert</button>
-              <button class="secondary preset-chip" data-led-preset="rainbow">Радуга</button>
-            </div>
-            <div class="form-grid compact-grid">
-              <label>Имя статического пресета<input id="led-strip-custom-preset-name" placeholder="например: status-blue"></label>
-              <label>Сохранённые пресеты
-                <select id="led-strip-custom-preset-select"></select>
-              </label>
-            </div>
-            <div class="button-row">
-              <button id="led-strip-custom-preset-save">Сохранить текущий кадр</button>
-              <button class="secondary" id="led-strip-custom-preset-load">В редактор</button>
-              <button class="secondary" id="led-strip-custom-preset-send">Отправить</button>
-              <button class="secondary" id="led-strip-custom-preset-delete">Удалить</button>
-            </div>
-            <div class="status-note" id="led-strip-preset-status">Пресеты хранятся локально в браузере.</div>
-          </article>
-
-          <article class="panel">
+          <article class="panel led-strip-frame-panel">
             <div class="panel-heading-row">
               <div>
                 <h2>Покадровое управление</h2>
               </div>
             </div>
-            <div class="button-row">
+            <div class="button-row led-strip-editor-tools">
               <button class="secondary" id="led-strip-manual-fill-primary">Заполнить основным</button>
               <button class="secondary" id="led-strip-manual-fill-secondary">Заполнить вторичным</button>
               <button class="secondary" id="led-strip-manual-clear">Очистить</button>
               <button class="secondary" id="led-strip-manual-sync">Взять из превью</button>
             </div>
             <div id="led-strip-pixel-grid" class="led-pixel-grid"></div>
-            <div class="button-row">
-              <button id="led-strip-manual-apply">Отправить кадр</button>
+            <div class="form-grid compact-grid">
+              <label>Имя для сохранения<input id="led-strip-custom-preset-name" placeholder="например: status-blue"></label>
+              <label>Сохранённые пресеты
+                <select id="led-strip-custom-preset-select"></select>
+              </label>
             </div>
-            <div class="status-note" id="led-strip-manual-status">Редактор ещё не отправлял кадр.</div>
+            <div class="button-row led-strip-preset-actions">
+              <button id="led-strip-custom-preset-save">Сохранить кадр</button>
+              <button class="secondary" id="led-strip-manual-apply">Показать</button>
+              <button class="secondary" id="led-strip-custom-preset-delete">Удалить</button>
+            </div>
+            <div class="status-note" id="led-strip-preset-status">Сохранённые кадры хранятся локально в браузере.</div>
           </article>
         </div>
         <div class="sensor-readout">

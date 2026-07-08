@@ -98,56 +98,6 @@ const ROUTE_STEP_FIELDS = {
 const LASER_SCAN_TYPE = 'sensor_msgs/msg/LaserScan';
 const LED_STRIP_STATE_TYPE = 'rover_interfaces/msg/LedStripState';
 const OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading';
-const BUILT_IN_LED_PRESETS = {
-  off: {
-    enabled: false,
-    effect: 'fill',
-    brightness: 0.0,
-    effect_speed_hz: 1.0,
-    primary_color: '#000000',
-    secondary_color: '#000000',
-  },
-  white: {
-    enabled: true,
-    effect: 'fill',
-    brightness: 1.0,
-    effect_speed_hz: 1.0,
-    primary_color: '#FFFFFF',
-    secondary_color: '#FFFFFF',
-  },
-  cyan: {
-    enabled: true,
-    effect: 'fill',
-    brightness: 0.65,
-    effect_speed_hz: 1.0,
-    primary_color: '#16B8F3',
-    secondary_color: '#16B8F3',
-  },
-  green: {
-    enabled: true,
-    effect: 'fill',
-    brightness: 0.55,
-    effect_speed_hz: 1.0,
-    primary_color: '#3DDC84',
-    secondary_color: '#3DDC84',
-  },
-  alert: {
-    enabled: true,
-    effect: 'blink_fast',
-    brightness: 1.0,
-    effect_speed_hz: 6.0,
-    primary_color: '#FF3B30',
-    secondary_color: '#000000',
-  },
-  rainbow: {
-    enabled: true,
-    effect: 'rainbow',
-    brightness: 0.75,
-    effect_speed_hz: 1.2,
-    primary_color: '#16B8F3',
-    secondary_color: '#FFFFFF',
-  },
-};
 
 const state = {
   sessionId: ensureSessionId(),
@@ -2394,27 +2344,31 @@ function renderLedStripStaticPresets() {
     String(left.name || '').localeCompare(String(right.name || ''))
   ));
   select.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = presets.length ? 'Выбери сохранённый пресет' : 'Нет сохранённых пресетов';
+  select.append(placeholder);
   if (!presets.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Нет сохранённых пресетов';
-    select.append(option);
     return;
   }
   presets.forEach((preset) => {
     const option = document.createElement('option');
     option.value = preset.name;
-    option.textContent = `${preset.name} (${safeArray(preset.colors).length} LED)`;
+    option.textContent = preset.name;
     option.selected = preset.name === previousValue;
     select.append(option);
   });
-  if (!select.value && presets.length) {
-    select.value = presets[0].name;
-  }
 }
 
 function findLedStripStaticPreset(name) {
   return safeArray(state.ledStripStaticPresets).find((preset) => preset.name === name) || null;
+}
+
+function setLedStripFrameEditorStatus(message) {
+  const presetStatus = document.querySelector('#led-strip-preset-status');
+  if (presetStatus) {
+    presetStatus.textContent = message;
+  }
 }
 
 function renderLedStripPixelGrid() {
@@ -2468,36 +2422,46 @@ function ledStripManualFramePayload() {
   return { leds };
 }
 
+async function ensureLedStripEnabledForManualFrame() {
+  if ($('#led-strip-enabled').checked) {
+    return;
+  }
+  $('#led-strip-enabled').checked = true;
+  $('#led-strip-control-status').textContent = 'Лента включается для показа кадра...';
+  const payload = await api('/api/led_strip/command', {
+    method: 'POST',
+    body: JSON.stringify(ledStripCommandPayloadFromForm(true)),
+  });
+  if (payload.settings) {
+    state.ledStripSettings = payload.settings;
+    setLedStripSettingsForm(payload.settings.parameters || {});
+    setLedStripControlForm(payload.settings.parameters || {});
+    $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload.settings);
+  }
+  state.ledStripControlInitialized = true;
+  state.ledStripControlDirty = false;
+  $('#led-strip-control-status').textContent = 'Лента включена для показа кадра.';
+}
+
 async function applyLedStripManualFrame() {
   try {
-    $('#led-strip-manual-status').textContent = 'Отправка покадрового состояния...';
+    const framePayload = ledStripManualFramePayload();
+    setLedStripFrameEditorStatus('Отправка покадрового состояния...');
+    await ensureLedStripEnabledForManualFrame();
     const payload = await api('/api/led_strip/leds', {
       method: 'POST',
-      body: JSON.stringify(ledStripManualFramePayload()),
+      body: JSON.stringify(framePayload),
     });
     state.ledStripPixelsDirty = false;
-    $('#led-strip-manual-status').textContent = payload.response?.success === false
+    setLedStripFrameEditorStatus(payload.response?.success === false
       ? 'Кадр отклонён.'
-      : 'Покадровое состояние отправлено.';
+      : 'Кадр показан на ленте.');
     showToast('Покадровое состояние LED strip отправлено');
     await Promise.all([refreshLedStripSettings(), refreshLedStripStatus()]);
   } catch (error) {
-    $('#led-strip-manual-status').textContent = String(error.message || error);
+    setLedStripFrameEditorStatus(String(error.message || error));
     showToast(String(error.message || error), 'error');
   }
-}
-
-function builtInLedStripPreset(name) {
-  return BUILT_IN_LED_PRESETS[name] || null;
-}
-
-async function applyBuiltInLedStripPreset(name) {
-  const preset = builtInLedStripPreset(name);
-  if (!preset) return;
-  setLedStripControlForm(preset);
-  markLedStripControlDirty();
-  await sendLedStripCommand(preset.enabled);
-  $('#led-strip-preset-status').textContent = `Применён пресет: ${name}.`;
 }
 
 function saveCurrentLedStripStaticPreset() {
@@ -2512,7 +2476,7 @@ function saveCurrentLedStripStaticPreset() {
   saveLedStripStaticPresets();
   renderLedStripStaticPresets();
   $('#led-strip-custom-preset-select').value = name;
-  $('#led-strip-preset-status').textContent = `Пресет "${name}" сохранён.`;
+  setLedStripFrameEditorStatus(`Пресет "${name}" сохранён.`);
   showToast(`Сохранён пресет ${name}`);
 }
 
@@ -2525,13 +2489,7 @@ function loadSelectedLedStripStaticPresetIntoEditor() {
   $('#led-strip-custom-preset-name').value = preset.name;
   syncLedStripPixelsFromFrame(preset.colors, { force: true });
   state.ledStripPixelsDirty = true;
-  $('#led-strip-preset-status').textContent = `Пресет "${preset.name}" загружен в редактор.`;
-}
-
-async function sendSelectedLedStripStaticPreset() {
-  loadSelectedLedStripStaticPresetIntoEditor();
-  await applyLedStripManualFrame();
-  $('#led-strip-preset-status').textContent = 'Статический пресет отправлен на ленту.';
+  setLedStripFrameEditorStatus(`Пресет "${preset.name}" загружен в редактор.`);
 }
 
 function deleteSelectedLedStripStaticPreset() {
@@ -2544,7 +2502,7 @@ function deleteSelectedLedStripStaticPreset() {
     .filter((item) => item.name !== preset.name);
   saveLedStripStaticPresets();
   renderLedStripStaticPresets();
-  $('#led-strip-preset-status').textContent = `Пресет "${preset.name}" удалён.`;
+  setLedStripFrameEditorStatus(`Пресет "${preset.name}" удалён.`);
   showToast(`Удалён пресет ${preset.name}`);
 }
 
@@ -3765,9 +3723,12 @@ function bindLedStripPage() {
     state.selectedLedStripType = $('#led-strip-topic-select').selectedOptions[0]?.dataset.type || null;
   });
   $('#led-strip-custom-preset-select').addEventListener('change', () => {
-    const preset = findLedStripStaticPreset($('#led-strip-custom-preset-select').value);
-    if (preset) {
-      $('#led-strip-custom-preset-name').value = preset.name;
+    if (!$('#led-strip-custom-preset-select').value) return;
+    try {
+      loadSelectedLedStripStaticPresetIntoEditor();
+    } catch (error) {
+      showToast(String(error.message || error), 'error');
+      setLedStripFrameEditorStatus(String(error.message || error));
     }
   });
   $('#led-strip-settings-refresh').addEventListener('click', refreshLedStripSettings);
@@ -3787,11 +3748,11 @@ function bindLedStripPage() {
   });
   $('#led-strip-manual-clear').addEventListener('click', () => {
     fillLedStripPixels('#000000');
-    $('#led-strip-manual-status').textContent = 'Редактор очищен.';
+    setLedStripFrameEditorStatus('Редактор очищен.');
   });
   $('#led-strip-manual-sync').addEventListener('click', () => {
     syncLedStripPixelsFromStatus(state.ledStripData, { force: true });
-    $('#led-strip-manual-status').textContent = 'Редактор синхронизирован с текущим превью.';
+    setLedStripFrameEditorStatus('Редактор синхронизирован с текущим превью.');
   });
   $('#led-strip-manual-apply').addEventListener('click', applyLedStripManualFrame);
   $('#led-strip-custom-preset-save').addEventListener('click', () => {
@@ -3799,23 +3760,7 @@ function bindLedStripPage() {
       saveCurrentLedStripStaticPreset();
     } catch (error) {
       showToast(String(error.message || error), 'error');
-      $('#led-strip-preset-status').textContent = String(error.message || error);
-    }
-  });
-  $('#led-strip-custom-preset-load').addEventListener('click', () => {
-    try {
-      loadSelectedLedStripStaticPresetIntoEditor();
-    } catch (error) {
-      showToast(String(error.message || error), 'error');
-      $('#led-strip-preset-status').textContent = String(error.message || error);
-    }
-  });
-  $('#led-strip-custom-preset-send').addEventListener('click', async () => {
-    try {
-      await sendSelectedLedStripStaticPreset();
-    } catch (error) {
-      showToast(String(error.message || error), 'error');
-      $('#led-strip-preset-status').textContent = String(error.message || error);
+      setLedStripFrameEditorStatus(String(error.message || error));
     }
   });
   $('#led-strip-custom-preset-delete').addEventListener('click', () => {
@@ -3823,18 +3768,8 @@ function bindLedStripPage() {
       deleteSelectedLedStripStaticPreset();
     } catch (error) {
       showToast(String(error.message || error), 'error');
-      $('#led-strip-preset-status').textContent = String(error.message || error);
+      setLedStripFrameEditorStatus(String(error.message || error));
     }
-  });
-  $$('#led-strip-built-in-presets [data-led-preset]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      try {
-        await applyBuiltInLedStripPreset(button.dataset.ledPreset);
-      } catch (error) {
-        showToast(String(error.message || error), 'error');
-        $('#led-strip-preset-status').textContent = String(error.message || error);
-      }
-    });
   });
   [
     'led-strip-enabled',
