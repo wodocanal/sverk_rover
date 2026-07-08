@@ -1170,10 +1170,7 @@ textarea {
 }
 
 .sensor-readout {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin: 16px 0 0;
+  display: none;
 }
 
 .sensor-readout span {
