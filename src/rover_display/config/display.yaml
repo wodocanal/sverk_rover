@@ -15,4 +15,3 @@ rover_status_display_node:
     wifi_interface: wlan0
     wifi_config_script: /usr/local/sbin/rover-wifi-config.py
     wifi_netplan_file: /etc/netplan/50-cloud-init.yaml
-    main_menu_text: Hello world

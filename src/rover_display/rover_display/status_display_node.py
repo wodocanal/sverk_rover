@@ -74,7 +74,6 @@ class RoverStatusDisplayNode(Node):
         self.declare_parameter('wifi_interface', 'wlan0')
         self.declare_parameter('wifi_config_script', '/usr/local/sbin/rover-wifi-config.py')
         self.declare_parameter('wifi_netplan_file', '/etc/netplan/50-cloud-init.yaml')
-        self.declare_parameter('main_menu_text', 'Hello world')
 
         display_env = str(self.get_parameter('display_env').value).strip()
         xauthority_path = str(self.get_parameter('xauthority_path').value).strip()
@@ -109,7 +108,6 @@ class RoverStatusDisplayNode(Node):
             str(self.get_parameter('wifi_netplan_file').value).strip()
             or '/etc/netplan/50-cloud-init.yaml'
         )
-        self._main_menu_text = str(self.get_parameter('main_menu_text').value).strip() or 'Hello world'
 
         self._networkctl_path = shutil.which('networkctl') or '/usr/bin/networkctl'
         self._sudo_path = shutil.which('sudo') or '/usr/bin/sudo'
@@ -117,14 +115,19 @@ class RoverStatusDisplayNode(Node):
         self._root = self._create_window()
         screen_width = max(1, int(self._root.winfo_screenwidth()))
         screen_height = max(1, int(self._root.winfo_screenheight()))
+        self._screen_width = screen_width
+        self._screen_height = screen_height
         self._ui_scale = max(0.58, min(1.0, screen_width / 1280.0, screen_height / 720.0))
         self._screen_wraplength = max(320, int(screen_width * 0.82))
+        self._dashboard_columns = 2 if screen_width >= 420 else 1
 
         self._current_screen = 'network'
         self._apply_in_progress = False
         self._active_entry = None
         self._keyboard_target_var = None
         self._keyboard_shift = False
+        self._last_cpu_total: int | None = None
+        self._last_cpu_idle: int | None = None
 
         self._hostname_var = tk.StringVar(value=socket.gethostname())
         self._ip_var = tk.StringVar(value='Поиск адреса...')
@@ -132,10 +135,18 @@ class RoverStatusDisplayNode(Node):
         self._password_var = tk.StringVar(value='')
         self._network_status_var = tk.StringVar(value='Экран сетевых настроек активен')
         self._settings_status_var = tk.StringVar(value='Измени параметры сети и нажми применить.')
-        self._menu_status_var = tk.StringVar(value='Главное меню')
         self._connected_ssid_var = tk.StringVar(value='SSID: —')
         self._settings_button_var = tk.StringVar(value='Настройки')
         self._keyboard_title_var = tk.StringVar(value='Ввод')
+        self._dashboard_network_var = tk.StringVar(value='SSID: —')
+        self._dashboard_ros_state_var = tk.StringVar(value='ROS: проверка...')
+        self._dashboard_ros_graph_var = tk.StringVar(value='Ноды: — · Топики: —')
+        self._dashboard_cpu_var = tk.StringVar(value='—')
+        self._dashboard_memory_var = tk.StringVar(value='—')
+        self._dashboard_disk_var = tk.StringVar(value='—')
+        self._dashboard_temperature_var = tk.StringVar(value='—')
+        self._dashboard_uptime_var = tk.StringVar(value='—')
+        self._dashboard_load_var = tk.StringVar(value='—')
 
         self._build_layout()
         self._load_current_wifi_config()
@@ -235,16 +246,16 @@ class RoverStatusDisplayNode(Node):
             text='IP',
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
+            font=('DejaVu Sans', self._scaled(20, minimum=14), 'bold'),
         )
-        ip_title.pack(fill='x', pady=(self._scaled(34, minimum=16), self._scaled(6, minimum=3)))
+        ip_title.pack(fill='x', pady=(self._scaled(24, minimum=10), self._scaled(6, minimum=3)))
 
         ip_value = tk.Label(
             self._network_screen,
             textvariable=self._ip_var,
             bg=self._panel_color,
             fg=self._text_color,
-            font=('DejaVu Sans Mono', self._scaled(28, minimum=15), 'bold'),
+            font=('DejaVu Sans Mono', self._scaled(34, minimum=22), 'bold'),
             justify='center',
             wraplength=self._screen_wraplength,
         )
@@ -255,16 +266,16 @@ class RoverStatusDisplayNode(Node):
             text='Hostname',
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', self._scaled(16, minimum=10), 'bold'),
+            font=('DejaVu Sans', self._scaled(18, minimum=13), 'bold'),
         )
-        hostname_title.pack(fill='x', pady=(self._scaled(24, minimum=10), self._scaled(6, minimum=3)))
+        hostname_title.pack(fill='x', pady=(self._scaled(18, minimum=8), self._scaled(6, minimum=3)))
 
         hostname_value = tk.Label(
             self._network_screen,
             textvariable=self._hostname_var,
             bg=self._panel_color,
             fg=self._text_color,
-            font=('DejaVu Sans', self._scaled(22, minimum=13), 'bold'),
+            font=('DejaVu Sans', self._scaled(26, minimum=17), 'bold'),
             justify='center',
         )
         hostname_value.pack(fill='x')
@@ -274,7 +285,7 @@ class RoverStatusDisplayNode(Node):
             textvariable=self._connected_ssid_var,
             bg=self._panel_color,
             fg=self._accent_color,
-            font=('DejaVu Sans', self._scaled(16, minimum=10), 'bold'),
+            font=('DejaVu Sans', self._scaled(18, minimum=12), 'bold'),
             justify='center',
         )
         ssid_value.pack(fill='x', pady=(self._scaled(18, minimum=8), self._scaled(8, minimum=4)))
@@ -284,7 +295,7 @@ class RoverStatusDisplayNode(Node):
             textvariable=self._network_status_var,
             bg=self._panel_color,
             fg=self._muted_text_color,
-            font=('DejaVu Sans', self._scaled(14, minimum=9)),
+            font=('DejaVu Sans', self._scaled(16, minimum=11)),
             justify='center',
             wraplength=self._screen_wraplength,
         )
@@ -295,17 +306,17 @@ class RoverStatusDisplayNode(Node):
 
         exit_button = tk.Button(
             self._network_screen,
-            text='Выйти в главное меню',
+            text='Продолжить',
             command=self._open_main_menu_screen,
             bg=self._accent_color,
             fg=self._background_color,
             activebackground=self._text_color,
             activeforeground=self._background_color,
-            font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
+            font=('DejaVu Sans', self._scaled(20, minimum=14), 'bold'),
             relief='flat',
             bd=0,
             padx=self._scaled(20, minimum=10),
-            pady=self._scaled(14, minimum=8),
+            pady=self._scaled(14, minimum=9),
             cursor='hand2',
         )
         exit_button.pack(pady=(self._scaled(10, minimum=6), self._scaled(24, minimum=12)))
@@ -401,60 +412,98 @@ class RoverStatusDisplayNode(Node):
         )
         settings_status.pack(fill='x', padx=self._scaled(18, minimum=8))
 
+    def _build_dashboard_card(
+        self,
+        parent,
+        title: str,
+        variable,
+        row: int,
+        column: int,
+        *,
+        columnspan: int = 1,
+        large: bool = False,
+    ) -> None:
+        card = self._tk.Frame(
+            parent,
+            bg='#0F2A38',
+            highlightbackground='#16495F',
+            highlightthickness=1,
+            bd=0,
+        )
+        card.grid(
+            row=row,
+            column=column,
+            columnspan=columnspan,
+            sticky='nsew',
+            padx=self._scaled(5, minimum=3),
+            pady=self._scaled(5, minimum=3),
+        )
+
+        label = self._tk.Label(
+            card,
+            text=title,
+            bg='#0F2A38',
+            fg=self._muted_text_color,
+            font=('DejaVu Sans', self._scaled(11 if not large else 12, minimum=8), 'bold'),
+            anchor='w',
+        )
+        label.pack(fill='x', padx=self._scaled(10, minimum=6), pady=(self._scaled(8, minimum=4), 0))
+
+        value = self._tk.Label(
+            card,
+            textvariable=variable,
+            bg='#0F2A38',
+            fg=self._text_color,
+            font=('DejaVu Sans Mono', self._scaled(15 if not large else 18, minimum=10 if not large else 12), 'bold'),
+            anchor='w',
+            justify='left',
+            wraplength=max(140, int((self._screen_width - 80) / max(1, self._dashboard_columns))),
+        )
+        value.pack(fill='both', expand=True, padx=self._scaled(10, minimum=6), pady=(0, self._scaled(8, minimum=4)))
+
     def _build_main_menu_screen(self) -> None:
         tk = self._tk
 
         title = tk.Label(
             self._menu_screen,
-            text='Главное меню',
+            text='Состояние ровера',
             bg=self._panel_color,
             fg=self._accent_color,
-            font=('DejaVu Sans', self._scaled(28, minimum=18), 'bold'),
+            font=('DejaVu Sans', self._scaled(24, minimum=16), 'bold'),
         )
-        title.pack(fill='x', pady=(self._scaled(34, minimum=16), self._scaled(12, minimum=8)))
+        title.pack(fill='x', pady=(self._scaled(12, minimum=6), self._scaled(8, minimum=4)))
 
-        hello = tk.Label(
-            self._menu_screen,
-            text=self._main_menu_text,
-            bg=self._panel_color,
-            fg=self._text_color,
-            font=('DejaVu Sans', self._scaled(24, minimum=14), 'bold'),
-            wraplength=self._screen_wraplength,
-            justify='center',
-        )
-        hello.pack(fill='x', padx=self._scaled(20, minimum=10), pady=(0, self._scaled(18, minimum=8)))
+        dashboard = tk.Frame(self._menu_screen, bg=self._panel_color)
+        dashboard.pack(fill='both', expand=True, padx=self._scaled(10, minimum=6), pady=(0, self._scaled(10, minimum=6)))
+        for column in range(self._dashboard_columns):
+            dashboard.columnconfigure(column, weight=1, uniform='dashboard')
 
-        ip_value = tk.Label(
-            self._menu_screen,
-            textvariable=self._ip_var,
-            bg=self._panel_color,
-            fg=self._text_color,
-            font=('DejaVu Sans Mono', self._scaled(22, minimum=13), 'bold'),
-            wraplength=self._screen_wraplength,
-            justify='center',
-        )
-        ip_value.pack(fill='x', padx=self._scaled(18, minimum=8), pady=(0, self._scaled(12, minimum=6)))
+        cards = [
+            ('IP', self._ip_var, True),
+            ('Hostname', self._hostname_var, True),
+            ('Сеть', self._dashboard_network_var, False),
+            ('ROS', self._dashboard_ros_state_var, False),
+            ('ROS graph', self._dashboard_ros_graph_var, False),
+            ('CPU', self._dashboard_cpu_var, False),
+            ('RAM', self._dashboard_memory_var, False),
+            ('Диск', self._dashboard_disk_var, False),
+            ('Температура', self._dashboard_temperature_var, False),
+            ('Аптайм', self._dashboard_uptime_var, False),
+            ('Load average', self._dashboard_load_var, False),
+        ]
 
-        hostname_value = tk.Label(
-            self._menu_screen,
-            textvariable=self._hostname_var,
-            bg=self._panel_color,
-            fg=self._muted_text_color,
-            font=('DejaVu Sans', self._scaled(18, minimum=11), 'bold'),
-            justify='center',
-        )
-        hostname_value.pack(fill='x')
-
-        menu_status = tk.Label(
-            self._menu_screen,
-            textvariable=self._menu_status_var,
-            bg=self._panel_color,
-            fg=self._muted_text_color,
-            font=('DejaVu Sans', self._scaled(14, minimum=9)),
-            wraplength=self._screen_wraplength,
-            justify='center',
-        )
-        menu_status.pack(fill='x', padx=self._scaled(20, minimum=10), pady=(self._scaled(18, minimum=10), 0))
+        for index, (card_title, variable, large) in enumerate(cards):
+            row = index // self._dashboard_columns
+            column = index % self._dashboard_columns
+            dashboard.rowconfigure(row, weight=1)
+            self._build_dashboard_card(
+                dashboard,
+                card_title,
+                variable,
+                row,
+                column,
+                large=large,
+            )
 
     def _build_keyboard_screen(self) -> None:
         tk = self._tk
@@ -662,6 +711,127 @@ class RoverStatusDisplayNode(Node):
             return after
         return ''
 
+    def _format_gib(self, value_bytes: int | float) -> str:
+        return f'{float(value_bytes) / (1024.0 ** 3):.1f} ГБ'
+
+    def _read_cpu_text(self) -> str:
+        try:
+            fields = Path('/proc/stat').read_text(encoding='utf-8').splitlines()[0].split()
+            values = [int(item) for item in fields[1:]]
+            idle = values[3] + (values[4] if len(values) > 4 else 0)
+            total = sum(values)
+        except (OSError, IndexError, ValueError):
+            return '—'
+
+        if self._last_cpu_total is None or self._last_cpu_idle is None:
+            self._last_cpu_total = total
+            self._last_cpu_idle = idle
+            return 'измерение...'
+
+        total_delta = max(0, total - self._last_cpu_total)
+        idle_delta = max(0, idle - self._last_cpu_idle)
+        self._last_cpu_total = total
+        self._last_cpu_idle = idle
+        if total_delta <= 0:
+            return '—'
+        usage = 100.0 * (1.0 - idle_delta / total_delta)
+        return f'{usage:.0f}%'
+
+    def _read_memory_text(self) -> str:
+        try:
+            values: dict[str, int] = {}
+            for line in Path('/proc/meminfo').read_text(encoding='utf-8').splitlines():
+                parts = line.split()
+                if len(parts) >= 2:
+                    values[parts[0].rstrip(':')] = int(parts[1])
+            total_kib = values['MemTotal']
+            available_kib = values.get('MemAvailable', values.get('MemFree', 0))
+        except (OSError, KeyError, ValueError):
+            return '—'
+
+        used_kib = max(0, total_kib - available_kib)
+        percent = used_kib / total_kib * 100.0 if total_kib else 0.0
+        used_gib = used_kib * 1024.0
+        total_gib = total_kib * 1024.0
+        return f'{percent:.0f}% · {self._format_gib(used_gib)}/{self._format_gib(total_gib)}'
+
+    def _read_disk_text(self) -> str:
+        try:
+            usage = shutil.disk_usage('/')
+        except OSError:
+            return '—'
+        percent = usage.used / usage.total * 100.0 if usage.total else 0.0
+        return f'{percent:.0f}% · свободно {self._format_gib(usage.free)}'
+
+    def _read_temperature_text(self) -> str:
+        for path in (
+            Path('/sys/class/thermal/thermal_zone0/temp'),
+            Path('/sys/class/hwmon/hwmon0/temp1_input'),
+        ):
+            try:
+                raw = path.read_text(encoding='utf-8').strip()
+                if raw:
+                    return f'{float(raw) / 1000.0:.1f} °C'
+            except (OSError, ValueError):
+                continue
+        return '—'
+
+    def _read_uptime_text(self) -> str:
+        try:
+            seconds = int(float(Path('/proc/uptime').read_text(encoding='utf-8').split()[0]))
+        except (OSError, IndexError, ValueError):
+            return '—'
+        days, seconds = divmod(seconds, 24 * 3600)
+        hours, seconds = divmod(seconds, 3600)
+        minutes = seconds // 60
+        if days:
+            return f'{days}д {hours}ч {minutes}м'
+        if hours:
+            return f'{hours}ч {minutes}м'
+        return f'{minutes}м'
+
+    def _read_load_text(self) -> str:
+        try:
+            one, five, fifteen = os.getloadavg()
+            return f'{one:.2f} · {five:.2f} · {fifteen:.2f}'
+        except OSError:
+            return '—'
+
+    def _refresh_ros_dashboard(self) -> None:
+        if not rclpy.ok():
+            self._dashboard_ros_state_var.set('не работает')
+            self._dashboard_ros_graph_var.set('Ноды: — · Топики: —')
+            return
+
+        try:
+            rclpy.spin_once(self, timeout_sec=0.0)
+        except Exception:
+            pass
+
+        try:
+            nodes = self.get_node_names()
+            topics = self.get_topic_names_and_types()
+            services = self.get_service_names_and_types()
+        except Exception as exc:
+            self._dashboard_ros_state_var.set('ошибка ROS')
+            self._dashboard_ros_graph_var.set(str(exc))
+            return
+
+        self._dashboard_ros_state_var.set('работает')
+        self._dashboard_ros_graph_var.set(
+            f'Ноды: {len(nodes)} · Топики: {len(topics)} · Сервисы: {len(services)}'
+        )
+
+    def _refresh_dashboard_status(self, connected_ssid: str) -> None:
+        self._dashboard_network_var.set(f'SSID: {connected_ssid or "—"}')
+        self._dashboard_cpu_var.set(self._read_cpu_text())
+        self._dashboard_memory_var.set(self._read_memory_text())
+        self._dashboard_disk_var.set(self._read_disk_text())
+        self._dashboard_temperature_var.set(self._read_temperature_text())
+        self._dashboard_uptime_var.set(self._read_uptime_text())
+        self._dashboard_load_var.set(self._read_load_text())
+        self._refresh_ros_dashboard()
+
     def _load_current_wifi_config(self) -> None:
         if not Path(self._wifi_config_script).exists():
             self._settings_status_var.set('Не найден helper для чтения текущей Wi-Fi конфигурации.')
@@ -771,12 +941,9 @@ class RoverStatusDisplayNode(Node):
         status_text = self._networkctl_status_text()
         connected_ssid = self._extract_connected_ssid(status_text)
         self._connected_ssid_var.set(f'SSID: {connected_ssid or "—"}')
+        self._refresh_dashboard_status(connected_ssid)
 
-        if self._current_screen == 'menu':
-            self._menu_status_var.set(
-                f'{self._main_menu_text} · SSID: {connected_ssid or "—"}'
-            )
-        elif not self._apply_in_progress:
+        if self._current_screen != 'menu' and not self._apply_in_progress:
             if connected_ssid:
                 self._network_status_var.set(f'Подключено к сети {connected_ssid}')
             else:
