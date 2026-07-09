@@ -4,8 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ament_index_python.packages import get_package_share_directory
 import yaml
+
+try:
+    from ament_index_python.packages import get_package_share_directory
+except ImportError:
+    get_package_share_directory = None
 
 
 SUPPORTED_MODEL_FORMATS = {'yolov5', 'yolov8', 'opencv_ssd_tf'}
@@ -45,16 +49,62 @@ def default_workspace_root(package_name: str = 'rover_vision') -> Path:
     return Path.cwd()
 
 
+def package_share_directory(package_name: str = 'rover_vision') -> Path | None:
+    if get_package_share_directory is None:
+        return None
+    try:
+        return Path(get_package_share_directory(package_name)).resolve()
+    except Exception:
+        return None
+
+
+def source_package_root(package_name: str = 'rover_vision') -> Path:
+    module_path = Path(__file__).resolve()
+    for parent in module_path.parents:
+        if parent.name == package_name and (parent / 'package.xml').exists():
+            return parent
+    return module_path.parents[1]
+
+
+def resolve_package_uri(value: str) -> Path | None:
+    if not value.startswith('package://'):
+        return None
+    remainder = value[len('package://'):].strip('/')
+    if not remainder:
+        return None
+    package_name, _, relative = remainder.partition('/')
+    share = package_share_directory(package_name)
+    if share is not None:
+        return (share / relative).resolve()
+    if package_name == 'rover_vision':
+        return (source_package_root(package_name) / relative).resolve()
+    return None
+
+
 def resolve_models_directory(
     value: str | Path | None,
     package_name: str = 'rover_vision',
 ) -> Path:
-    root = default_workspace_root(package_name)
     text = str(value or 'models').strip()
+    package_uri = resolve_package_uri(text)
+    if package_uri is not None:
+        return package_uri
+
     path = Path(text).expanduser()
     if path.is_absolute():
         return path.resolve()
-    return (root / path).resolve()
+
+    candidates: list[Path] = []
+    share = package_share_directory(package_name)
+    if share is not None:
+        candidates.append((share / path).resolve())
+    candidates.append((source_package_root(package_name) / path).resolve())
+    candidates.append((default_workspace_root(package_name) / path).resolve())
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def _parse_input_size(value: Any) -> tuple[int, int]:

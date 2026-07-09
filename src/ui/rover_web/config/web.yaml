@@ -25,12 +25,6 @@ web_gateway_node:
     terminal_path: /
     rosboard_enabled: true
     rosboard_port: 8888
-    foxglove_enabled: false
-    foxglove_port: 8766
-    vscode_enabled: true
-    vscode_url: ''
-    vscode_port: 13337
-    vscode_auth: password
 
     odom_topic: /odom
     wheel_odom_topic: /wheel/odometry

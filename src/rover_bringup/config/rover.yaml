@@ -134,7 +134,7 @@ camera:
 vision:
   enabled: false
   model_name: ssd_mobilenet_v1_coco_2017_11_17
-  models_directory: models
+  models_directory: package://rover_vision/models
   input_topic: /image_raw
   processed_image_topic: /image_processed
   processed_compressed_image_topic: /image_processed/compressed
