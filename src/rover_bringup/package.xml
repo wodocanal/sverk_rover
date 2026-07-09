@@ -17,6 +17,8 @@
   <exec_depend>rover_led_strip</exec_depend>
   <exec_depend>rover_octoliner</exec_depend>
   <exec_depend>rover_web</exec_depend>
+  <exec_depend>rover_display</exec_depend>
+  <exec_depend>rosboard</exec_depend>
   <exec_depend>rover_wheel_odometry</exec_depend>
   <exec_depend>rover_imu</exec_depend>
   <exec_depend>rover_localization</exec_depend>
