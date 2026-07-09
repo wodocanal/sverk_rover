@@ -8,9 +8,13 @@ voice_module_node:
     command_topic: /voice/command
     command_id_topic: /voice/command_id
     raw_frame_topic: /voice/raw_frame
+    raw_bytes_topic: /voice/raw_bytes
     speak_id_topic: /voice/speak_id
     speak_label_topic: /voice/speak_label
     speak_phrase_service: /voice/speak_phrase
+
+    publish_raw_bytes: true
+    single_byte_command_mode: true
 
     # Yahboom protocol: AA FF <type> <id> FB.
     frame_header:

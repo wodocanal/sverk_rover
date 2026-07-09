@@ -17,6 +17,7 @@ that stable device name.
 - Publishes `rover_interfaces/msg/VoiceCommand` on `/voice/command`.
 - Publishes command IDs as `std_msgs/msg/UInt8` on `/voice/command_id`.
 - Publishes raw frames as hex strings on `/voice/raw_frame`.
+- Publishes every received serial chunk as hex strings on `/voice/raw_bytes`.
 - Subscribes to `std_msgs/msg/UInt8` on `/voice/speak_id` to play a passive
   broadcast phrase.
 - Subscribes to `std_msgs/msg/String` on `/voice/speak_label` for labels from

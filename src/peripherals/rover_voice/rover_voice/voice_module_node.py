@@ -33,9 +33,21 @@ class VoiceFrameParser:
         self.tail = int(tail) & 0xFF
         self._buffer = bytearray()
 
+    def is_idle(self) -> bool:
+        return not self._buffer
+
     def feed(self, data: bytes) -> list[bytes]:
         frames: list[bytes] = []
         self._buffer.extend(data)
+
+        while self._buffer:
+            if self._buffer[0] != self.header[0]:
+                del self._buffer[0]
+                continue
+            if len(self._buffer) >= 2 and self._buffer[1] != self.header[1]:
+                del self._buffer[0]
+                continue
+            break
 
         while len(self._buffer) >= 5:
             if self._buffer[0] != self.header[0] or self._buffer[1] != self.header[1]:
@@ -98,9 +110,12 @@ class VoiceModuleNode(Node):
         self.declare_parameter('command_topic', '/voice/command')
         self.declare_parameter('command_id_topic', '/voice/command_id')
         self.declare_parameter('raw_frame_topic', '/voice/raw_frame')
+        self.declare_parameter('raw_bytes_topic', '/voice/raw_bytes')
         self.declare_parameter('speak_id_topic', '/voice/speak_id')
         self.declare_parameter('speak_label_topic', '/voice/speak_label')
         self.declare_parameter('speak_phrase_service', '/voice/speak_phrase')
+        self.declare_parameter('publish_raw_bytes', True)
+        self.declare_parameter('single_byte_command_mode', True)
         self.declare_parameter('frame_header', list(DEFAULT_HEADER))
         self.declare_parameter('frame_tail', DEFAULT_TAIL)
         self.declare_parameter('broadcast_frame_type', DEFAULT_BROADCAST_TYPE)
@@ -124,6 +139,12 @@ class VoiceModuleNode(Node):
         self.frame_tail = int(self.get_parameter('frame_tail').value) & 0xFF
         self.broadcast_frame_type = (
             int(self.get_parameter('broadcast_frame_type').value) & 0xFF
+        )
+        self.publish_raw_bytes = bool(
+            self.get_parameter('publish_raw_bytes').value
+        )
+        self.single_byte_command_mode = bool(
+            self.get_parameter('single_byte_command_mode').value
         )
         self.command_labels, _ = parse_label_map(
             self.get_parameter('command_labels').value
@@ -157,6 +178,11 @@ class VoiceModuleNode(Node):
         self.raw_frame_pub = self.create_publisher(
             String,
             str(self.get_parameter('raw_frame_topic').value),
+            10,
+        )
+        self.raw_bytes_pub = self.create_publisher(
+            String,
+            str(self.get_parameter('raw_bytes_topic').value),
             10,
         )
         self.create_subscription(
@@ -205,7 +231,12 @@ class VoiceModuleNode(Node):
 
                 data = serial_port.read(64)
                 if data:
-                    for frame in self._parser.feed(data):
+                    self._publish_raw_bytes(data)
+                    if self._publish_single_byte_if_needed(data):
+                        continue
+
+                    frames = self._parser.feed(data)
+                    for frame in frames:
                         self._publish_frame(frame)
             except SerialException as exc:
                 self.get_logger().warning(f'Voice module serial error: {exc}')
@@ -259,20 +290,42 @@ class VoiceModuleNode(Node):
         if len(frame) != 5:
             return
 
-        frame_type = frame[2]
-        command_id = frame[3]
+        self._publish_command(frame[2], frame[3], frame)
+
+    def _publish_raw_bytes(self, data: bytes) -> None:
+        if not self.publish_raw_bytes:
+            return
+
+        raw_message = String()
+        raw_message.data = hex_frame(data)
+        self.raw_bytes_pub.publish(raw_message)
+
+    def _publish_single_byte_if_needed(self, data: bytes) -> bool:
+        if not self.single_byte_command_mode:
+            return False
+        if len(data) != 1 or not self._parser.is_idle():
+            return False
+
+        command_id = data[0]
+        if command_id in {self.frame_header[0], self.frame_header[1], self.frame_tail}:
+            return False
+
+        self._publish_command(0x00, command_id, data)
+        return True
+
+    def _publish_command(self, frame_type: int, command_id: int, frame: bytes) -> None:
         label = self.command_labels.get(command_id, '')
 
         message = VoiceCommand()
         message.header.stamp = self.get_clock().now().to_msg()
-        message.frame_type = frame_type
-        message.command_id = command_id
+        message.frame_type = frame_type & 0xFF
+        message.command_id = command_id & 0xFF
         message.label = label
         message.frame = list(frame)
         self.command_pub.publish(message)
 
         command_id_message = UInt8()
-        command_id_message.data = command_id
+        command_id_message.data = command_id & 0xFF
         self.command_id_pub.publish(command_id_message)
 
         raw_message = String()
