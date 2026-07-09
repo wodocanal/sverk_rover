@@ -440,8 +440,8 @@ class RoverStatusDisplayNode(Node):
 
         self._battery_canvas = self._tk.Canvas(
             top,
-            width=self._scaled(80, minimum=56),
-            height=self._scaled(34, minimum=24),
+            width=self._scaled(160, minimum=112),
+            height=self._scaled(68, minimum=48),
             bg=self._panel_color,
             highlightthickness=0,
         )
@@ -728,13 +728,14 @@ class RoverStatusDisplayNode(Node):
         height = max(22, int(canvas.cget('height')))
         pad = max(3, self._scaled(3, minimum=2))
         body_right = width - self._scaled(10, minimum=7)
+        outline_width = max(2, self._scaled(4, minimum=2))
         canvas.create_rectangle(
             pad,
             pad,
             body_right,
             height - pad,
             outline=self._accent_color,
-            width=2,
+            width=outline_width,
         )
         canvas.create_rectangle(
             body_right,
@@ -742,7 +743,7 @@ class RoverStatusDisplayNode(Node):
             width - pad,
             height * 0.66,
             outline=self._accent_color,
-            width=2,
+            width=outline_width,
         )
         if self._battery_percent is None:
             return
@@ -775,9 +776,12 @@ class RoverStatusDisplayNode(Node):
         window = self._tk.Toplevel(self._root)
         window.title('Консоль ровера')
         window.configure(bg=self._background_color)
-        window.geometry(
-            f'{max(360, int(self._screen_width * 0.75))}x{max(260, int(self._screen_height * 0.70))}'
-        )
+        window.geometry(f'{self._screen_width}x{self._screen_height}+0+0')
+        try:
+            window.attributes('-fullscreen', True)
+        except Exception:
+            pass
+        window.bind('<Escape>', lambda _event: self._close_console_window())
         window.protocol('WM_DELETE_WINDOW', self._close_console_window)
         self._console_window = window
 
