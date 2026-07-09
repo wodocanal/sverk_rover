@@ -50,6 +50,8 @@ def launch_setup(context):
     use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context))
     rosboard_port = LaunchConfiguration('rosboard_port').perform(context).strip() or '8888'
     foxglove_port = LaunchConfiguration('foxglove_port').perform(context).strip() or '8766'
+    display_panel_mode = LaunchConfiguration('display_panel_mode').perform(context).strip()
+    display_robot_serial = LaunchConfiguration('display_robot_serial').perform(context).strip()
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
     imu_override = LaunchConfiguration('imu_device').perform(context).strip() or None
     lidar_override = LaunchConfiguration('lidar_device').perform(context).strip() or None
@@ -142,6 +144,10 @@ def launch_setup(context):
     )
     vision_params['use_sim_time'] = use_sim_time
     display_params = dict(config.get('display', {}))
+    if display_panel_mode:
+        display_params['right_panel_mode'] = display_panel_mode
+    if display_robot_serial:
+        display_params['robot_serial'] = display_robot_serial
     led_strip_params = dict(config.get('led_strip', {}))
     led_strip_params['use_sim_time'] = use_sim_time
     octoliner_params = dict(config.get('octoliner', {}))
@@ -398,6 +404,16 @@ def generate_launch_description():
         DeclareLaunchArgument('use_camera', default_value='true'),
         DeclareLaunchArgument('use_vision', default_value='true'),
         DeclareLaunchArgument('use_display', default_value='false'),
+        DeclareLaunchArgument(
+            'display_panel_mode',
+            default_value='',
+            description='Optional touchscreen right panel override: placeholder or agent',
+        ),
+        DeclareLaunchArgument(
+            'display_robot_serial',
+            default_value='',
+            description='Optional touchscreen rover serial suffix',
+        ),
         DeclareLaunchArgument('use_led_strip', default_value='true'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
         DeclareLaunchArgument('use_web', default_value='true'),
