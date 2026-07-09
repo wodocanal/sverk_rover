@@ -76,6 +76,11 @@ def to_launch_text(value) -> str:
     return str(value)
 
 
+def add_if_set(arguments: dict, name: str, value: str):
+    if value:
+        arguments[name] = value
+
+
 def launch_setup(context):
     config_file = LaunchConfiguration('config_file').perform(context).strip()
     config = load_ui_config(config_file) if config_file else {}
@@ -171,6 +176,28 @@ def launch_setup(context):
             context, 'display_robot_serial', config, ('display', 'robot_serial'), '1'
         ),
     }
+    add_if_set(
+        display_arguments,
+        'agent_text_topic',
+        launch_value(
+            context,
+            'display_agent_text_topic',
+            config,
+            ('display', 'agent_text_topic'),
+            '',
+        ),
+    )
+    add_if_set(
+        display_arguments,
+        'battery_topic',
+        launch_value(
+            context,
+            'display_battery_topic',
+            config,
+            ('display', 'battery_topic'),
+            '',
+        ),
+    )
 
     return [
         IncludeLaunchDescription(
@@ -224,6 +251,8 @@ def generate_launch_description():
         DeclareLaunchArgument('terminal_workspace', default_value=empty_default),
         DeclareLaunchArgument('rosboard_port', default_value=empty_default),
         DeclareLaunchArgument('display_config_file', default_value=empty_default),
+        DeclareLaunchArgument('display_agent_text_topic', default_value=empty_default),
+        DeclareLaunchArgument('display_battery_topic', default_value=empty_default),
         DeclareLaunchArgument(
             'display_panel_mode',
             default_value=empty_default,

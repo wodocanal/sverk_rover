@@ -480,7 +480,10 @@ class RoverStatusDisplayNode(Node):
             height=8,
         )
         self._agent_text.pack(fill='both', expand=True)
-        self._agent_text.insert('end', 'Ожидание сообщений из /agent/text...\n')
+        self._agent_text.insert(
+            'end',
+            f'Ожидание сообщений из {self._agent_text_topic}...\n',
+        )
         self._agent_text.configure(state='disabled')
         self._redraw_battery_icon()
 

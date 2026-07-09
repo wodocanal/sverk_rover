@@ -27,3 +27,5 @@ display:
   config_file: ''
   panel_mode: placeholder
   robot_serial: '1'
+  agent_text_topic: /agent/text
+  battery_topic: /battery/state
