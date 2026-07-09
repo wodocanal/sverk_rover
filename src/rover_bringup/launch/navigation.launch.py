@@ -22,6 +22,7 @@ def generate_launch_description():
     use_display = LaunchConfiguration('use_display')
     use_led_strip = LaunchConfiguration('use_led_strip')
     use_octoliner = LaunchConfiguration('use_octoliner')
+    use_voice = LaunchConfiguration('use_voice')
     use_web = LaunchConfiguration('use_web')
     use_sim_time = LaunchConfiguration('use_sim_time')
     discovery_mode = LaunchConfiguration('discovery_mode')
@@ -40,6 +41,7 @@ def generate_launch_description():
             'use_display': use_display,
             'use_led_strip': use_led_strip,
             'use_octoliner': use_octoliner,
+            'use_voice': use_voice,
             'use_web': use_web,
             'use_twist_mux': 'true',
             'use_sim_time': use_sim_time,
@@ -66,6 +68,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_display', default_value='false'),
         DeclareLaunchArgument('use_led_strip', default_value='false'),
         DeclareLaunchArgument('use_octoliner', default_value='false'),
+        DeclareLaunchArgument('use_voice', default_value='false'),
         DeclareLaunchArgument('use_web', default_value='false'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('discovery_mode', default_value='configured'),

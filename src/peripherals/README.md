@@ -11,4 +11,5 @@ Packages:
 - `rover_imu` - Yahboom IMU driver and normalization tools.
 - `rover_led_strip` - addressable LED strip driver.
 - `rover_octoliner` - Amperka Octoliner line sensor driver.
+- `rover_voice` - Yahboom ASR/TTS voice interaction module driver.
 - `sllidar_ros2` - SLLIDAR/RPLIDAR ROS 2 driver.

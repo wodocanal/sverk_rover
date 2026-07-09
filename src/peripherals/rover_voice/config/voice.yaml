@@ -1,0 +1,27 @@
+voice_module_node:
+  ros__parameters:
+    serial_device: /dev/myspeech
+    baudrate: 115200
+    read_timeout_sec: 0.1
+    reconnect_interval_sec: 2.0
+
+    command_topic: /voice/command
+    command_id_topic: /voice/command_id
+    raw_frame_topic: /voice/raw_frame
+    speak_id_topic: /voice/speak_id
+    speak_label_topic: /voice/speak_label
+    speak_phrase_service: /voice/speak_phrase
+
+    # Yahboom protocol: AA FF <type> <id> FB.
+    frame_header:
+    - 170
+    - 255
+    frame_tail: 251
+    broadcast_frame_type: 255
+
+    # Optional "id:label" aliases. The factory command table depends on
+    # firmware, so keep this small and project-specific.
+    command_labels:
+    - '10:close_light'
+    phrase_labels:
+    - '103:ready'

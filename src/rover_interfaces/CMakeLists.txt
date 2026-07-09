@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LEDStateArray.msg"
   "msg/LedStripState.msg"
   "msg/OctolinerReading.msg"
+  "msg/VoiceCommand.msg"
   "msg/WheelCommand.msg"
   "msg/WheelEncoders.msg"
   "srv/GetFrame.srv"
@@ -18,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetLEDs.srv"
   "srv/SetLedStripState.srv"
   "srv/SetSensitivity.srv"
+  "srv/SpeakVoicePhrase.srv"
   DEPENDENCIES std_msgs sensor_msgs
 )
 
