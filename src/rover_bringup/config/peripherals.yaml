@@ -111,7 +111,10 @@ voice:
   speak_phrase_service: /voice/speak_phrase
   publish_raw_bytes: true
   single_byte_command_mode: true
-  frame_header:
+  receive_frame_header:
+  - 170
+  - 85
+  transmit_frame_header:
   - 170
   - 255
   frame_tail: 251

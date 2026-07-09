@@ -2,9 +2,9 @@
 
 ROS 2 driver for the Yahboom ASR/TTS voice interaction module.
 
-The package uses the module UART protocol:
+The package uses the module UART protocol observed on the rover:
 
-- received command frame: `AA FF <frame_type> <command_id> FB`
+- received command frame: `AA 55 <frame_type> <command_id> FB`
 - passive broadcast frame: `AA FF FF <phrase_id> FB`
 - default serial speed: `115200`
 
@@ -22,6 +22,10 @@ that stable device name.
   broadcast phrase.
 - Subscribes to `std_msgs/msg/String` on `/voice/speak_label` for labels from
   `phrase_labels`.
+
+`command_labels` accepts either `id:label` or `type:id:label`. Use the second
+form for frames where the command id repeats under different frame types, for
+example `6:0:some_command`.
 
 ## Service
 

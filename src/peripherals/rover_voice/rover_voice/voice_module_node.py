@@ -14,7 +14,8 @@ from rover_interfaces.msg import VoiceCommand
 from rover_interfaces.srv import SpeakVoicePhrase
 
 
-DEFAULT_HEADER = (0xAA, 0xFF)
+DEFAULT_RECEIVE_HEADER = (0xAA, 0x55)
+DEFAULT_TRANSMIT_HEADER = (0xAA, 0xFF)
 DEFAULT_TAIL = 0xFB
 DEFAULT_BROADCAST_TYPE = 0xFF
 
@@ -24,7 +25,7 @@ class VoiceFrameParser:
 
     def __init__(
         self,
-        header: Iterable[int] = DEFAULT_HEADER,
+        header: Iterable[int] = DEFAULT_RECEIVE_HEADER,
         tail: int = DEFAULT_TAIL,
     ) -> None:
         self.header = bytes(int(value) & 0xFF for value in header)
@@ -95,6 +96,43 @@ def parse_label_map(values: Iterable[str]) -> tuple[dict[int, str], dict[str, in
     return by_id, by_label
 
 
+def parse_command_label_map(
+    values: Iterable[str],
+) -> tuple[dict[int, str], dict[tuple[int, int], str]]:
+    by_id: dict[int, str] = {}
+    by_frame: dict[tuple[int, int], str] = {}
+
+    for raw_value in values:
+        value = str(raw_value).strip()
+        if not value:
+            continue
+
+        parts = value.split(':')
+        if len(parts) == 2:
+            raw_id, label = parts
+            try:
+                command_id = int(raw_id.strip(), 0)
+            except ValueError:
+                continue
+            label = label.strip()
+            if 0 <= command_id <= 255 and label:
+                by_id[command_id] = label
+            continue
+
+        if len(parts) >= 3:
+            raw_type, raw_id = parts[0], parts[1]
+            label = ':'.join(parts[2:]).strip()
+            try:
+                frame_type = int(raw_type.strip(), 0)
+                command_id = int(raw_id.strip(), 0)
+            except ValueError:
+                continue
+            if 0 <= frame_type <= 255 and 0 <= command_id <= 255 and label:
+                by_frame[(frame_type, command_id)] = label
+
+    return by_id, by_frame
+
+
 def hex_frame(frame: bytes) -> str:
     return ' '.join(f'{value:02X}' for value in frame)
 
@@ -116,7 +154,9 @@ class VoiceModuleNode(Node):
         self.declare_parameter('speak_phrase_service', '/voice/speak_phrase')
         self.declare_parameter('publish_raw_bytes', True)
         self.declare_parameter('single_byte_command_mode', True)
-        self.declare_parameter('frame_header', list(DEFAULT_HEADER))
+        self.declare_parameter('receive_frame_header', list(DEFAULT_RECEIVE_HEADER))
+        self.declare_parameter('transmit_frame_header', list(DEFAULT_TRANSMIT_HEADER))
+        self.declare_parameter('frame_header', list(DEFAULT_RECEIVE_HEADER))
         self.declare_parameter('frame_tail', DEFAULT_TAIL)
         self.declare_parameter('broadcast_frame_type', DEFAULT_BROADCAST_TYPE)
         self.declare_parameter('command_labels', [''])
@@ -132,9 +172,13 @@ class VoiceModuleNode(Node):
             0.2,
             float(self.get_parameter('reconnect_interval_sec').value),
         )
-        self.frame_header = [
+        self.receive_frame_header = [
             int(value) & 0xFF
-            for value in self.get_parameter('frame_header').value
+            for value in self.get_parameter('receive_frame_header').value
+        ]
+        self.transmit_frame_header = [
+            int(value) & 0xFF
+            for value in self.get_parameter('transmit_frame_header').value
         ]
         self.frame_tail = int(self.get_parameter('frame_tail').value) & 0xFF
         self.broadcast_frame_type = (
@@ -146,7 +190,7 @@ class VoiceModuleNode(Node):
         self.single_byte_command_mode = bool(
             self.get_parameter('single_byte_command_mode').value
         )
-        self.command_labels, _ = parse_label_map(
+        self.command_labels, self.command_frame_labels = parse_command_label_map(
             self.get_parameter('command_labels').value
         )
         _, self.phrase_labels = parse_label_map(
@@ -158,7 +202,10 @@ class VoiceModuleNode(Node):
         if self.baudrate <= 0:
             raise ValueError('baudrate must be positive')
 
-        self._parser = VoiceFrameParser(self.frame_header, self.frame_tail)
+        self._validate_header('receive_frame_header', self.receive_frame_header)
+        self._validate_header('transmit_frame_header', self.transmit_frame_header)
+
+        self._parser = VoiceFrameParser(self.receive_frame_header, self.frame_tail)
         self._serial: serial.Serial | None = None
         self._serial_lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -211,8 +258,14 @@ class VoiceModuleNode(Node):
         self._reader_thread.start()
         self.get_logger().info(
             f'Yahboom voice module driver started on {self.serial_device} '
-            f'at {self.baudrate} baud'
+            f'at {self.baudrate} baud '
+            f'(rx={hex_frame(bytes(self.receive_frame_header))}, '
+            f'tx={hex_frame(bytes(self.transmit_frame_header))})'
         )
+
+    def _validate_header(self, name: str, header: list[int]) -> None:
+        if len(header) != 2:
+            raise ValueError(f'{name} must contain exactly two bytes')
 
     def destroy_node(self):
         self._stop_event.set()
@@ -307,25 +360,37 @@ class VoiceModuleNode(Node):
             return False
 
         command_id = data[0]
-        if command_id in {self.frame_header[0], self.frame_header[1], self.frame_tail}:
+        control_bytes = {
+            self.receive_frame_header[0],
+            self.receive_frame_header[1],
+            self.transmit_frame_header[0],
+            self.transmit_frame_header[1],
+            self.frame_tail,
+        }
+        if command_id in control_bytes:
             return False
 
         self._publish_command(0x00, command_id, data)
         return True
 
     def _publish_command(self, frame_type: int, command_id: int, frame: bytes) -> None:
-        label = self.command_labels.get(command_id, '')
+        normalized_type = frame_type & 0xFF
+        normalized_id = command_id & 0xFF
+        label = self.command_frame_labels.get(
+            (normalized_type, normalized_id),
+            self.command_labels.get(normalized_id, ''),
+        )
 
         message = VoiceCommand()
         message.header.stamp = self.get_clock().now().to_msg()
-        message.frame_type = frame_type & 0xFF
-        message.command_id = command_id & 0xFF
+        message.frame_type = normalized_type
+        message.command_id = normalized_id
         message.label = label
         message.frame = list(frame)
         self.command_pub.publish(message)
 
         command_id_message = UInt8()
-        command_id_message.data = command_id & 0xFF
+        command_id_message.data = normalized_id
         self.command_id_pub.publish(command_id_message)
 
         raw_message = String()
@@ -382,8 +447,8 @@ class VoiceModuleNode(Node):
 
     def _send_broadcast(self, phrase_id: int) -> tuple[bool, str]:
         frame = bytes((
-            self.frame_header[0],
-            self.frame_header[1],
+            self.transmit_frame_header[0],
+            self.transmit_frame_header[1],
             self.broadcast_frame_type,
             phrase_id & 0xFF,
             self.frame_tail,
