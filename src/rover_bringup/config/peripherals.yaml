@@ -1,0 +1,97 @@
+peripherals:
+  use_lidar: true
+  use_camera: true
+  use_vision: true
+  use_led_strip: true
+  use_octoliner: true
+
+lidar:
+  model: sllidar_c1
+  channel_type: serial
+  serial_port: /tmp/rover_devices/lidar
+  serial_baudrate: 460800
+  probe_baudrates:
+  - 460800
+  - 115200
+  - 256000
+  - 1000000
+  frame_id: lidar_link
+  inverted: false
+  angle_compensate: true
+  scan_mode: Standard
+  scan_frequency: 10.0
+  range_min: 0.17
+
+camera:
+  device: /dev/video0
+  image_topic: /image_raw
+  compressed_image_topic: /image_raw/compressed
+  frame_id: camera_optical_frame
+  width: 1280
+  height: 720
+  fps: 30.0
+  use_mjpeg: true
+  publish_raw: true
+  publish_compressed: true
+  jpeg_quality: 85
+  reconnect_interval_sec: 2.0
+  get_frame_service: get_frame
+
+vision:
+  enabled: false
+  model_name: ssd_mobilenet_v1_coco_2017_11_17
+  models_directory: package://rover_vision/models
+  input_topic: /image_raw
+  processed_image_topic: /image_processed
+  processed_compressed_image_topic: /image_processed/compressed
+  frame_id: camera_optical_frame
+  publish_raw: true
+  publish_compressed: true
+  confidence_threshold: 0.30
+  nms_threshold: 0.45
+  max_processing_fps: 10.0
+  annotate_labels: true
+  annotate_confidence: true
+  line_thickness: 2
+  jpeg_quality: 85
+
+led_strip:
+  led_transport: auto
+  spi_bus: 1
+  spi_device: 0
+  led_count: 16
+  frame_id: led_strip
+  state_topic: /led_strip/state
+  set_state_service: /led_strip/set_state
+  native_state_topic: /led/state
+  set_effect_service: /led/set_effect
+  set_leds_service: /led/set_leds
+  enabled: false
+  brightness: 0.35
+  effect: fill
+  effect_speed_hz: 1.0
+  primary_color: '#16B8F3'
+  secondary_color: '#FFFFFF'
+  startup_self_test: true
+  startup_test_color: '#FFFFFF'
+  startup_test_step_sec: 0.06
+  startup_test_hold_sec: 0.5
+  animation_rate_hz: 30.0
+  state_publish_hz: 5.0
+
+octoliner:
+  i2c_address: 42
+  i2c_bus: 1
+  poll_rate_hz: 50.0
+  frame_id: octoliner_link
+  reading_topic: /octoliner/reading
+  analog_topic: /octoliner/analog
+  pattern_topic: /octoliner/pattern
+  line_position_topic: /octoliner/line_position
+  tracked_line_topic: /octoliner/tracked_line_position
+  line_visible_topic: /octoliner/line_visible
+  sensitivity_topic: /octoliner/sensitivity
+  set_sensitivity_service: /octoliner/set_sensitivity
+  optimize_on_black_service: /octoliner/optimize_on_black
+  sensitivity: 0.8
+  auto_optimize_on_start: false

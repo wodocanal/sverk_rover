@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import yaml
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.conditions import IfCondition
@@ -11,6 +12,25 @@ from launch_ros.substitutions import FindPackageShare
 
 def default_ui_config_file() -> str:
     return str(Path(__file__).resolve().parents[1] / 'config' / 'ui.yaml')
+
+
+def package_file(package_name: str, *parts: str) -> str:
+    return str(Path(get_package_share_directory(package_name)).joinpath(*parts))
+
+
+def workspace_root() -> str:
+    try:
+        return str(Path(get_package_share_directory('rover_web')).parents[3])
+    except Exception:
+        return str(Path.home() / 'sverk_rover')
+
+
+def default_plans_directory() -> str:
+    return str(Path.home() / '.local' / 'share' / 'sverh-rover-web' / 'plans')
+
+
+def default_hackathon_files_root() -> str:
+    return str(Path(workspace_root()) / 'hackathon_files')
 
 
 def load_ui_config(path: str) -> dict:
@@ -37,17 +57,23 @@ def launch_value(context, name: str, config: dict, keys: tuple[str, ...], defaul
     return config_value(config, keys, default)
 
 
+def launch_value_or_default(
+    context,
+    name: str,
+    config: dict,
+    keys: tuple[str, ...],
+    default,
+):
+    value = launch_value(context, name, config, keys, default).strip()
+    return value if value else to_launch_text(default)
+
+
 def to_launch_text(value) -> str:
     if isinstance(value, bool):
         return 'true' if value else 'false'
     if value is None:
         return ''
     return str(value)
-
-
-def add_if_set(arguments: dict, name: str, value: str):
-    if value:
-        arguments[name] = value
 
 
 def launch_setup(context):
@@ -93,44 +119,47 @@ def launch_setup(context):
         'rosboard_port': launch_value(
             context, 'rosboard_port', config, ('rosboard', 'port'), 8888
         ),
-    }
-    add_if_set(
-        web_arguments,
-        'rover_config_file',
-        launch_value(
-            context, 'rover_config_file', config, ('web', 'rover_config_file'), ''
+        'rover_config_file': launch_value_or_default(
+            context,
+            'rover_config_file',
+            config,
+            ('web', 'rover_config_file'),
+            package_file('rover_bringup', 'config', 'rover.yaml'),
         ),
-    )
-    add_if_set(
-        web_arguments,
-        'plans_directory',
-        launch_value(context, 'plans_directory', config, ('web', 'plans_directory'), ''),
-    )
-    add_if_set(
-        web_arguments,
-        'hackathon_files_root',
-        launch_value(
+        'plans_directory': launch_value_or_default(
+            context,
+            'plans_directory',
+            config,
+            ('web', 'plans_directory'),
+            default_plans_directory(),
+        ),
+        'hackathon_files_root': launch_value_or_default(
             context,
             'hackathon_files_root',
             config,
             ('web', 'hackathon_files_root'),
-            '',
+            default_hackathon_files_root(),
         ),
-    )
-    add_if_set(
-        web_arguments,
-        'terminal_url',
-        launch_value(context, 'terminal_url', config, ('terminal', 'url'), ''),
-    )
-    add_if_set(
-        web_arguments,
-        'terminal_workspace',
-        launch_value(
-            context, 'terminal_workspace', config, ('terminal', 'workspace'), ''
+        'terminal_url': launch_value(
+            context, 'terminal_url', config, ('terminal', 'url'), ''
         ),
-    )
+        'terminal_workspace': launch_value_or_default(
+            context,
+            'terminal_workspace',
+            config,
+            ('terminal', 'workspace'),
+            workspace_root(),
+        ),
+    }
 
     display_arguments = {
+        'config_file': launch_value_or_default(
+            context,
+            'display_config_file',
+            config,
+            ('display', 'config_file'),
+            package_file('rover_display', 'config', 'display.yaml'),
+        ),
         'right_panel_mode': launch_value(
             context,
             'display_panel_mode',
@@ -142,13 +171,6 @@ def launch_setup(context):
             context, 'display_robot_serial', config, ('display', 'robot_serial'), '1'
         ),
     }
-    add_if_set(
-        display_arguments,
-        'config_file',
-        launch_value(
-            context, 'display_config_file', config, ('display', 'config_file'), ''
-        ),
-    )
 
     return [
         IncludeLaunchDescription(

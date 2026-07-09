@@ -31,11 +31,39 @@ def as_bool(text: str) -> bool:
     return text.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def as_launch_bool(value: bool) -> str:
+    return 'true' if value else 'false'
+
+
+def bringup_file(directory: str, name: str) -> str:
+    return str(
+        Path(get_package_share_directory('rover_bringup'))
+        / directory
+        / name
+    )
+
+
+def read_yaml_file(path: str) -> dict:
+    config_path = Path(path).expanduser()
+    value = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    return value if isinstance(value, dict) else {}
+
+
+def add_if_set(arguments: dict[str, str], key: str, value) -> None:
+    if value is not None and str(value).strip():
+        arguments[key] = str(value)
+
+
 def launch_setup(context):
-    config_path = Path(LaunchConfiguration('config_file').perform(context))
+    config_file = LaunchConfiguration('config_file').perform(context)
+    peripherals_config_file = LaunchConfiguration('peripherals_config_file').perform(
+        context
+    )
+    ui_config_file = LaunchConfiguration('ui_config_file').perform(context)
     runtime_dir = LaunchConfiguration('runtime_dir').perform(context)
     device_config = LaunchConfiguration('device_config').perform(context)
     discovery_mode = LaunchConfiguration('discovery_mode').perform(context)
+
     use_imu = as_bool(LaunchConfiguration('use_imu').perform(context))
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
     use_camera = as_bool(LaunchConfiguration('use_camera').perform(context))
@@ -47,6 +75,7 @@ def launch_setup(context):
     use_rosboard = as_bool(LaunchConfiguration('use_rosboard').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
     use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context))
+
     rosboard_port = LaunchConfiguration('rosboard_port').perform(context).strip() or '8888'
     display_panel_mode = LaunchConfiguration('display_panel_mode').perform(context).strip()
     display_robot_serial = LaunchConfiguration('display_robot_serial').perform(context).strip()
@@ -54,8 +83,9 @@ def launch_setup(context):
     imu_override = LaunchConfiguration('imu_device').perform(context).strip() or None
     lidar_override = LaunchConfiguration('lidar_device').perform(context).strip() or None
 
-    config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
-    lidar_config = dict(config.get('lidar', {}))
+    config = read_yaml_file(config_file)
+    peripherals_config = read_yaml_file(peripherals_config_file)
+    lidar_config = dict(peripherals_config.get('lidar', {}))
 
     try:
         probe_baudrates = tuple(
@@ -114,27 +144,6 @@ def launch_setup(context):
     })
     imu_params = dict(config['imu'])
     imu_params['use_sim_time'] = use_sim_time
-    camera_params = dict(config.get('camera', {}))
-    camera_params['use_sim_time'] = use_sim_time
-    vision_params = dict(config.get('vision', {}))
-    vision_params.setdefault(
-        'input_topic',
-        str(camera_params.get('image_topic', '/image_raw')),
-    )
-    vision_params.setdefault(
-        'frame_id',
-        str(camera_params.get('frame_id', 'camera_optical_frame')),
-    )
-    vision_params['use_sim_time'] = use_sim_time
-    display_params = dict(config.get('display', {}))
-    if display_panel_mode:
-        display_params['right_panel_mode'] = display_panel_mode
-    if display_robot_serial:
-        display_params['robot_serial'] = display_robot_serial
-    led_strip_params = dict(config.get('led_strip', {}))
-    led_strip_params['use_sim_time'] = use_sim_time
-    octoliner_params = dict(config.get('octoliner', {}))
-    octoliner_params['use_sim_time'] = use_sim_time
 
     xacro_file = PathJoinSubstitution([
         FindPackageShare('rover_description'), 'urdf', 'rover.urdf.xacro'
@@ -192,24 +201,8 @@ def launch_setup(context):
         ),
     ])
 
-    if (
-        use_led_strip
-        and use_octoliner
-        and str(led_strip_params.get('led_transport', 'auto')).strip().lower() in {'auto', 'spi'}
-    ):
-        actions.append(LogInfo(
-            msg=(
-                '[INFO] LED strip is configured for SPI transport. Make sure the data '
-                'wire is connected to the SPI MOSI pin that matches spi_bus/spi_device.'
-            )
-        ))
-
     if use_mux:
-        mux_config = str(
-            Path(get_package_share_directory('rover_bringup'))
-            / 'config'
-            / 'twist_mux.yaml'
-        )
+        mux_config = bringup_file('config', 'twist_mux.yaml')
         actions.append(Node(
             package='twist_mux',
             executable='twist_mux',
@@ -219,100 +212,62 @@ def launch_setup(context):
             remappings=[('cmd_vel_out', '/cmd_vel')],
         ))
 
-    if use_lidar:
-        detected_lidar = results['lidar']
-        detected_lidar_params = dict(detected_lidar.parameters)
-        lidar_params = {
-            'channel_type': 'serial',
-            'serial_port': str(Path(runtime_dir) / 'lidar'),
-            'serial_baudrate': detected_lidar.baudrate,
-            'frame_id': str(lidar_config.get('frame_id', 'lidar_link')),
-            'inverted': bool(lidar_config.get('inverted', False)),
-            'angle_compensate': bool(lidar_config.get('angle_compensate', True)),
-            'scan_mode': str(detected_lidar_params.get(
-                'scan_mode', lidar_config.get('scan_mode', 'Standard')
-            )),
-            'scan_frequency': float(detected_lidar_params.get(
-                'scan_frequency', lidar_config.get('scan_frequency', 10.0)
-            )),
-            'range_min': float(detected_lidar_params.get(
-                'range_min', lidar_config.get('range_min', 0.17)
-            )),
-            'use_sim_time': use_sim_time,
+    if use_lidar or use_camera or use_vision or use_led_strip or use_octoliner:
+        peripheral_arguments = {
+            'config_file': peripherals_config_file,
+            'use_lidar': as_launch_bool(use_lidar),
+            'use_camera': as_launch_bool(use_camera),
+            'use_vision': as_launch_bool(use_vision),
+            'use_led_strip': as_launch_bool(use_led_strip),
+            'use_octoliner': as_launch_bool(use_octoliner),
+            'use_sim_time': as_launch_bool(use_sim_time),
         }
-        actions.append(Node(
-            package='sllidar_ros2',
-            executable='sllidar_node',
-            name='sllidar_node',
-            output='screen',
-            parameters=[lidar_params],
+        if use_lidar:
+            detected_lidar = results['lidar']
+            detected_lidar_params = dict(detected_lidar.parameters)
+            peripheral_arguments.update({
+                'lidar_device': str(Path(runtime_dir) / 'lidar'),
+                'lidar_baudrate': str(detected_lidar.baudrate),
+            })
+            add_if_set(
+                peripheral_arguments,
+                'lidar_scan_mode',
+                detected_lidar_params.get('scan_mode'),
+            )
+            add_if_set(
+                peripheral_arguments,
+                'lidar_scan_frequency',
+                detected_lidar_params.get('scan_frequency'),
+            )
+            add_if_set(
+                peripheral_arguments,
+                'lidar_range_min',
+                detected_lidar_params.get('range_min'),
+            )
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('rover_bringup'), 'launch', 'peripherals.launch.py'
+            ])),
+            launch_arguments=peripheral_arguments.items(),
         ))
 
-    if use_camera:
-        actions.append(Node(
-            package='rover_camera',
-            executable='usb_camera_node',
-            name='usb_camera_node',
-            output='screen',
-            parameters=[camera_params],
-        ))
-    if use_camera and use_vision:
-        actions.append(Node(
-            package='rover_vision',
-            executable='camera_detector_node',
-            name='camera_detector_node',
-            output='screen',
-            parameters=[vision_params],
-        ))
-
-    if use_display:
-        actions.append(Node(
-            package='rover_display',
-            executable='status_display_node',
-            name='rover_status_display_node',
-            output='screen',
-            parameters=[display_params],
-        ))
-
-    if use_led_strip:
-        actions.append(Node(
-            package='rover_led_strip',
-            executable='led_strip_node',
-            name='led_strip_node',
-            output='screen',
-            parameters=[led_strip_params],
-        ))
-
-    if use_octoliner:
-        actions.append(Node(
-            package='rover_octoliner',
-            executable='octoliner_node',
-            name='octoliner_node',
-            output='screen',
-            parameters=[octoliner_params],
-        ))
-
-    if use_web:
+    if use_web or use_display or use_rosboard:
         web_command_topic = '/cmd_vel_teleop' if use_mux else '/cmd_vel'
+        ui_arguments = {
+            'config_file': ui_config_file,
+            'use_web': as_launch_bool(use_web),
+            'use_display': as_launch_bool(use_display),
+            'use_rosboard': as_launch_bool(use_rosboard),
+            'command_topic': web_command_topic,
+            'rosboard_port': rosboard_port,
+        }
+        add_if_set(ui_arguments, 'display_panel_mode', display_panel_mode)
+        add_if_set(ui_arguments, 'display_robot_serial', display_robot_serial)
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('rover_web'), 'launch', 'web.launch.py'
+                FindPackageShare('rover_bringup'), 'launch', 'ui.launch.py'
             ])),
-            launch_arguments={
-                'command_topic': web_command_topic,
-                'rosboard_enabled': 'true' if use_rosboard else 'false',
-                'rosboard_port': rosboard_port,
-            }.items(),
-        ))
-
-    if use_rosboard:
-        actions.append(IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('rosboard'), 'launch', 'rosboard.launch.py'
-            ])),
-            launch_arguments={
-                'port': rosboard_port,
-            }.items(),
+            launch_arguments=ui_arguments.items(),
         ))
 
     localization = Path(
@@ -353,13 +308,19 @@ def launch_setup(context):
 
 
 def generate_launch_description():
-    default_config = str(
-        Path(get_package_share_directory('rover_bringup'))
-        / 'config'
-        / 'rover.yaml'
-    )
     return LaunchDescription([
-        DeclareLaunchArgument('config_file', default_value=default_config),
+        DeclareLaunchArgument(
+            'config_file',
+            default_value=bringup_file('config', 'rover.yaml'),
+        ),
+        DeclareLaunchArgument(
+            'peripherals_config_file',
+            default_value=bringup_file('config', 'peripherals.yaml'),
+        ),
+        DeclareLaunchArgument(
+            'ui_config_file',
+            default_value=bringup_file('config', 'ui.yaml'),
+        ),
         DeclareLaunchArgument('runtime_dir', default_value='/tmp/rover_devices'),
         DeclareLaunchArgument(
             'device_config',
