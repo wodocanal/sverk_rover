@@ -4,7 +4,6 @@ peripherals:
   use_vision: true
   use_led_strip: true
   use_octoliner: true
-  use_voice: false
   use_waveshare_audio: false
 
 lidar:
@@ -97,33 +96,6 @@ octoliner:
   optimize_on_black_service: /octoliner/optimize_on_black
   sensitivity: 0.8
   auto_optimize_on_start: false
-
-voice:
-  serial_device: /dev/myspeech
-  baudrate: 115200
-  read_timeout_sec: 0.1
-  reconnect_interval_sec: 2.0
-  command_topic: /voice/command
-  command_id_topic: /voice/command_id
-  raw_frame_topic: /voice/raw_frame
-  raw_bytes_topic: /voice/raw_bytes
-  speak_id_topic: /voice/speak_id
-  speak_label_topic: /voice/speak_label
-  speak_phrase_service: /voice/speak_phrase
-  publish_raw_bytes: true
-  single_byte_command_mode: true
-  receive_frame_header:
-  - 170
-  - 85
-  transmit_frame_header:
-  - 170
-  - 255
-  frame_tail: 251
-  broadcast_frame_type: 255
-  command_labels:
-  - '10:close_light'
-  phrase_labels:
-  - '103:ready'
 
 waveshare_audio:
   serial_device: /dev/waveshare_audio

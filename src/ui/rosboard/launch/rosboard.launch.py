@@ -12,6 +12,11 @@ def generate_launch_description():
             executable='rosboard_node',
             name='rosboard',
             output='screen',
+            additional_env={
+                # Avoid user-site NumPy 2.x shadowing the distro NumPy used by
+                # OpenCV/PIL on Raspberry Pi.
+                'PYTHONNOUSERSITE': '1',
+            },
             parameters=[{
                 'port': LaunchConfiguration('port'),
             }],

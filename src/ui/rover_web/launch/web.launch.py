@@ -84,6 +84,12 @@ def generate_launch_description():
             executable='web_gateway_node',
             name='web_gateway_node',
             output='screen',
+            additional_env={
+                # Keep ROS/OpenCV on the distro-provided NumPy ABI. User-site
+                # packages installed for Whisper can pull NumPy 2.x and break
+                # cv2, which is built against Ubuntu/ROS NumPy 1.x on the Pi.
+                'PYTHONNOUSERSITE': '1',
+            },
             parameters=[
                 str(web_share / 'config' / 'web.yaml'),
                 {

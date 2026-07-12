@@ -71,7 +71,6 @@ def launch_setup(context):
     use_display = as_bool(LaunchConfiguration('use_display').perform(context))
     use_led_strip = as_bool(LaunchConfiguration('use_led_strip').perform(context))
     use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
-    use_voice = as_bool(LaunchConfiguration('use_voice').perform(context))
     use_waveshare_audio = as_bool(
         LaunchConfiguration('use_waveshare_audio').perform(context)
     )
@@ -222,7 +221,6 @@ def launch_setup(context):
         or use_vision
         or use_led_strip
         or use_octoliner
-        or use_voice
         or use_waveshare_audio
     ):
         peripheral_arguments = {
@@ -232,7 +230,6 @@ def launch_setup(context):
             'use_vision': as_launch_bool(use_vision),
             'use_led_strip': as_launch_bool(use_led_strip),
             'use_octoliner': as_launch_bool(use_octoliner),
-            'use_voice': as_launch_bool(use_voice),
             'use_waveshare_audio': as_launch_bool(use_waveshare_audio),
             'use_sim_time': as_launch_bool(use_sim_time),
         }
@@ -363,7 +360,6 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('use_led_strip', default_value='true'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
-        DeclareLaunchArgument('use_voice', default_value='false'),
         DeclareLaunchArgument('use_waveshare_audio', default_value='false'),
         DeclareLaunchArgument('use_web', default_value='true'),
         DeclareLaunchArgument('use_rosboard', default_value='true'),
