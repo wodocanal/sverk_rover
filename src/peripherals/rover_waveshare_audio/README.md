@@ -52,6 +52,13 @@ print('torch', torch.__version__)
 PY
 ```
 
+If Whisper fails with `module 'coverage.types' has no attribute 'Tracer'`,
+update the unrelated `coverage` package used by Numba during import:
+
+```bash
+python3 -m pip install -U 'coverage>=7.6.1'
+```
+
 ## Run
 
 Standalone:

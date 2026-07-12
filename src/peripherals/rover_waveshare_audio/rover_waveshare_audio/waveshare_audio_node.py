@@ -3,11 +3,13 @@ from __future__ import annotations
 import dataclasses
 import collections
 import json
+import os
 import queue
 import socket
 import struct
 import threading
 import time
+import types
 import wave
 from pathlib import Path
 from typing import Any
@@ -212,6 +214,38 @@ def save_wav(path: Path, sample_rate: int, samples: np.ndarray) -> None:
         wav_file.setsampwidth(2)
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(samples.astype('<i2').tobytes())
+
+
+def prepare_whisper_import() -> None:
+    os.environ.setdefault('NUMBA_JIT_COVERAGE', '0')
+
+    try:
+        import coverage
+    except Exception:  # noqa: BLE001
+        return
+
+    coverage_types = getattr(coverage, 'types', None)
+    if coverage_types is None:
+        coverage_types = types.SimpleNamespace()
+        setattr(coverage, 'types', coverage_types)
+
+    if not hasattr(coverage_types, 'Tracer'):
+        tracer_type = getattr(coverage_types, 'TTracer', object)
+        setattr(coverage_types, 'Tracer', tracer_type)
+
+    # Numba 0.62 imports coverage type hints at runtime. Older coverage.py 7.x
+    # releases do not expose every alias that Numba expects, even when JIT
+    # coverage is disabled. These aliases are only needed to complete import.
+    for alias in (
+        'TTraceData',
+        'TShouldTraceFn',
+        'TFileDisposition',
+        'TShouldStartContextFn',
+        'TWarnFn',
+        'TTraceFn',
+    ):
+        if not hasattr(coverage_types, alias):
+            setattr(coverage_types, alias, Any)
 
 
 class WaveshareAudioNode(Node):
@@ -466,6 +500,7 @@ class WaveshareAudioNode(Node):
         model = None
         while not self._stop_event.is_set() and model is None:
             try:
+                prepare_whisper_import()
                 import whisper
 
                 self._publish_status(
