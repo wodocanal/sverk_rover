@@ -22,7 +22,7 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from ament_index_python.packages import get_package_share_directory
 import cv2
@@ -66,6 +66,16 @@ HACKATHON_FILE_TYPES = {
     '.html': ('html', 'text/html; charset=utf-8'),
     '.htm': ('html', 'text/html; charset=utf-8'),
     '.pdf': ('pdf', 'application/pdf'),
+}
+MAP_YAML_EXTENSIONS = {'.yaml', '.yml'}
+MAP_IMAGE_EXTENSIONS = {
+    '.pgm',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.bmp',
+    '.tif',
+    '.tiff',
 }
 CAMERA_PARAMETER_NAMES = [
     'device',
@@ -452,6 +462,7 @@ class RoverWebGateway(Node):
             'hackathon_files_root',
             str(workspace_root / 'hackathon_files'),
         )
+        self.declare_parameter('maps_root', str(workspace_root / 'maps'))
         self.declare_parameter(
             'seed_plans_directory',
             str(share / 'plans'),
@@ -510,6 +521,9 @@ class RoverWebGateway(Node):
         ).expanduser()
         self.hackathon_files_root = Path(
             str(self.get_parameter('hackathon_files_root').value)
+        ).expanduser().resolve()
+        self.maps_root = Path(
+            str(self.get_parameter('maps_root').value)
         ).expanduser().resolve()
         self.seed_plans_directory = Path(
             str(self.get_parameter('seed_plans_directory').value)
@@ -1225,6 +1239,7 @@ class RoverWebGateway(Node):
             'voice_status_topic': self.voice_status_topic,
             'plans_directory': str(self.plans_directory),
             'hackathon_files_root': str(self.hackathon_files_root),
+            'maps_root': str(self.maps_root),
             'web': {
                 'terminal_enabled': self.terminal_enabled,
                 'terminal_url': self.terminal_url,
@@ -3012,6 +3027,116 @@ class RoverWebGateway(Node):
         _, content_type = HACKATHON_FILE_TYPES[path.suffix.lower()]
         return path.read_bytes(), content_type
 
+    def _resolve_map_yaml(self, relative_path: str) -> Path:
+        requested = relative_path.strip().replace('\\', '/').lstrip('/')
+        if not requested:
+            raise FileNotFoundError('Map file name is empty')
+        candidate = (self.maps_root / requested).resolve()
+        root = self.maps_root.resolve()
+        if os.path.commonpath([str(root), str(candidate)]) != str(root):
+            raise PermissionError('Forbidden')
+        if candidate.suffix.lower() not in MAP_YAML_EXTENSIONS:
+            raise PermissionError('Unsupported map metadata file type')
+        if not candidate.exists() or not candidate.is_file():
+            raise FileNotFoundError(f'{relative_path} not found')
+        return candidate
+
+    def _resolve_map_image(self, map_yaml: Path, metadata: dict[str, Any]) -> Path:
+        image_name = str(metadata.get('image') or '').strip()
+        if not image_name:
+            raise FileNotFoundError(f'{map_yaml.name} does not specify an image')
+        image_path = Path(image_name).expanduser()
+        if not image_path.is_absolute():
+            image_path = map_yaml.parent / image_path
+        image_path = image_path.resolve()
+        root = self.maps_root.resolve()
+        if os.path.commonpath([str(root), str(image_path)]) != str(root):
+            raise PermissionError('Map image must stay inside maps_root')
+        if image_path.suffix.lower() not in MAP_IMAGE_EXTENSIONS:
+            raise PermissionError('Unsupported map image type')
+        if not image_path.exists() or not image_path.is_file():
+            raise FileNotFoundError(f'{image_name} not found')
+        return image_path
+
+    @staticmethod
+    def _map_origin(metadata: dict[str, Any]) -> list[float]:
+        raw_origin = metadata.get('origin', [0.0, 0.0, 0.0])
+        if not isinstance(raw_origin, list):
+            raw_origin = [0.0, 0.0, 0.0]
+        values = [0.0, 0.0, 0.0]
+        for index, value in enumerate(raw_origin[:3]):
+            try:
+                values[index] = float(value)
+            except (TypeError, ValueError):
+                values[index] = 0.0
+        return values
+
+    def _map_metadata_payload(self, map_yaml: Path) -> dict[str, Any]:
+        metadata = read_yaml(map_yaml, {})
+        image_path = self._resolve_map_image(map_yaml, metadata)
+        image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+        if image is None:
+            raise RuntimeError(f'OpenCV could not read {image_path.name}')
+        height, width = image.shape[:2]
+        try:
+            resolution = float(metadata.get('resolution', 0.05))
+        except (TypeError, ValueError):
+            resolution = 0.05
+        if not math.isfinite(resolution) or resolution <= 0.0:
+            resolution = 0.05
+
+        relative_yaml = map_yaml.relative_to(self.maps_root).as_posix()
+        relative_image = image_path.relative_to(self.maps_root).as_posix()
+        return {
+            'path': relative_yaml,
+            'name': map_yaml.stem,
+            'image': relative_image,
+            'image_url': f'/api/maps/image?map={quote(relative_yaml)}',
+            'resolution': resolution,
+            'origin': self._map_origin(metadata),
+            'negate': int(metadata.get('negate', 0) or 0),
+            'occupied_thresh': float(metadata.get('occupied_thresh', 0.65)),
+            'free_thresh': float(metadata.get('free_thresh', 0.196)),
+            'width_px': int(width),
+            'height_px': int(height),
+            'width_m': float(width) * resolution,
+            'height_m': float(height) * resolution,
+            'valid': True,
+        }
+
+    def maps_payload(self) -> dict[str, Any]:
+        root = self.maps_root.resolve()
+        maps: list[dict[str, Any]] = []
+        if root.exists():
+            for path in sorted(root.rglob('*')):
+                if not path.is_file() or path.suffix.lower() not in MAP_YAML_EXTENSIONS:
+                    continue
+                try:
+                    maps.append(self._map_metadata_payload(path))
+                except Exception as exc:
+                    maps.append({
+                        'path': path.relative_to(root).as_posix(),
+                        'name': path.stem,
+                        'valid': False,
+                        'error': str(exc),
+                    })
+        return {
+            'root': str(root),
+            'maps': maps,
+        }
+
+    def map_image(self, relative_path: str) -> tuple[bytes, str]:
+        map_yaml = self._resolve_map_yaml(relative_path)
+        metadata = read_yaml(map_yaml, {})
+        image_path = self._resolve_map_image(map_yaml, metadata)
+        image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+        if image is None:
+            raise RuntimeError(f'OpenCV could not read {image_path.name}')
+        ok, encoded = cv2.imencode('.png', image)
+        if not ok:
+            raise RuntimeError(f'OpenCV could not encode {image_path.name} as PNG')
+        return encoded.tobytes(), 'image/png'
+
     def _serve_static_file(self, request_path: str) -> tuple[bytes, str]:
         relative_path = 'index.html' if request_path in ('', '/') else request_path.lstrip('/')
         candidate = os.path.normpath(os.path.join(str(self.web_root), relative_path))
@@ -3062,6 +3187,14 @@ class RoverWebGateway(Node):
                         return
                     if path == '/api/hackathon/files':
                         self._send_json(gateway.hackathon_files_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/maps':
+                        self._send_json(gateway.maps_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/maps/image':
+                        map_path = self._required_query(query, 'map')
+                        image_bytes, content_type = gateway.map_image(map_path)
+                        self._send_bytes(image_bytes, content_type, HTTPStatus.OK)
                         return
                     if path == '/api/plans':
                         self._send_json(

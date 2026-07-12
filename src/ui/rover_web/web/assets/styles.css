@@ -1275,9 +1275,18 @@ textarea {
   align-items: center;
 }
 
+.visualization-controls label:not(.check-label) {
+  min-width: 160px;
+  margin: 0;
+}
+
 .visualization-controls .check-label {
   margin: 0;
   flex: 0 0 auto;
+}
+
+#viz-map-select {
+  min-width: 190px;
 }
 
 .terminal-frame {

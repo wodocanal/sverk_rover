@@ -342,6 +342,11 @@ angular.z: 0.00</pre>
             <div class="inline-form visualization-controls">
               <label>Масштаб <input id="viz-scale" type="range" min="40" max="300" value="120"></label>
               <label class="check-label"><input id="viz-follow" type="checkbox" checked> Следовать за ровером</label>
+              <label class="check-label"><input id="viz-map-visible" type="checkbox"> Показывать карту</label>
+              <label>Карта
+                <select id="viz-map-select"></select>
+              </label>
+              <button class="secondary" id="viz-map-refresh">Обновить карты</button>
               <button class="secondary" id="viz-clear">Очистить след</button>
             </div>
           </div>
@@ -350,6 +355,7 @@ angular.z: 0.00</pre>
           <span id="viz-position">Позиция: —</span>
           <span id="viz-yaw">Курс: —</span>
           <span id="viz-points">Точек: 0</span>
+          <span id="viz-map-info">Карта: —</span>
         </div>
         <article class="panel canvas-panel visualization-panel">
           <canvas id="odom-canvas" width="1100" height="680"></canvas>

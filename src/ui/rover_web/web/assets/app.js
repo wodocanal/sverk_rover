@@ -8,6 +8,8 @@ const STORAGE_KEYS = {
   compact: 'rover_web.compact',
   vizScale: 'rover_web.viz_scale',
   vizFollow: 'rover_web.viz_follow',
+  vizMapVisible: 'rover_web.viz_map_visible',
+  vizMapSelected: 'rover_web.viz_map_selected',
   sessionId: 'rover_web.session_id',
   rosTab: 'rover_web.ros_tab',
   movementPage: 'rover_web.movement_page',
@@ -160,6 +162,13 @@ const state = {
     trail: [],
     scale: Number(localStorage.getItem(STORAGE_KEYS.vizScale) || '120'),
     follow: localStorage.getItem(STORAGE_KEYS.vizFollow) !== 'false',
+    mapVisible: localStorage.getItem(STORAGE_KEYS.vizMapVisible) === 'true',
+    maps: [],
+    mapsRoot: '',
+    selectedMap: localStorage.getItem(STORAGE_KEYS.vizMapSelected) || '',
+    mapImage: null,
+    mapImagePath: '',
+    mapImageLoading: false,
   },
   apiHealthy: false,
   rosHealthy: false,
@@ -3485,6 +3494,143 @@ function drawRoverArrow(ctx, point, yaw, color, size) {
   ctx.restore();
 }
 
+function currentVisualizationMap() {
+  return safeArray(state.viz.maps).find(
+    (item) => item.valid && item.path === state.viz.selectedMap,
+  ) || null;
+}
+
+function renderVisualizationMapSelector() {
+  const select = $('#viz-map-select');
+  const visibleToggle = $('#viz-map-visible');
+  const validMaps = safeArray(state.viz.maps).filter((item) => item.valid);
+  select.innerHTML = '';
+
+  if (!validMaps.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Нет карт в maps/';
+    select.append(option);
+    select.disabled = true;
+    visibleToggle.disabled = true;
+    state.viz.selectedMap = '';
+    $('#viz-map-info').textContent = 'Карта: нет доступных YAML';
+    return;
+  }
+
+  if (!validMaps.some((item) => item.path === state.viz.selectedMap)) {
+    state.viz.selectedMap = validMaps[0].path;
+  }
+
+  validMaps.forEach((map) => {
+    const option = document.createElement('option');
+    option.value = map.path;
+    option.textContent = `${map.name} (${map.resolution} м/px)`;
+    option.selected = map.path === state.viz.selectedMap;
+    select.append(option);
+  });
+
+  select.disabled = false;
+  visibleToggle.disabled = false;
+  visibleToggle.checked = state.viz.mapVisible;
+  localStorage.setItem(STORAGE_KEYS.vizMapSelected, state.viz.selectedMap);
+}
+
+function loadVisualizationMapImage(map) {
+  if (!map || !map.image_url) return;
+  if (
+    state.viz.mapImage
+    && state.viz.mapImagePath === map.path
+    && state.viz.mapImage.complete
+  ) {
+    return;
+  }
+  if (state.viz.mapImageLoading && state.viz.mapImagePath === map.path) {
+    return;
+  }
+
+  state.viz.mapImageLoading = true;
+  state.viz.mapImagePath = map.path;
+  const image = new Image();
+  image.onload = () => {
+    state.viz.mapImage = image;
+    state.viz.mapImageLoading = false;
+    renderVisualization();
+  };
+  image.onerror = () => {
+    state.viz.mapImage = null;
+    state.viz.mapImageLoading = false;
+    $('#viz-map-info').textContent = `Карта: не удалось загрузить ${map.name}`;
+    renderVisualization();
+  };
+  image.src = map.image_url;
+}
+
+async function refreshVisualizationMaps() {
+  try {
+    const payload = await api('/api/maps');
+    state.viz.maps = safeArray(payload.maps);
+    state.viz.mapsRoot = payload.root || '';
+    renderVisualizationMapSelector();
+    const map = currentVisualizationMap();
+    if (state.viz.mapVisible && map) {
+      loadVisualizationMapImage(map);
+    }
+    renderVisualization();
+    return payload;
+  } catch (error) {
+    state.viz.maps = [];
+    renderVisualizationMapSelector();
+    $('#viz-map-info').textContent = String(error.message || error);
+    return null;
+  }
+}
+
+function drawVisualizationMap(ctx, width, height, scale, centerX, centerY) {
+  const map = currentVisualizationMap();
+  if (!state.viz.mapVisible || !map) {
+    $('#viz-map-info').textContent = state.viz.mapVisible
+      ? 'Карта: нет выбранной карты'
+      : 'Карта: скрыта';
+    return;
+  }
+
+  loadVisualizationMapImage(map);
+  const image = state.viz.mapImagePath === map.path ? state.viz.mapImage : null;
+  const cellCm = Number(map.resolution || 0) * 100;
+  $('#viz-map-info').textContent = image?.complete
+    ? `Карта: ${map.name}, клетка ${formatFloat(cellCm, 1)} см`
+    : `Карта: загрузка ${map.name}…`;
+  if (!image?.complete) {
+    return;
+  }
+
+  const origin = Array.isArray(map.origin) ? map.origin : [0, 0, 0];
+  const originX = Number(origin[0] || 0);
+  const originY = Number(origin[1] || 0);
+  const originYaw = Number(origin[2] || 0);
+  const mapWidth = Number(map.width_m || 0) * scale;
+  const mapHeight = Number(map.height_m || 0) * scale;
+  if (!Number.isFinite(mapWidth) || !Number.isFinite(mapHeight) || mapWidth <= 0 || mapHeight <= 0) {
+    return;
+  }
+
+  const screenOriginX = width / 2 + (originX - centerX) * scale;
+  const screenOriginY = height / 2 - (originY - centerY) * scale;
+
+  ctx.save();
+  ctx.translate(screenOriginX, screenOriginY);
+  ctx.rotate(-originYaw);
+  ctx.globalAlpha = 0.38;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(image, 0, -mapHeight, mapWidth, mapHeight);
+  ctx.globalAlpha = 0.75;
+  ctx.strokeStyle = '#075f89';
+  ctx.lineWidth = 1.2;
+  ctx.strokeRect(0, -mapHeight, mapWidth, mapHeight);
+  ctx.restore();
+}
+
 function renderVisualization() {
   const canvas = $('#odom-canvas');
   const ctx = setupCanvas(canvas);
@@ -3505,8 +3651,6 @@ function renderVisualization() {
   $('#viz-yaw').textContent = `Курс: ${pose ? formatAngleRad(pose.yaw) : '—'}`;
   $('#viz-points').textContent = `Точек: ${trail.length}`;
 
-  if (!pose) return;
-
   const scale = Number($('#viz-scale').value || state.viz.scale);
   state.viz.scale = scale;
   localStorage.setItem(STORAGE_KEYS.vizScale, String(scale));
@@ -3514,15 +3658,18 @@ function renderVisualization() {
   state.viz.follow = follow;
   localStorage.setItem(STORAGE_KEYS.vizFollow, follow ? 'true' : 'false');
 
-  let centerX = pose.x;
-  let centerY = pose.y;
+  let centerX = pose?.x ?? 0;
+  let centerY = pose?.y ?? 0;
   if (!follow && trail.length) {
     const bounds = pathBounds(trail);
     centerX = (bounds.minX + bounds.maxX) / 2;
     centerY = (bounds.minY + bounds.maxY) / 2;
   }
 
+  drawVisualizationMap(ctx, width, height, scale, centerX, centerY);
   drawGrid(ctx, width, height, scale, centerX, centerY);
+  if (!pose) return;
+
   const toScreen = (point) => ({
     x: width / 2 + (point.x - centerX) * scale,
     y: height / 2 - (point.y - centerY) * scale,
@@ -3810,8 +3957,30 @@ function bindRoutesPage() {
 function bindVisualizationPage() {
   $('#viz-scale').value = String(state.viz.scale);
   $('#viz-follow').checked = state.viz.follow;
+  $('#viz-map-visible').checked = state.viz.mapVisible;
   $('#viz-scale').addEventListener('input', renderVisualization);
   $('#viz-follow').addEventListener('change', renderVisualization);
+  $('#viz-map-visible').addEventListener('change', (event) => {
+    state.viz.mapVisible = event.target.checked;
+    localStorage.setItem(STORAGE_KEYS.vizMapVisible, state.viz.mapVisible ? 'true' : 'false');
+    const map = currentVisualizationMap();
+    if (state.viz.mapVisible && map) {
+      loadVisualizationMapImage(map);
+    }
+    renderVisualization();
+  });
+  $('#viz-map-select').addEventListener('change', (event) => {
+    state.viz.selectedMap = event.target.value || '';
+    localStorage.setItem(STORAGE_KEYS.vizMapSelected, state.viz.selectedMap);
+    state.viz.mapImage = null;
+    state.viz.mapImagePath = '';
+    const map = currentVisualizationMap();
+    if (state.viz.mapVisible && map) {
+      loadVisualizationMapImage(map);
+    }
+    renderVisualization();
+  });
+  $('#viz-map-refresh').addEventListener('click', refreshVisualizationMaps);
   $('#viz-clear').addEventListener('click', () => {
     state.viz.trail = [];
     renderVisualization();
@@ -4140,6 +4309,7 @@ async function initialize() {
     refreshLedStripSettings(),
     refreshOctolinerSettings(),
     refreshDriveConfig(),
+    refreshVisualizationMaps(),
     refreshPlanList(),
     refreshHackathonFiles(),
     refreshActivity(),
