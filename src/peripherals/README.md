@@ -12,4 +12,5 @@ Packages:
 - `rover_led_strip` - addressable LED strip driver.
 - `rover_octoliner` - Amperka Octoliner line sensor driver.
 - `rover_voice` - Yahboom ASR/TTS voice interaction module driver.
+- `rover_waveshare_audio` - Waveshare ESP32-S3-AUDIO-Board audio streaming and Whisper speech-to-text bridge.
 - `sllidar_ros2` - SLLIDAR/RPLIDAR ROS 2 driver.

@@ -1,0 +1,625 @@
+from __future__ import annotations
+
+import dataclasses
+import collections
+import json
+import queue
+import socket
+import struct
+import threading
+import time
+import wave
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import rclpy
+from rclpy.node import Node
+import serial
+from serial import SerialException
+from std_msgs.msg import String
+
+
+MAGIC = b'PCM1'
+HEADER = struct.Struct('<4sHHI')
+SUPPORTED_MODELS = {
+    'tiny',
+    'base',
+    'small',
+    'medium',
+    'large',
+    'turbo',
+    'tiny.en',
+    'base.en',
+    'small.en',
+    'medium.en',
+    'large-v1',
+    'large-v2',
+    'large-v3',
+    'large-v3-turbo',
+}
+MODEL_ALIASES = {
+    'large-v3-turbo': 'turbo',
+}
+
+
+@dataclasses.dataclass
+class Utterance:
+    started_monotonic: float
+    ended_monotonic: float
+    sequence: int
+    sample_rate: int
+    samples: np.ndarray
+
+
+class TcpSink:
+    def __init__(self, address: str) -> None:
+        self._address = address.strip()
+        self._sock: socket.socket | None = None
+
+    def send(self, text: str) -> None:
+        if not self._address:
+            return
+        if self._sock is None:
+            host, port_text = self._address.rsplit(':', 1)
+            self._sock = socket.create_connection((host, int(port_text)), timeout=3.0)
+        try:
+            self._sock.sendall((text + '\n').encode('utf-8'))
+        except OSError:
+            self.close()
+
+    def close(self) -> None:
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            finally:
+                self._sock = None
+
+
+class SerialSink:
+    def __init__(self, port: str, baudrate: int) -> None:
+        self._port = port.strip()
+        self._baudrate = baudrate
+        self._serial: serial.Serial | None = None
+
+    def send(self, text: str) -> None:
+        if not self._port:
+            return
+        if self._serial is None:
+            self._serial = serial.Serial(
+                port=self._port,
+                baudrate=self._baudrate,
+                timeout=1.0,
+                write_timeout=1.0,
+            )
+        try:
+            self._serial.write((text + '\n').encode('utf-8'))
+            self._serial.flush()
+        except (OSError, SerialException):
+            self.close()
+
+    def close(self) -> None:
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            finally:
+                self._serial = None
+
+
+class Segmenter:
+    def __init__(
+        self,
+        frame_samples: int,
+        sample_rate: int,
+        min_rms: float,
+        start_frames: int,
+        stop_frames: int,
+        pre_roll_frames: int,
+        max_utterance_seconds: float,
+    ) -> None:
+        self.frame_samples = frame_samples
+        self.sample_rate = sample_rate
+        self.min_rms = min_rms
+        self.start_frames = start_frames
+        self.stop_frames = stop_frames
+        self.max_frames = max(1, int(max_utterance_seconds * sample_rate / frame_samples))
+        self.pre_roll: collections.deque[np.ndarray]
+        self.pre_roll = collections.deque(maxlen=pre_roll_frames)
+        self.in_speech = False
+        self.pending_starts = 0
+        self.pending_stops = 0
+        self.noise_floor = min_rms
+        self.frames: list[np.ndarray] = []
+        self.started_monotonic = 0.0
+
+    def push(self, frame: np.ndarray, sequence: int) -> Utterance | None:
+        rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
+        threshold_on = max(self.min_rms, self.noise_floor * 3.0)
+        threshold_off = max(self.min_rms * 0.75, self.noise_floor * 1.8)
+        now = time.monotonic()
+
+        if not self.in_speech:
+            self.pre_roll.append(frame.copy())
+            if rms < threshold_on:
+                self.noise_floor = self.noise_floor * 0.98 + max(rms, 1.0) * 0.02
+
+            if rms > threshold_on:
+                self.pending_starts += 1
+            else:
+                self.pending_starts = 0
+
+            if self.pending_starts >= self.start_frames:
+                self.in_speech = True
+                self.pending_starts = 0
+                self.pending_stops = 0
+                self.frames = list(self.pre_roll)
+                self.started_monotonic = now
+            return None
+
+        self.frames.append(frame.copy())
+        if rms < threshold_off:
+            self.pending_stops += 1
+        else:
+            self.pending_stops = 0
+
+        if self.pending_stops >= self.stop_frames or len(self.frames) >= self.max_frames:
+            samples = np.concatenate(self.frames)
+            utterance = Utterance(
+                started_monotonic=self.started_monotonic,
+                ended_monotonic=now,
+                sequence=sequence,
+                sample_rate=self.sample_rate,
+                samples=samples,
+            )
+            self.in_speech = False
+            self.pending_stops = 0
+            self.frames = []
+            self.started_monotonic = 0.0
+            return utterance
+
+        return None
+
+
+def normalize_model_name(model_name: str) -> str:
+    normalized = MODEL_ALIASES.get(model_name.strip(), model_name.strip())
+    if normalized not in SUPPORTED_MODELS:
+        available = ', '.join(sorted(SUPPORTED_MODELS))
+        raise ValueError(f'Unsupported Whisper model {model_name!r}. Available: {available}')
+    return normalized
+
+
+def choose_device(requested: str) -> str:
+    requested = requested.strip().lower()
+    if requested != 'auto':
+        return requested
+
+    try:
+        import torch
+    except ImportError:
+        return 'cpu'
+
+    if torch.backends.mps.is_available():
+        return 'mps'
+    if torch.cuda.is_available():
+        return 'cuda'
+    return 'cpu'
+
+
+def save_wav(path: Path, sample_rate: int, samples: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), 'wb') as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(samples.astype('<i2').tobytes())
+
+
+class WaveshareAudioNode(Node):
+    def __init__(self) -> None:
+        super().__init__('waveshare_audio_node')
+
+        self.declare_parameter('serial_device', '/dev/waveshare_audio')
+        self.declare_parameter('baudrate', 2_000_000)
+        self.declare_parameter('read_timeout_sec', 1.0)
+        self.declare_parameter('reconnect_interval_sec', 2.0)
+        self.declare_parameter('expected_sample_rate', 16000)
+        self.declare_parameter('expected_frame_samples', 320)
+        self.declare_parameter('output_topic', '/voice/text')
+        self.declare_parameter('status_topic', '/waveshare_audio/status')
+        self.declare_parameter('transcript_json_topic', '/voice/transcript')
+        self.declare_parameter('publish_transcript_json', True)
+        self.declare_parameter('whisper_model', 'base')
+        self.declare_parameter('language', 'ru')
+        self.declare_parameter('device', 'auto')
+        self.declare_parameter('min_rms', 350.0)
+        self.declare_parameter('start_frames', 3)
+        self.declare_parameter('stop_frames', 35)
+        self.declare_parameter('pre_roll_frames', 8)
+        self.declare_parameter('max_utterance_seconds', 12.0)
+        self.declare_parameter('utterance_queue_size', 4)
+        self.declare_parameter('condition_on_previous_text', False)
+        self.declare_parameter('temperature', 0.0)
+        self.declare_parameter('save_wavs_dir', '')
+        self.declare_parameter('append_file', '')
+        self.declare_parameter('jsonl_file', '')
+        self.declare_parameter('tcp_sink', '')
+        self.declare_parameter('serial_sink_device', '')
+        self.declare_parameter('serial_sink_baudrate', 115200)
+
+        self.serial_device = str(self.get_parameter('serial_device').value).strip()
+        self.baudrate = int(self.get_parameter('baudrate').value)
+        self.read_timeout = max(0.05, float(self.get_parameter('read_timeout_sec').value))
+        self.reconnect_interval = max(
+            0.2,
+            float(self.get_parameter('reconnect_interval_sec').value),
+        )
+        self.expected_sample_rate = int(self.get_parameter('expected_sample_rate').value)
+        self.expected_frame_samples = int(
+            self.get_parameter('expected_frame_samples').value
+        )
+        self.output_topic = str(self.get_parameter('output_topic').value)
+        self.status_topic = str(self.get_parameter('status_topic').value)
+        self.transcript_json_topic = str(
+            self.get_parameter('transcript_json_topic').value
+        )
+        self.publish_transcript_json = bool(
+            self.get_parameter('publish_transcript_json').value
+        )
+        self.whisper_model_name = normalize_model_name(
+            str(self.get_parameter('whisper_model').value)
+        )
+        language = str(self.get_parameter('language').value).strip()
+        self.language = language if language else None
+        self.whisper_device = choose_device(str(self.get_parameter('device').value))
+        self.condition_on_previous_text = bool(
+            self.get_parameter('condition_on_previous_text').value
+        )
+        self.temperature = float(self.get_parameter('temperature').value)
+        self.save_wavs_dir = Path(str(self.get_parameter('save_wavs_dir').value)).expanduser()
+        self.save_wavs_enabled = bool(str(self.get_parameter('save_wavs_dir').value).strip())
+        self.append_file = Path(str(self.get_parameter('append_file').value)).expanduser()
+        self.append_file_enabled = bool(str(self.get_parameter('append_file').value).strip())
+        self.jsonl_file = Path(str(self.get_parameter('jsonl_file').value)).expanduser()
+        self.jsonl_file_enabled = bool(str(self.get_parameter('jsonl_file').value).strip())
+        self.tcp_sink = TcpSink(str(self.get_parameter('tcp_sink').value))
+        self.serial_sink = SerialSink(
+            str(self.get_parameter('serial_sink_device').value),
+            int(self.get_parameter('serial_sink_baudrate').value),
+        )
+
+        if not self.serial_device:
+            raise ValueError('serial_device must not be empty')
+        if self.baudrate <= 0:
+            raise ValueError('baudrate must be positive')
+
+        self.text_pub = self.create_publisher(String, self.output_topic, 10)
+        self.status_pub = self.create_publisher(String, self.status_topic, 10)
+        self.transcript_json_pub = self.create_publisher(
+            String,
+            self.transcript_json_topic,
+            10,
+        )
+
+        self.segmenter = Segmenter(
+            frame_samples=self.expected_frame_samples,
+            sample_rate=self.expected_sample_rate,
+            min_rms=float(self.get_parameter('min_rms').value),
+            start_frames=int(self.get_parameter('start_frames').value),
+            stop_frames=int(self.get_parameter('stop_frames').value),
+            pre_roll_frames=int(self.get_parameter('pre_roll_frames').value),
+            max_utterance_seconds=float(
+                self.get_parameter('max_utterance_seconds').value
+            ),
+        )
+        self.utterance_queue: queue.Queue[Utterance] = queue.Queue(
+            maxsize=max(1, int(self.get_parameter('utterance_queue_size').value)),
+        )
+
+        self._serial: serial.Serial | None = None
+        self._serial_lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._connected = False
+        self._last_status = ''
+        self._last_connect_warning = 0.0
+        self._utterance_index = 0
+
+        self._reader_thread = threading.Thread(
+            target=self._read_loop,
+            name='waveshare-audio-pcm-reader',
+            daemon=True,
+        )
+        self._transcriber_thread = threading.Thread(
+            target=self._transcribe_loop,
+            name='waveshare-audio-whisper',
+            daemon=True,
+        )
+        self._reader_thread.start()
+        self._transcriber_thread.start()
+        self.create_timer(1.0, self._publish_periodic_status)
+
+        self.get_logger().info(
+            'Waveshare Whisper STT node started: '
+            f'{self.serial_device} @ {self.baudrate}, '
+            f'model={self.whisper_model_name}, device={self.whisper_device}, '
+            f'output_topic={self.output_topic}'
+        )
+
+    def destroy_node(self) -> bool:
+        self._stop_event.set()
+        self._close_serial()
+        self.tcp_sink.close()
+        self.serial_sink.close()
+        for thread in (self._reader_thread, self._transcriber_thread):
+            if thread.is_alive():
+                thread.join(timeout=1.0)
+        return super().destroy_node()
+
+    def _open_serial(self) -> serial.Serial | None:
+        try:
+            serial_port = serial.Serial(
+                self.serial_device,
+                self.baudrate,
+                timeout=self.read_timeout,
+                write_timeout=1.0,
+            )
+            serial_port.reset_input_buffer()
+            self._set_connected(True, f'connected {self.serial_device}')
+            return serial_port
+        except (OSError, SerialException) as exc:
+            now = time.monotonic()
+            if now - self._last_connect_warning > 5.0:
+                self.get_logger().warn(
+                    f'Unable to open Waveshare audio serial device '
+                    f'{self.serial_device}: {exc}'
+                )
+                self._last_connect_warning = now
+            self._set_connected(False, f'disconnected {self.serial_device}: {exc}')
+            return None
+
+    def _close_serial(self) -> None:
+        with self._serial_lock:
+            serial_port = self._serial
+            self._serial = None
+
+        if serial_port is not None:
+            try:
+                serial_port.close()
+            except (OSError, SerialException):
+                pass
+        self._set_connected(False, f'disconnected {self.serial_device}')
+
+    def _read_loop(self) -> None:
+        buffer = bytearray()
+        while not self._stop_event.is_set():
+            if self._serial is None:
+                with self._serial_lock:
+                    if self._serial is None:
+                        self._serial = self._open_serial()
+                if self._serial is None:
+                    self._stop_event.wait(self.reconnect_interval)
+                    continue
+                buffer.clear()
+
+            try:
+                with self._serial_lock:
+                    serial_port = self._serial
+                if serial_port is None:
+                    continue
+
+                chunk = serial_port.read(4096)
+                if not chunk:
+                    continue
+                buffer.extend(chunk)
+                self._consume_buffer(buffer)
+            except (OSError, SerialException) as exc:
+                self.get_logger().warn(f'Waveshare audio serial read failed: {exc}')
+                self._close_serial()
+                self._stop_event.wait(self.reconnect_interval)
+
+    def _consume_buffer(self, buffer: bytearray) -> None:
+        while not self._stop_event.is_set():
+            start = buffer.find(MAGIC)
+            if start < 0:
+                if len(buffer) > len(MAGIC):
+                    del buffer[:-len(MAGIC)]
+                return
+            if start > 0:
+                del buffer[:start]
+            if len(buffer) < HEADER.size:
+                return
+
+            magic, sample_rate, sample_count, sequence = HEADER.unpack_from(buffer)
+            if (
+                magic != MAGIC
+                or sample_rate != self.expected_sample_rate
+                or sample_count <= 0
+                or sample_count != self.expected_frame_samples
+                or sample_count > 4096
+            ):
+                del buffer[0]
+                continue
+
+            packet_size = HEADER.size + sample_count * 2
+            if len(buffer) < packet_size:
+                return
+
+            payload = bytes(buffer[HEADER.size:packet_size])
+            del buffer[:packet_size]
+
+            frame = np.frombuffer(payload, dtype='<i2').copy()
+            utterance = self.segmenter.push(frame, sequence)
+            if utterance is not None:
+                self._enqueue_utterance(utterance)
+
+    def _enqueue_utterance(self, utterance: Utterance) -> None:
+        try:
+            self.utterance_queue.put_nowait(utterance)
+            self._publish_status(
+                f'queued utterance seq={utterance.sequence} '
+                f'duration={len(utterance.samples) / utterance.sample_rate:.2f}s'
+            )
+        except queue.Full:
+            self.get_logger().warn('Dropping utterance: Whisper queue is full')
+            self._publish_status('dropping utterance: whisper queue full')
+
+    def _transcribe_loop(self) -> None:
+        model = None
+        while not self._stop_event.is_set() and model is None:
+            try:
+                import whisper
+
+                self._publish_status(
+                    f'loading whisper model {self.whisper_model_name} '
+                    f'on {self.whisper_device}'
+                )
+                model = whisper.load_model(
+                    self.whisper_model_name,
+                    device=self.whisper_device,
+                )
+                self._publish_status(
+                    f'whisper ready model={self.whisper_model_name} '
+                    f'device={self.whisper_device}'
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().error(
+                    'Unable to load Whisper. Install dependencies with '
+                    '`python3 -m pip install -U openai-whisper torch`: '
+                    f'{exc}'
+                )
+                self._publish_status(f'whisper load failed: {exc}')
+                self._stop_event.wait(5.0)
+
+        while not self._stop_event.is_set():
+            try:
+                utterance = self.utterance_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            if model is None:
+                continue
+
+            try:
+                self._transcribe_utterance(model, utterance)
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn(f'Whisper transcription failed: {exc}')
+                self._publish_status(f'transcription failed: {exc}')
+
+    def _transcribe_utterance(self, model: Any, utterance: Utterance) -> None:
+        samples_f32 = utterance.samples.astype(np.float32) / 32768.0
+        result = model.transcribe(
+            samples_f32,
+            language=self.language,
+            task='transcribe',
+            fp16=(self.whisper_device == 'cuda'),
+            temperature=self.temperature,
+            condition_on_previous_text=self.condition_on_previous_text,
+        )
+        text = str(result.get('text', '')).strip()
+        if not text:
+            self._publish_status('empty transcript')
+            return
+
+        duration = len(utterance.samples) / utterance.sample_rate
+        self._publish_text(text)
+        self._publish_transcript_json(text, utterance, duration, result)
+        self._write_optional_outputs(text, utterance, duration)
+        self.tcp_sink.send(text)
+        self.serial_sink.send(text)
+        self._publish_status(f'transcribed: {text}')
+
+    def _write_optional_outputs(
+        self,
+        text: str,
+        utterance: Utterance,
+        duration: float,
+    ) -> None:
+        payload = {
+            'text': text,
+            'sequence': utterance.sequence,
+            'sample_rate': utterance.sample_rate,
+            'duration_sec': duration,
+            'model': self.whisper_model_name,
+            'language': self.language,
+        }
+
+        if self.save_wavs_enabled:
+            wav_path = (
+                self.save_wavs_dir
+                / f'{self._utterance_index:05d}_{utterance.sequence}.wav'
+            )
+            save_wav(wav_path, utterance.sample_rate, utterance.samples)
+
+        if self.append_file_enabled:
+            self.append_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.append_file.open('a', encoding='utf-8') as stream:
+                stream.write(text + '\n')
+
+        if self.jsonl_file_enabled:
+            self.jsonl_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.jsonl_file.open('a', encoding='utf-8') as stream:
+                stream.write(json.dumps(payload, ensure_ascii=False) + '\n')
+
+        self._utterance_index += 1
+
+    def _publish_transcript_json(
+        self,
+        text: str,
+        utterance: Utterance,
+        duration: float,
+        result: dict[str, Any],
+    ) -> None:
+        if not self.publish_transcript_json:
+            return
+
+        payload = {
+            'text': text,
+            'sequence': utterance.sequence,
+            'sample_rate': utterance.sample_rate,
+            'duration_sec': duration,
+            'model': self.whisper_model_name,
+            'language': self.language,
+            'segments': result.get('segments', []),
+        }
+        self._publish_string(self.transcript_json_pub, json.dumps(payload, ensure_ascii=False))
+
+    def _set_connected(self, connected: bool, status: str) -> None:
+        if connected != self._connected:
+            self._connected = connected
+            if connected:
+                self.get_logger().info(status)
+            else:
+                self.get_logger().warn(status)
+        self._last_status = status
+
+    def _publish_periodic_status(self) -> None:
+        if self._last_status:
+            self._publish_status(self._last_status)
+
+    def _publish_status(self, value: str) -> None:
+        self._last_status = value
+        self._publish_string(self.status_pub, value)
+
+    def _publish_text(self, value: str) -> None:
+        self._publish_string(self.text_pub, value)
+
+    @staticmethod
+    def _publish_string(publisher, value: str) -> None:
+        msg = String()
+        msg.data = value
+        publisher.publish(msg)
+
+
+def main(args: list[str] | None = None) -> None:
+    rclpy.init(args=args)
+    node = WaveshareAudioNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

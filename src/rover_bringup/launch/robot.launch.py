@@ -72,6 +72,9 @@ def launch_setup(context):
     use_led_strip = as_bool(LaunchConfiguration('use_led_strip').perform(context))
     use_octoliner = as_bool(LaunchConfiguration('use_octoliner').perform(context))
     use_voice = as_bool(LaunchConfiguration('use_voice').perform(context))
+    use_waveshare_audio = as_bool(
+        LaunchConfiguration('use_waveshare_audio').perform(context)
+    )
     use_web = as_bool(LaunchConfiguration('use_web').perform(context))
     use_rosboard = as_bool(LaunchConfiguration('use_rosboard').perform(context))
     use_mux = as_bool(LaunchConfiguration('use_twist_mux').perform(context))
@@ -213,7 +216,15 @@ def launch_setup(context):
             remappings=[('cmd_vel_out', '/cmd_vel')],
         ))
 
-    if use_lidar or use_camera or use_vision or use_led_strip or use_octoliner or use_voice:
+    if (
+        use_lidar
+        or use_camera
+        or use_vision
+        or use_led_strip
+        or use_octoliner
+        or use_voice
+        or use_waveshare_audio
+    ):
         peripheral_arguments = {
             'config_file': peripherals_config_file,
             'use_lidar': as_launch_bool(use_lidar),
@@ -222,6 +233,7 @@ def launch_setup(context):
             'use_led_strip': as_launch_bool(use_led_strip),
             'use_octoliner': as_launch_bool(use_octoliner),
             'use_voice': as_launch_bool(use_voice),
+            'use_waveshare_audio': as_launch_bool(use_waveshare_audio),
             'use_sim_time': as_launch_bool(use_sim_time),
         }
         if use_lidar:
@@ -352,6 +364,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_led_strip', default_value='true'),
         DeclareLaunchArgument('use_octoliner', default_value='true'),
         DeclareLaunchArgument('use_voice', default_value='false'),
+        DeclareLaunchArgument('use_waveshare_audio', default_value='false'),
         DeclareLaunchArgument('use_web', default_value='true'),
         DeclareLaunchArgument('use_rosboard', default_value='true'),
         DeclareLaunchArgument('rosboard_port', default_value='8888'),

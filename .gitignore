@@ -2,6 +2,9 @@
 /**/install
 /**/log
 
+# macOS filesystem metadata.
+.DS_Store
+
 # Local user/runtime files that should not live in the repo.
 /.bash_history
 /.bashrc

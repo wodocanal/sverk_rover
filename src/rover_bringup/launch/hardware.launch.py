@@ -12,6 +12,7 @@ def generate_launch_description():
     use_led_strip = LaunchConfiguration('use_led_strip')
     use_octoliner = LaunchConfiguration('use_octoliner')
     use_voice = LaunchConfiguration('use_voice')
+    use_waveshare_audio = LaunchConfiguration('use_waveshare_audio')
     use_web = LaunchConfiguration('use_web')
     # robot.launch.py loads the persistent device setup and starts all hardware.
     return LaunchDescription([
@@ -21,6 +22,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_led_strip', default_value='false'),
         DeclareLaunchArgument('use_octoliner', default_value='false'),
         DeclareLaunchArgument('use_voice', default_value='false'),
+        DeclareLaunchArgument('use_waveshare_audio', default_value='false'),
         DeclareLaunchArgument('use_web', default_value='false'),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare('rover_bringup'), 'launch', 'robot.launch.py'])
@@ -31,6 +33,7 @@ def generate_launch_description():
             'use_led_strip': use_led_strip,
             'use_octoliner': use_octoliner,
             'use_voice': use_voice,
+            'use_waveshare_audio': use_waveshare_audio,
             'use_web': use_web,
         }.items())
     ])

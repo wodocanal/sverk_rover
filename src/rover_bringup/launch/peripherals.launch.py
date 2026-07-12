@@ -75,6 +75,15 @@ def launch_setup(context):
     use_voice = as_bool(
         launch_value(context, 'use_voice', config, ('peripherals', 'use_voice'), False)
     )
+    use_waveshare_audio = as_bool(
+        launch_value(
+            context,
+            'use_waveshare_audio',
+            config,
+            ('peripherals', 'use_waveshare_audio'),
+            False,
+        )
+    )
 
     actions = []
     lidar_config = dict(config.get('lidar', {}))
@@ -83,6 +92,7 @@ def launch_setup(context):
     led_strip_params = dict(config.get('led_strip', {}))
     octoliner_params = dict(config.get('octoliner', {}))
     voice_params = dict(config.get('voice', {}))
+    waveshare_audio_params = dict(config.get('waveshare_audio', {}))
 
     if (
         use_led_strip
@@ -223,6 +233,15 @@ def launch_setup(context):
             parameters=[voice_params],
         ))
 
+    if use_waveshare_audio:
+        actions.append(Node(
+            package='rover_waveshare_audio',
+            executable='waveshare_audio_node',
+            name='waveshare_audio_node',
+            output='screen',
+            parameters=[waveshare_audio_params],
+        ))
+
     return actions
 
 
@@ -236,6 +255,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_led_strip', default_value=empty_default),
         DeclareLaunchArgument('use_octoliner', default_value=empty_default),
         DeclareLaunchArgument('use_voice', default_value=empty_default),
+        DeclareLaunchArgument('use_waveshare_audio', default_value=empty_default),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('lidar_device', default_value=empty_default),
         DeclareLaunchArgument('lidar_baudrate', default_value=empty_default),
