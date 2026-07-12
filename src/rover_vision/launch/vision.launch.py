@@ -18,6 +18,11 @@ def generate_launch_description():
             executable='camera_detector_node',
             name='camera_detector_node',
             output='screen',
+            additional_env={
+                # Avoid user-site NumPy 2.x shadowing the distro NumPy used by
+                # OpenCV on Raspberry Pi.
+                'PYTHONNOUSERSITE': '1',
+            },
             parameters=[LaunchConfiguration('config_file')],
         ),
     ])

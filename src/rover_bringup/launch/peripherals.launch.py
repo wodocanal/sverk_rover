@@ -179,6 +179,12 @@ def launch_setup(context):
             executable='usb_camera_node',
             name='usb_camera_node',
             output='screen',
+            additional_env={
+                # OpenCV on Raspberry Pi is installed from apt and is built
+                # against the distro NumPy ABI. Whisper dependencies in
+                # ~/.local can install NumPy 2.x and break cv2 imports.
+                'PYTHONNOUSERSITE': '1',
+            },
             parameters=[camera_params],
         ))
 
@@ -197,6 +203,10 @@ def launch_setup(context):
             executable='camera_detector_node',
             name='camera_detector_node',
             output='screen',
+            additional_env={
+                # Keep cv2 on the same NumPy ABI as the system package.
+                'PYTHONNOUSERSITE': '1',
+            },
             parameters=[vision_params],
         ))
 
