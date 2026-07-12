@@ -932,6 +932,39 @@ textarea {
   color: #805000;
 }
 
+.voice-body {
+  display: grid;
+  gap: 12px;
+}
+
+.voice-current span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.voice-history {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.voice-history-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.voice-history-item strong {
+  color: var(--accent-deep);
+  font-size: 0.82rem;
+}
+
 .route-layout {
   display: grid;
   grid-template-columns: minmax(290px, 0.75fr) minmax(0, 1.7fr);

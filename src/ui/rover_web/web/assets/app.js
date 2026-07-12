@@ -124,6 +124,7 @@ const state = {
   cameraSettings: null,
   cameraVisionSettings: null,
   cameraSettingsLastRefresh: 0,
+  voiceStatus: null,
   selectedLidarTopic: null,
   selectedLidarType: null,
   lidarTimer: null,
@@ -488,7 +489,7 @@ function currentPageTitle(page) {
     visualization: 'Визуализация',
     lidar: 'Лидар',
     lights: 'Свет',
-    audio: 'Динамик и микрофон',
+    audio: 'Распознавание голоса',
     octoliner: 'Octoliner',
     actuators: 'Приводы',
     hackathon: 'Хакатон',
@@ -1637,6 +1638,110 @@ async function openProcessedCameraStream() {
   $('#camera-topic-select').value = topic.name;
   $('#camera-vision-status').textContent = `Открыт обработанный поток: ${topic.name}`;
   await connectCamera();
+}
+
+function voiceStatusText(payload = {}) {
+  if (!payload.enabled) {
+    return 'Обработка голоса выключена.';
+  }
+  const parts = [];
+  if (payload.managed_running) {
+    parts.push(`Обработка включена${payload.pid ? `, PID ${payload.pid}` : ''}.`);
+  } else if (payload.external_running) {
+    parts.push('Нода распознавания запущена вне веб-интерфейса.');
+  } else if (payload.node_visible) {
+    parts.push('Нода распознавания видна в ROS graph.');
+  } else {
+    parts.push('Запуск обработки голоса...');
+  }
+  if (payload.latest_status) {
+    parts.push(payload.latest_status);
+  }
+  return parts.join(' ');
+}
+
+function renderVoiceHistory(history = [], enabled = false) {
+  const container = $('#voice-history');
+  container.innerHTML = '';
+  const items = safeArray(history).slice().reverse();
+  if (!enabled) {
+    const empty = document.createElement('div');
+    empty.className = 'notice';
+    empty.textContent = 'Распознавание выключено.';
+    container.append(empty);
+    return;
+  }
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'status-note';
+    empty.textContent = 'Текст пока не распознан.';
+    container.append(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const row = document.createElement('article');
+    row.className = 'voice-history-item';
+    const timeText = item.timestamp
+      ? new Date(item.timestamp * 1000).toLocaleTimeString()
+      : '—';
+    row.innerHTML = `<strong>${escapeHtml(timeText)}</strong><span>${escapeHtml(item.text || '—')}</span>`;
+    container.append(row);
+  });
+}
+
+function renderVoiceStatus(payload = {}) {
+  const enabled = Boolean(payload.enabled);
+  $('#voice-enabled').checked = enabled;
+  $('#voice-body').classList.toggle('hidden', !enabled);
+  $('#voice-status').textContent = voiceStatusText(payload);
+  renderDetailList($('#voice-meta'), [
+    { label: 'Нода', value: payload.node_name || '/waveshare_audio_node' },
+    { label: 'Текстовый топик', value: payload.text_topic || '/voice/text' },
+    { label: 'Статус топик', value: payload.status_topic || '/waveshare_audio/status' },
+    { label: 'Конфиг', value: payload.config_file || 'по умолчанию' },
+    { label: 'Режим', value: payload.external_running ? 'external' : (payload.managed_running ? 'web-managed' : 'off') },
+  ]);
+  $('#voice-latest-text').textContent = payload.latest_text || 'Текст пока не получен.';
+  renderVoiceHistory(payload.history, enabled);
+  const logLines = safeArray(payload.log);
+  $('#voice-log').textContent = logLines.length
+    ? logLines.slice(-40).join('\n')
+    : 'Лог распознавания пуст.';
+}
+
+async function refreshVoiceStatus() {
+  try {
+    const payload = await api('/api/voice/status');
+    state.voiceStatus = payload;
+    renderVoiceStatus(payload);
+    return payload;
+  } catch (error) {
+    $('#voice-status').textContent = String(error.message || error);
+    $('#voice-log').textContent = 'Не удалось получить статус распознавания.';
+    return null;
+  }
+}
+
+async function toggleVoiceEnabled() {
+  const enabled = $('#voice-enabled').checked;
+  $('#voice-body').classList.toggle('hidden', !enabled);
+  $('#voice-status').textContent = enabled
+    ? 'Запуск обработки голоса...'
+    : 'Остановка обработки голоса...';
+  try {
+    const payload = await api('/api/voice/control', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+    state.voiceStatus = payload;
+    renderVoiceStatus(payload);
+    showToast(enabled ? 'Распознавание голоса включено' : 'Распознавание голоса выключено');
+    await refreshRosGraph();
+  } catch (error) {
+    $('#voice-status').textContent = String(error.message || error);
+    showToast(String(error.message || error), 'error');
+    await refreshVoiceStatus();
+  }
 }
 
 async function refreshCameraSettings() {
@@ -3482,6 +3587,11 @@ function bindCameraPage() {
   });
 }
 
+function bindAudioPage() {
+  $('#voice-enabled').addEventListener('change', toggleVoiceEnabled);
+  $('#voice-refresh').addEventListener('click', refreshVoiceStatus);
+}
+
 function shouldIgnoreDriveKeyEvent(target) {
   if (state.page !== 'drive') return true;
   const tag = target?.tagName;
@@ -3925,6 +4035,9 @@ function refreshPeriodicData() {
   if (state.page === 'lidar' && state.selectedLidarTopic && state.selectedLidarType && !state.lidarTimer) {
     connectLidar();
   }
+  if (state.page === 'audio') {
+    refreshVoiceStatus();
+  }
 }
 
 async function initialize() {
@@ -3933,6 +4046,7 @@ async function initialize() {
   bindOverviewPage();
   bindRosPage();
   bindCameraPage();
+  bindAudioPage();
   bindDrivePage();
   bindRoutesPage();
   bindVisualizationPage();
@@ -3955,6 +4069,7 @@ async function initialize() {
     refreshRosGraph(),
     refreshCameraSettings(),
     refreshCameraVisionSettings(),
+    refreshVoiceStatus(),
     refreshLidarSettings(),
     refreshLedStripSettings(),
     refreshOctolinerSettings(),

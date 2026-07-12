@@ -44,6 +44,7 @@ from rover_vision.model_registry import (
     resolve_models_directory,
 )
 from sensor_msgs.msg import CompressedImage, Image, Imu, LaserScan
+from std_msgs.msg import String
 import yaml
 
 
@@ -457,6 +458,13 @@ class RoverWebGateway(Node):
         self.declare_parameter('lidar_node_name', '/sllidar_node')
         self.declare_parameter('led_strip_node_name', '/led_strip_node')
         self.declare_parameter('octoliner_node_name', '/octoliner_node')
+        self.declare_parameter('voice_node_name', '/waveshare_audio_node')
+        self.declare_parameter('voice_text_topic', '/voice/text')
+        self.declare_parameter('voice_status_topic', '/waveshare_audio/status')
+        self.declare_parameter('voice_package', 'rover_waveshare_audio')
+        self.declare_parameter('voice_executable', 'waveshare_audio_node')
+        self.declare_parameter('voice_config_file', '')
+        self.declare_parameter('voice_enabled_on_start', False)
         self.declare_parameter('terminal_enabled', False)
         self.declare_parameter('terminal_url', '')
         self.declare_parameter('terminal_port', 7681)
@@ -517,6 +525,35 @@ class RoverWebGateway(Node):
         self.octoliner_node_name = str(
             self.get_parameter('octoliner_node_name').value
         ).strip() or '/octoliner_node'
+        self.voice_node_name = str(
+            self.get_parameter('voice_node_name').value
+        ).strip() or '/waveshare_audio_node'
+        self.voice_text_topic = str(
+            self.get_parameter('voice_text_topic').value
+        ).strip() or '/voice/text'
+        self.voice_status_topic = str(
+            self.get_parameter('voice_status_topic').value
+        ).strip() or '/waveshare_audio/status'
+        self.voice_package = str(
+            self.get_parameter('voice_package').value
+        ).strip() or 'rover_waveshare_audio'
+        self.voice_executable = str(
+            self.get_parameter('voice_executable').value
+        ).strip() or 'waveshare_audio_node'
+        voice_config_file = str(self.get_parameter('voice_config_file').value).strip()
+        if not voice_config_file:
+            try:
+                voice_config_file = str(
+                    Path(get_package_share_directory(self.voice_package))
+                    / 'config'
+                    / 'waveshare_audio.yaml'
+                )
+            except Exception:
+                voice_config_file = ''
+        self.voice_config_file = Path(voice_config_file).expanduser() if voice_config_file else None
+        self.voice_enabled_on_start = bool(
+            self.get_parameter('voice_enabled_on_start').value
+        )
         self.terminal_enabled = bool(self.get_parameter('terminal_enabled').value)
         self.terminal_url = str(self.get_parameter('terminal_url').value).strip()
         self.terminal_port = int(self.get_parameter('terminal_port').value)
@@ -604,6 +641,16 @@ class RoverWebGateway(Node):
         self._motion_command: list[str] = []
         self._motion_log: deque[str] = deque(maxlen=500)
         self._motion_return_code: int | None = None
+        self._voice_process: subprocess.Popen[str] | None = None
+        self._voice_started_at: float | None = None
+        self._voice_return_code: int | None = None
+        self._voice_command: list[str] = []
+        self._voice_log: deque[str] = deque(maxlen=300)
+        self._voice_latest_text = ''
+        self._voice_latest_status = ''
+        self._voice_latest_text_at: float | None = None
+        self._voice_latest_status_at: float | None = None
+        self._voice_text_history: deque[dict[str, Any]] = deque(maxlen=60)
 
         self._cpu_last_total = 0
         self._cpu_last_idle = 0
@@ -634,6 +681,13 @@ class RoverWebGateway(Node):
             self._diagnostics_callback,
             10,
         )
+        self.create_subscription(String, self.voice_text_topic, self._voice_text_callback, 10)
+        self.create_subscription(
+            String,
+            self.voice_status_topic,
+            self._voice_status_callback,
+            10,
+        )
         self.create_timer(0.05, self._drive_output_timer)
         self.create_timer(1.0, self._maintenance_timer)
 
@@ -641,6 +695,11 @@ class RoverWebGateway(Node):
         self.hackathon_files_root.mkdir(parents=True, exist_ok=True)
         self._seed_default_plans()
         self.record_activity('system', 'Web gateway started', {'port': self.port})
+        if self.voice_enabled_on_start:
+            try:
+                self.start_voice_processing()
+            except Exception as exc:
+                self.get_logger().warn(f'Voice processing autostart failed: {exc}')
 
         handler = self._build_handler()
         self._http_server = ThreadingHTTPServer((self.bind_address, self.port), handler)
@@ -701,6 +760,23 @@ class RoverWebGateway(Node):
         with self._lock:
             self._diagnostics = converted
             self._touch_snapshot('diagnostics')
+
+    def _voice_text_callback(self, message: String) -> None:
+        text = str(message.data or '').strip()
+        now = time.time()
+        with self._lock:
+            self._voice_latest_text = text
+            self._voice_latest_text_at = now
+            if text:
+                self._voice_text_history.append({
+                    'timestamp': now,
+                    'text': text,
+                })
+
+    def _voice_status_callback(self, message: String) -> None:
+        with self._lock:
+            self._voice_latest_status = str(message.data or '').strip()
+            self._voice_latest_status_at = time.time()
 
     def _topic_graph(self) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
         topic_types = {
@@ -985,12 +1061,26 @@ class RoverWebGateway(Node):
             process = self._motion_process
             if process is not None:
                 return_code = process.poll()
-                if return_code is not None:
+                if return_code is None:
+                    pass
+                else:
                     self._motion_return_code = return_code
                     self._motion_process = None
                     self.record_activity(
                         'routes',
                         'Motion process finished',
+                        {'return_code': return_code},
+                    )
+
+            voice_process = self._voice_process
+            if voice_process is not None:
+                return_code = voice_process.poll()
+                if return_code is not None:
+                    self._voice_return_code = return_code
+                    self._voice_process = None
+                    self.record_activity(
+                        'voice',
+                        'Voice processing node finished',
                         {'return_code': return_code},
                     )
 
@@ -1124,6 +1214,9 @@ class RoverWebGateway(Node):
             'lidar_node_name': self.lidar_node_name,
             'led_strip_node_name': self.led_strip_node_name,
             'octoliner_node_name': self.octoliner_node_name,
+            'voice_node_name': self.voice_node_name,
+            'voice_text_topic': self.voice_text_topic,
+            'voice_status_topic': self.voice_status_topic,
             'plans_directory': str(self.plans_directory),
             'hackathon_files_root': str(self.hackathon_files_root),
             'web': {
@@ -1147,6 +1240,173 @@ class RoverWebGateway(Node):
                 'manual_angular_speed_radps': min(self.max_angular_speed, 0.70),
             },
         }
+
+    def _node_is_visible(self, full_name: str) -> bool:
+        target = full_name if full_name.startswith('/') else f'/{full_name}'
+        try:
+            for name, namespace in self.get_node_names_and_namespaces():
+                namespace = namespace.strip()
+                if namespace in {'', '/'}:
+                    candidate = f'/{name}'
+                else:
+                    candidate = f'{namespace.rstrip("/")}/{name}'
+                if candidate == target:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _voice_command_line(self) -> list[str]:
+        command = [
+            shutil.which('ros2') or 'ros2',
+            'run',
+            self.voice_package,
+            self.voice_executable,
+        ]
+        if self.voice_config_file is not None and self.voice_config_file.is_file():
+            command += [
+                '--ros-args',
+                '--params-file',
+                str(self.voice_config_file),
+            ]
+        return command
+
+    def start_voice_processing(self) -> dict[str, Any]:
+        with self._lock:
+            process = self._voice_process
+            if process is not None and process.poll() is None:
+                return self.voice_status_payload_locked()
+
+        if self._node_is_visible(self.voice_node_name):
+            self.record_activity(
+                'voice',
+                'Voice processing node is already running externally',
+                {'node': self.voice_node_name},
+            )
+            return self.voice_status_payload()
+
+        environment = os.environ.copy()
+        environment.pop('PYTHONNOUSERSITE', None)
+        environment.setdefault('PYTHONUNBUFFERED', '1')
+        command = self._voice_command_line()
+        try:
+            process = subprocess.Popen(
+                command,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise RuntimeError(f'Unable to start voice processing: {exc}') from exc
+
+        with self._lock:
+            self._voice_process = process
+            self._voice_started_at = time.time()
+            self._voice_return_code = None
+            self._voice_command = command
+            self._voice_log.clear()
+
+        threading.Thread(
+            target=self._read_voice_output,
+            args=(process,),
+            name='rover-voice-output',
+            daemon=True,
+        ).start()
+        self.record_activity(
+            'voice',
+            'Voice processing node started',
+            {'command': command},
+        )
+        return self.voice_status_payload()
+
+    def _read_voice_output(self, process: subprocess.Popen[str]) -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            cleaned = line.rstrip('\r\n')
+            with self._lock:
+                self._voice_log.append(cleaned)
+
+    def stop_voice_processing(self) -> dict[str, Any]:
+        with self._lock:
+            process = self._voice_process
+        if process is None:
+            if self._node_is_visible(self.voice_node_name):
+                raise RuntimeError(
+                    f'{self.voice_node_name} is running, but it was not started '
+                    'by web gateway'
+                )
+            return self.voice_status_payload()
+
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            threading.Thread(
+                target=self._ensure_voice_stopped,
+                args=(process,),
+                name='rover-voice-stop',
+                daemon=True,
+            ).start()
+        else:
+            with self._lock:
+                self._voice_return_code = process.returncode
+                self._voice_process = None
+
+        self.record_activity('voice', 'Voice processing node stop requested', {})
+        return self.voice_status_payload()
+
+    def _ensure_voice_stopped(self, process: subprocess.Popen[str]) -> None:
+        try:
+            process.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=2.0)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def voice_status_payload_locked(self) -> dict[str, Any]:
+        process = self._voice_process
+        managed_running = process is not None and process.poll() is None
+        node_visible = self._node_is_visible(self.voice_node_name)
+        return {
+            'ok': True,
+            'enabled': managed_running or node_visible,
+            'managed_running': managed_running,
+            'external_running': node_visible and not managed_running,
+            'node_visible': node_visible,
+            'pid': process.pid if managed_running and process is not None else None,
+            'started_at': self._voice_started_at,
+            'return_code': self._voice_return_code,
+            'command': list(self._voice_command),
+            'node_name': self.voice_node_name,
+            'text_topic': self.voice_text_topic,
+            'status_topic': self.voice_status_topic,
+            'config_file': str(self.voice_config_file or ''),
+            'latest_text': self._voice_latest_text,
+            'latest_text_at': self._voice_latest_text_at,
+            'latest_status': self._voice_latest_status,
+            'latest_status_at': self._voice_latest_status_at,
+            'history': list(self._voice_text_history)[-30:],
+            'log': list(self._voice_log)[-80:],
+        }
+
+    def voice_status_payload(self) -> dict[str, Any]:
+        with self._lock:
+            return self.voice_status_payload_locked()
+
+    def set_voice_enabled(self, enabled: bool) -> dict[str, Any]:
+        if enabled:
+            return self.start_voice_processing()
+        return self.stop_voice_processing()
 
     def _system_summary(self) -> dict[str, Any]:
         now = time.monotonic()
@@ -2805,6 +3065,9 @@ class RoverWebGateway(Node):
                     if path == '/api/motion/status':
                         self._send_json(gateway.motion_status_payload(), HTTPStatus.OK)
                         return
+                    if path == '/api/voice/status':
+                        self._send_json(gateway.voice_status_payload(), HTTPStatus.OK)
+                        return
                     if path == '/api/ros/graph':
                         self._send_json(gateway._graph_payload(), HTTPStatus.OK)
                         return
@@ -3049,6 +3312,14 @@ class RoverWebGateway(Node):
                             HTTPStatus.OK,
                         )
                         return
+                    if parsed.path == '/api/voice/control':
+                        self._send_json(
+                            gateway.set_voice_enabled(
+                                bool(payload.get('enabled', False))
+                            ),
+                            HTTPStatus.OK,
+                        )
+                        return
                     if parsed.path == '/api/plans/save':
                         name = str(payload.get('name', ''))
                         plan = payload.get('plan')
@@ -3186,6 +3457,10 @@ class RoverWebGateway(Node):
         self.request_stop('system', {'reason': 'gateway shutdown'})
         try:
             self.stop_motion()
+        except Exception:
+            pass
+        try:
+            self.stop_voice_processing()
         except Exception:
             pass
         try:

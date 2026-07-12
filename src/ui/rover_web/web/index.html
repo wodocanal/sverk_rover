@@ -157,7 +157,7 @@ ROS State — ноды, топики и сервисы
           <button class="section-tab active" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="lights">Свет</button>
-          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="audio">Распознавание голоса</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
           <div class="section-tabs-actions">
@@ -361,7 +361,7 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab active" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="lights">Свет</button>
-          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="audio">Распознавание голоса</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
           <div class="section-tabs-actions">
@@ -402,7 +402,7 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="lights">Свет</button>
-          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="audio">Распознавание голоса</button>
           <button class="section-tab active" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
           <div class="section-tabs-actions">
@@ -444,7 +444,7 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab active" data-page="lights">Свет</button>
-          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="audio">Распознавание голоса</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
           <div class="section-tabs-actions">
@@ -550,23 +550,34 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="lights">Свет</button>
-          <button class="section-tab active" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab active" data-page="audio">Распознавание голоса</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab" data-page="actuators">Приводы</button>
         </div>
         <div class="two-column">
           <article class="panel">
-            <h2>Страница в разработке</h2>
-            <p>Здесь появятся проверка динамика, запись с микрофона, выбор аудиоустройств и быстрые тесты.</p>
-            <div class="notice">Пока что раздел пустой.</div>
+            <div class="panel-heading-row">
+              <h2>Распознавание голоса</h2>
+              <label class="check-label"><input id="voice-enabled" type="checkbox"> Использовать обработку голоса</label>
+            </div>
+            <div class="status-note" id="voice-status">Ожидание статуса распознавания.</div>
+            <div id="voice-body" class="voice-body hidden">
+              <dl class="detail-list" id="voice-meta"></dl>
+              <div class="voice-current">
+                <span>Последний распознанный текст</span>
+                <pre class="message-box" id="voice-latest-text">—</pre>
+              </div>
+              <div class="button-row">
+                <button class="secondary" id="voice-refresh">Обновить</button>
+              </div>
+            </div>
           </article>
           <article class="panel">
-            <h2>План наполнения</h2>
-            <pre class="message-box">- список аудиоустройств
-- тест воспроизведения
-- тест записи
-- настройка уровней
-- интеграция с голосовыми сценариями</pre>
+            <h2>История распознавания</h2>
+            <div id="voice-history" class="voice-history">
+              <div class="notice">Распознавание выключено.</div>
+            </div>
+            <pre class="message-box" id="voice-log">—</pre>
           </article>
         </div>
       </section>
@@ -576,7 +587,7 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="camera">Камера</button>
           <button class="section-tab" data-page="lidar">Лидар</button>
           <button class="section-tab" data-page="lights">Свет</button>
-          <button class="section-tab" data-page="audio">Динамик и микрофон</button>
+          <button class="section-tab" data-page="audio">Распознавание голоса</button>
           <button class="section-tab" data-page="octoliner">Octoliner</button>
           <button class="section-tab active" data-page="actuators">Приводы</button>
         </div>
