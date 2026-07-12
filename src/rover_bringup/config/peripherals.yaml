@@ -48,6 +48,8 @@ vision:
   frame_id: camera_optical_frame
   publish_raw: true
   publish_compressed: true
+  publish_detections: true
+  detections_topic: /detections
   confidence_threshold: 0.30
   nms_threshold: 0.45
   max_processing_fps: 10.0

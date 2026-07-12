@@ -15,6 +15,7 @@ const STORAGE_KEYS = {
   servicePage: 'rover_web.service_page',
   hackathonFile: 'rover_web.hackathon_file',
   ledStaticPresets: 'rover_web.led_static_presets',
+  servoEnabled: 'rover_web.servo_enabled',
 };
 
 const PAGE_GROUPS = {
@@ -162,6 +163,7 @@ const state = {
   },
   apiHealthy: false,
   rosHealthy: false,
+  servoEnabled: localStorage.getItem(STORAGE_KEYS.servoEnabled) !== 'false',
 };
 
 function ensureSessionId() {
@@ -506,13 +508,15 @@ function groupForPage(page) {
 function resolveGroupPage(group, fallback = null) {
   const storageKey = GROUP_PAGE_STORAGE[group];
   const stored = storageKey ? localStorage.getItem(storageKey) : null;
-  if (stored && groupForPage(stored) === group) {
+  if (stored && groupForPage(stored) === group && isPageAvailable(stored)) {
     return stored;
   }
-  return fallback || GROUP_DEFAULT_PAGES[group] || 'overview';
+  const preferred = fallback || GROUP_DEFAULT_PAGES[group] || 'overview';
+  return isPageAvailable(preferred) ? preferred : 'overview';
 }
 
 function rememberGroupPage(page) {
+  if (!isPageAvailable(page)) return;
   const group = groupForPage(page);
   const storageKey = GROUP_PAGE_STORAGE[group];
   if (storageKey) {
@@ -567,11 +571,66 @@ function bindCompactMode() {
   });
 }
 
+function isPageAvailable(page) {
+  return page !== 'actuators' || state.servoEnabled;
+}
+
+function updateServoUsage(enabled, options = {}) {
+  const { persist = true, redirect = true } = options;
+  state.servoEnabled = Boolean(enabled);
+  if (persist) {
+    localStorage.setItem(STORAGE_KEYS.servoEnabled, state.servoEnabled ? 'true' : 'false');
+  }
+
+  const toggle = $('#servo-enabled');
+  if (toggle) {
+    toggle.checked = state.servoEnabled;
+  }
+
+  $$('.section-tab[data-page="actuators"]').forEach((button) => {
+    button.classList.toggle('hidden', !state.servoEnabled);
+    button.disabled = !state.servoEnabled;
+  });
+
+  if (!state.servoEnabled) {
+    if (localStorage.getItem(STORAGE_KEYS.peripheralsPage) === 'actuators') {
+      localStorage.setItem(STORAGE_KEYS.peripheralsPage, 'camera');
+    }
+    if (redirect && state.page === 'actuators') {
+      setPage('camera');
+    }
+  }
+}
+
+function applyFeatureDefaultsFromConfig(config) {
+  const webConfig = config?.web || {};
+  const hasStoredServoPreference = localStorage.getItem(STORAGE_KEYS.servoEnabled) !== null;
+  if (
+    !hasStoredServoPreference
+    && Object.prototype.hasOwnProperty.call(webConfig, 'servo_enabled')
+  ) {
+    updateServoUsage(webConfig.servo_enabled !== false, {
+      persist: false,
+      redirect: false,
+    });
+  }
+}
+
+function bindServoUsage() {
+  updateServoUsage(state.servoEnabled, { persist: false, redirect: false });
+  $('#servo-enabled').addEventListener('change', (event) => {
+    updateServoUsage(event.target.checked);
+  });
+}
+
 function closeSidebar() {
   $('#sidebar').classList.remove('open');
 }
 
 function setPage(page) {
+  if (!isPageAvailable(page)) {
+    page = resolveGroupPage(groupForPage(page), 'camera');
+  }
   state.page = page;
   rememberGroupPage(page);
   localStorage.setItem(STORAGE_KEYS.page, page);
@@ -1046,6 +1105,7 @@ async function refreshIdentityAndConfig() {
     ]);
     state.identity = identity;
     state.config = config;
+    applyFeatureDefaultsFromConfig(config);
     applyIdentity();
     renderSettings();
     updateOverviewRosboardLink();
@@ -1489,11 +1549,13 @@ function setCameraVisionSettingsForm(payload = {}) {
   $('#camera-vision-input-topic').value = parameters.input_topic || '/image_raw';
   $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/image_processed';
   $('#camera-vision-output-compressed-topic').value = parameters.processed_compressed_image_topic || '/image_processed/compressed';
+  $('#camera-vision-detections-topic').value = parameters.detections_topic || '/detections';
   $('#camera-vision-fps').value = String(parameters.max_processing_fps ?? 10.0);
   $('#camera-vision-confidence').value = String(parameters.confidence_threshold ?? 0.30);
   $('#camera-vision-nms').value = String(parameters.nms_threshold ?? 0.45);
   $('#camera-vision-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-vision-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
+  $('#camera-vision-publish-detections').checked = Boolean(parameters.publish_detections ?? true);
   $('#camera-vision-annotate-labels').checked = Boolean(parameters.annotate_labels ?? true);
   $('#camera-vision-annotate-confidence').checked = Boolean(parameters.annotate_confidence ?? true);
 }
@@ -1503,6 +1565,7 @@ function summarizeCameraVisionDetails(payload = {}) {
   return pretty({
     node_name: payload.node_name || '/camera_detector_node',
     models_directory: payload.models_directory || 'models',
+    detections_topic: payload.parameters?.detections_topic || '/detections',
     selected_model: selected ? {
       id: selected.id,
       name: selected.name,
@@ -1582,8 +1645,10 @@ function cameraVisionSettingsPayloadFromForm() {
     input_topic: $('#camera-vision-input-topic').value.trim(),
     processed_image_topic: $('#camera-vision-output-topic').value.trim(),
     processed_compressed_image_topic: $('#camera-vision-output-compressed-topic').value.trim(),
+    detections_topic: $('#camera-vision-detections-topic').value.trim(),
     publish_raw: $('#camera-vision-publish-raw').checked,
     publish_compressed: $('#camera-vision-publish-compressed').checked,
+    publish_detections: $('#camera-vision-publish-detections').checked,
     confidence_threshold: Number($('#camera-vision-confidence').value || '0.25'),
     nms_threshold: Number($('#camera-vision-nms').value || '0.45'),
     max_processing_fps: Number($('#camera-vision-fps').value || '8'),
@@ -4008,6 +4073,7 @@ function bindDiagnosticsPage() {
 
 function bindSettingsPage() {
   bindCompactMode();
+  bindServoUsage();
 }
 
 function refreshPeriodicData() {

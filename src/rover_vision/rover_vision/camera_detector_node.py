@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
 from pathlib import Path
 import threading
@@ -14,6 +15,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
+from std_msgs.msg import String
 
 from rover_vision.model_registry import resolve_models_directory
 
@@ -97,6 +99,8 @@ class CameraDetectorNode(Node):
         self.declare_parameter('frame_id', 'camera_optical_frame')
         self.declare_parameter('publish_raw', True)
         self.declare_parameter('publish_compressed', True)
+        self.declare_parameter('publish_detections', True)
+        self.declare_parameter('detections_topic', '/detections')
         self.declare_parameter('confidence_threshold', 0.30)
         self.declare_parameter('nms_threshold', 0.45)
         self.declare_parameter('max_processing_fps', 10.0)
@@ -110,6 +114,7 @@ class CameraDetectorNode(Node):
         self._subscription = None
         self._raw_publisher = None
         self._compressed_publisher = None
+        self._detections_publisher = None
         self._timer = None
 
         self._detector: cv2.dnn_DetectionModel | None = None
@@ -150,6 +155,12 @@ class CameraDetectorNode(Node):
         self.publish_compressed = bool(
             self.get_parameter('publish_compressed').value
         )
+        self.publish_detections = bool(
+            self.get_parameter('publish_detections').value
+        )
+        self.detections_topic = str(
+            self.get_parameter('detections_topic').value
+        ).strip()
         self.confidence_threshold = float(
             self.get_parameter('confidence_threshold').value
         )
@@ -175,11 +186,18 @@ class CameraDetectorNode(Node):
             raise ValueError('processed_image_topic must not be empty')
         if not self.processed_compressed_image_topic:
             raise ValueError('processed_compressed_image_topic must not be empty')
+        if not self.detections_topic:
+            raise ValueError('detections_topic must not be empty')
         if not self.frame_id:
             raise ValueError('frame_id must not be empty')
-        if not self.publish_raw and not self.publish_compressed:
+        if (
+            not self.publish_raw
+            and not self.publish_compressed
+            and not self.publish_detections
+        ):
             raise ValueError(
-                'At least one of publish_raw or publish_compressed must be true'
+                'At least one of publish_raw, publish_compressed or '
+                'publish_detections must be true'
             )
         if not math.isfinite(self.confidence_threshold):
             raise ValueError('confidence_threshold must be finite')
@@ -209,6 +227,8 @@ class CameraDetectorNode(Node):
             'frame_id': self.frame_id,
             'publish_raw': self.publish_raw,
             'publish_compressed': self.publish_compressed,
+            'publish_detections': self.publish_detections,
+            'detections_topic': self.detections_topic,
             'confidence_threshold': self.confidence_threshold,
             'nms_threshold': self.nms_threshold,
             'max_processing_fps': self.max_processing_fps,
@@ -237,6 +257,8 @@ class CameraDetectorNode(Node):
             self.frame_id = str(candidate['frame_id']).strip()
             self.publish_raw = bool(candidate['publish_raw'])
             self.publish_compressed = bool(candidate['publish_compressed'])
+            self.publish_detections = bool(candidate['publish_detections'])
+            self.detections_topic = str(candidate['detections_topic']).strip()
             self.confidence_threshold = float(candidate['confidence_threshold'])
             self.nms_threshold = float(candidate['nms_threshold'])
             self.max_processing_fps = float(candidate['max_processing_fps'])
@@ -271,6 +293,9 @@ class CameraDetectorNode(Node):
         if self._compressed_publisher is not None:
             self.destroy_publisher(self._compressed_publisher)
             self._compressed_publisher = None
+        if self._detections_publisher is not None:
+            self.destroy_publisher(self._detections_publisher)
+            self._detections_publisher = None
 
     def _resolve_model_paths(self) -> tuple[str, str, str]:
         weights_path = self._models_directory / FIXED_MODEL_ID / FIXED_MODEL_WEIGHTS
@@ -349,11 +374,18 @@ class CameraDetectorNode(Node):
                     self.processed_compressed_image_topic,
                     qos_profile_sensor_data,
                 )
+            if self.publish_detections:
+                self._detections_publisher = self.create_publisher(
+                    String,
+                    self.detections_topic,
+                    qos_profile_sensor_data,
+                )
             self._active = True
             self._log_status(
                 'info',
                 'Camera detector enabled: '
-                f'{FIXED_MODEL_DISPLAY_NAME} -> {self.processed_image_topic} via opencv_dnn',
+                f'{FIXED_MODEL_DISPLAY_NAME} -> {self.processed_image_topic}, '
+                f'{self.detections_topic} via opencv_dnn',
             )
 
     def _image_callback(self, message: Image) -> None:
@@ -383,6 +415,11 @@ class CameraDetectorNode(Node):
             and self._compressed_publisher.get_subscription_count() > 0
         ):
             return True
+        if (
+            self._detections_publisher is not None
+            and self._detections_publisher.get_subscription_count() > 0
+        ):
+            return True
         return False
 
     def _process_latest_frame(self) -> None:
@@ -401,19 +438,19 @@ class CameraDetectorNode(Node):
             sequence = self._latest_seq
 
         try:
-            annotated, detection_count = self._run_detection(frame)
+            annotated, detections = self._run_detection(frame)
         except Exception as exc:
             self._last_error = str(exc)
             self.get_logger().warning(f'Inference failed: {exc}')
             return
 
         self._publish_processed_frame(annotated, stamp)
+        self._publish_detections(detections, frame.shape, stamp)
         self._last_processed_seq = sequence
         self._frames_processed += 1
-        if detection_count >= 0:
-            self._last_error = ''
+        self._last_error = ''
 
-    def _run_detection(self, frame: np.ndarray) -> tuple[np.ndarray, int]:
+    def _run_detection(self, frame: np.ndarray) -> tuple[np.ndarray, list[Detection]]:
         assert self._detector is not None
 
         class_ids, confidences, boxes = self._detector.detect(
@@ -449,7 +486,7 @@ class CameraDetectorNode(Node):
                 ))
 
         annotated = self._annotate_detections(frame, detections)
-        return annotated, len(detections)
+        return annotated, detections
 
     def _label_for_class(self, class_id: int) -> str:
         if 1 <= class_id <= len(self._labels):
@@ -514,6 +551,56 @@ class CameraDetectorNode(Node):
         hsv = np.uint8([[[hue, 220, 255]]])
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0][0]
         return int(bgr[0]), int(bgr[1]), int(bgr[2])
+
+    def _publish_detections(
+        self,
+        detections: list[Detection],
+        frame_shape: tuple[int, ...],
+        stamp: Any,
+    ) -> None:
+        if self._detections_publisher is None:
+            return
+
+        height = int(frame_shape[0])
+        width = int(frame_shape[1])
+        payload = {
+            'stamp': {
+                'sec': int(getattr(stamp, 'sec', 0)),
+                'nanosec': int(getattr(stamp, 'nanosec', 0)),
+            },
+            'frame_id': self.frame_id,
+            'model': {
+                'id': FIXED_MODEL_ID,
+                'name': FIXED_MODEL_DISPLAY_NAME,
+            },
+            'image': {
+                'width': width,
+                'height': height,
+            },
+            'count': len(detections),
+            'detections': [
+                {
+                    'class_id': detection.class_id,
+                    'label': detection.label,
+                    'confidence': detection.confidence,
+                    'bbox': {
+                        'x': detection.x,
+                        'y': detection.y,
+                        'width': detection.width,
+                        'height': detection.height,
+                    },
+                    'center': {
+                        'x': detection.x + detection.width / 2.0,
+                        'y': detection.y + detection.height / 2.0,
+                    },
+                }
+                for detection in detections
+            ],
+        }
+
+        message = String()
+        message.data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        self._detections_publisher.publish(message)
 
     def _publish_processed_frame(self, frame: np.ndarray, stamp: Any) -> None:
         height, width = frame.shape[:2]

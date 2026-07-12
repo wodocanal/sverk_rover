@@ -32,6 +32,7 @@ web_gateway_node:
     terminal_path: /
     rosboard_enabled: true
     rosboard_port: 8888
+    servo_enabled: true
 
     odom_topic: /odom
     wheel_odom_topic: /wheel/odometry

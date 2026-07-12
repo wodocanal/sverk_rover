@@ -91,6 +91,8 @@ VISION_PARAMETER_NAMES = [
     'frame_id',
     'publish_raw',
     'publish_compressed',
+    'publish_detections',
+    'detections_topic',
     'confidence_threshold',
     'nms_threshold',
     'max_processing_fps',
@@ -109,6 +111,8 @@ VISION_RUNTIME_PARAMETER_NAMES = {
     'frame_id',
     'publish_raw',
     'publish_compressed',
+    'publish_detections',
+    'detections_topic',
     'confidence_threshold',
     'nms_threshold',
     'max_processing_fps',
@@ -471,6 +475,7 @@ class RoverWebGateway(Node):
         self.declare_parameter('terminal_path', '/terminal/')
         self.declare_parameter('rosboard_enabled', True)
         self.declare_parameter('rosboard_port', 8888)
+        self.declare_parameter('servo_enabled', True)
         self.declare_parameter('drive_command_timeout_sec', 0.25)
         self.declare_parameter('default_linear_speed_mps', 0.18)
         self.declare_parameter('default_lateral_speed_mps', 0.16)
@@ -562,6 +567,7 @@ class RoverWebGateway(Node):
         )
         self.rosboard_enabled = bool(self.get_parameter('rosboard_enabled').value)
         self.rosboard_port = int(self.get_parameter('rosboard_port').value)
+        self.servo_enabled = bool(self.get_parameter('servo_enabled').value)
         self.drive_command_timeout_sec = max(
             0.1, float(self.get_parameter('drive_command_timeout_sec').value)
         )
@@ -1226,6 +1232,7 @@ class RoverWebGateway(Node):
                 'terminal_path': self.terminal_path,
                 'rosboard_enabled': self.rosboard_enabled,
                 'rosboard_port': self.rosboard_port,
+                'servo_enabled': self.servo_enabled,
             },
             'geometry': geometry,
             'encoders': encoders,
@@ -2344,7 +2351,14 @@ class RoverWebGateway(Node):
             if name not in payload:
                 continue
             value = payload[name]
-            if name in {'enabled', 'publish_raw', 'publish_compressed', 'annotate_labels', 'annotate_confidence'}:
+            if name in {
+                'enabled',
+                'publish_raw',
+                'publish_compressed',
+                'publish_detections',
+                'annotate_labels',
+                'annotate_confidence',
+            }:
                 updates.append(Parameter(name, value=bool(value)))
             elif name in {'confidence_threshold', 'nms_threshold', 'max_processing_fps'}:
                 updates.append(Parameter(name, value=float(value)))

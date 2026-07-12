@@ -188,6 +188,7 @@ ROS State — ноды, топики и сервисы
                   <label>Input topic<input id="camera-vision-input-topic" value="/image_raw"></label>
                   <label>Processed raw topic<input id="camera-vision-output-topic" value="/image_processed"></label>
                   <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/image_processed/compressed"></label>
+                  <label>Detections topic<input id="camera-vision-detections-topic" value="/detections"></label>
                   <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="10.0"></label>
                   <label>Confidence<input id="camera-vision-confidence" type="number" min="0.01" max="1" step="0.01" value="0.30"></label>
                   <label>NMS<input id="camera-vision-nms" type="number" min="0.01" max="1" step="0.01" value="0.45"></label>
@@ -195,6 +196,7 @@ ROS State — ноды, топики и сервисы
                 <div class="inline-form camera-setting-flags">
                   <label class="check-label"><input id="camera-vision-publish-raw" type="checkbox" checked> Публиковать raw</label>
                   <label class="check-label"><input id="camera-vision-publish-compressed" type="checkbox" checked> Публиковать compressed</label>
+                  <label class="check-label"><input id="camera-vision-publish-detections" type="checkbox" checked> Публиковать detections</label>
                   <label class="check-label"><input id="camera-vision-annotate-labels" type="checkbox" checked> Подписи классов</label>
                   <label class="check-label"><input id="camera-vision-annotate-confidence" type="checkbox" checked> Confidence</label>
                 </div>
@@ -694,7 +696,12 @@ angular.z: 0.00</pre>
         </div>
         <div class="two-column">
           <article class="panel"><h2>Идентичность</h2><pre id="identity-json" class="message-box">—</pre></article>
-          <article class="panel"><h2>Конфигурация</h2><pre id="config-json" class="message-box">—</pre><label class="check-label"><input type="checkbox" id="compact-mode"> Компактный интерфейс</label></article>
+          <article class="panel">
+            <h2>Конфигурация</h2>
+            <pre id="config-json" class="message-box">—</pre>
+            <label class="check-label"><input type="checkbox" id="compact-mode"> Компактный интерфейс</label>
+            <label class="check-label"><input type="checkbox" id="servo-enabled"> Использовать серво</label>
+          </article>
         </div>
         <div class="two-column overview-bottom">
           <article class="panel camera-settings-panel">
