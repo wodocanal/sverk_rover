@@ -9,6 +9,7 @@ import shutil
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -32,6 +33,8 @@ HEADER = struct.Struct('<4sHHI')
 PLAYBACK_CHANNELS = 2
 DEFAULT_SAY_VOICE = 'Milena'
 DEFAULT_ESPEAK_VOICE = 'ru'
+DEFAULT_PIPER_MODEL = 'ru_RU-irina-medium'
+DEFAULT_PIPER_DATA_DIR = '~/sverk_rover/tts_voices'
 TARGET_TTS_PEAK = 28000.0
 SUPPORTED_MODELS = {
     'tiny',
@@ -311,13 +314,16 @@ class WaveshareAudioNode(Node):
         self.declare_parameter('serial_sink_baudrate', 115200)
         self.declare_parameter('enable_tts', True)
         self.declare_parameter('tts_service_name', '/voice/say')
-        self.declare_parameter('tts_engine', 'auto')
+        self.declare_parameter('tts_engine', 'piper')
         self.declare_parameter('tts_voice', '')
         self.declare_parameter('tts_rate', 175)
         self.declare_parameter('tts_target_peak', TARGET_TTS_PEAK)
         self.declare_parameter('tts_gain_limit', 4.0)
         self.declare_parameter('tts_queue_size', 4)
         self.declare_parameter('save_tts_wavs_dir', '')
+        self.declare_parameter('piper_module', 'piper')
+        self.declare_parameter('piper_model', DEFAULT_PIPER_MODEL)
+        self.declare_parameter('piper_data_dir', DEFAULT_PIPER_DATA_DIR)
 
         self.serial_device = str(self.get_parameter('serial_device').value).strip()
         self.baudrate = int(self.get_parameter('baudrate').value)
@@ -380,6 +386,15 @@ class WaveshareAudioNode(Node):
         self.save_tts_wavs_enabled = bool(
             str(self.get_parameter('save_tts_wavs_dir').value).strip()
         )
+        self.piper_module = str(
+            self.get_parameter('piper_module').value
+        ).strip() or 'piper'
+        self.piper_model = str(
+            self.get_parameter('piper_model').value
+        ).strip() or DEFAULT_PIPER_MODEL
+        self.piper_data_dir = Path(
+            str(self.get_parameter('piper_data_dir').value)
+        ).expanduser()
 
         if not self.serial_device:
             raise ValueError('serial_device must not be empty')
@@ -704,10 +719,12 @@ class WaveshareAudioNode(Node):
                 input_audio_path = self._synthesize_with_say(text, tmp_path)
             elif engine == 'espeak-ng':
                 input_audio_path = self._synthesize_with_espeak_ng(text, tmp_path)
+            elif engine == 'piper':
+                input_audio_path = self._synthesize_with_piper(text, tmp_path)
             else:
                 raise RuntimeError(
                     f'Unsupported tts_engine {self.tts_engine!r}. '
-                    'Use auto, say, or espeak-ng.'
+                    'Use auto, piper, say, or espeak-ng.'
                 )
 
             self._run_subprocess([
@@ -751,14 +768,50 @@ class WaveshareAudioNode(Node):
         if requested != 'auto':
             return requested
 
+        if (
+            self.piper_data_dir.is_dir()
+            and shutil.which('ffmpeg') is not None
+        ):
+            return 'piper'
         if shutil.which('say') is not None and shutil.which('ffmpeg') is not None:
             return 'say'
         if shutil.which('espeak-ng') is not None and shutil.which('ffmpeg') is not None:
             return 'espeak-ng'
         raise RuntimeError(
-            'No supported TTS backend found. Install ffmpeg and espeak-ng on '
-            'Raspberry Pi, or use macOS say with ffmpeg.'
+            'No supported TTS backend found. Install piper-tts with a voice '
+            'model, or install ffmpeg and espeak-ng on Raspberry Pi.'
         )
+
+    def _synthesize_with_piper(self, text: str, tmp_path: Path) -> Path:
+        if not self.piper_data_dir.is_dir():
+            raise RuntimeError(
+                f'Piper data dir not found: {self.piper_data_dir}. '
+                'Run the rover_waveshare_audio tools/install_piper_ru_voice.sh script.'
+            )
+        model_path = self.piper_data_dir / f'{self.piper_model}.onnx'
+        if not model_path.is_file():
+            raise RuntimeError(
+                f'Piper model not found: {model_path}. '
+                'Run the rover_waveshare_audio tools/install_piper_ru_voice.sh script.'
+            )
+
+        audio_path = tmp_path / 'speech.wav'
+        command = [
+            sys.executable,
+            '-m',
+            self.piper_module,
+            '-m',
+            self.piper_model,
+            '--data-dir',
+            str(self.piper_data_dir),
+            '-f',
+            str(audio_path),
+            '--',
+            text,
+        ]
+
+        self._run_subprocess(command)
+        return audio_path
 
     def _synthesize_with_say(self, text: str, tmp_path: Path) -> Path:
         say_bin = require_tool('say')
@@ -873,9 +926,10 @@ class WaveshareAudioNode(Node):
             pass
 
     @staticmethod
-    def _run_subprocess(command: list[str]) -> None:
+    def _run_subprocess(command: list[str], input_text: str | None = None) -> None:
         result = subprocess.run(
             command,
+            input=input_text,
             text=True,
             capture_output=True,
             check=False,

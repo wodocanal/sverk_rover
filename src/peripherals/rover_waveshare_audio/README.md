@@ -68,15 +68,30 @@ update the unrelated `coverage` package used by Numba during import:
 python3 -m pip install -U 'coverage>=7.6.1'
 ```
 
-For TTS playback on Raspberry Pi install `ffmpeg` and a speech synthesizer:
+For high quality Russian TTS playback on Raspberry Pi install `ffmpeg` and
+Piper:
 
 ```bash
 sudo apt update
+sudo apt install ffmpeg
+python3 -m pip install -U piper-tts
+```
+
+Then download the recommended Russian Piper voice:
+
+```bash
+cd ~/sverk_rover
+src/peripherals/rover_waveshare_audio/tools/install_piper_ru_voice.sh
+```
+
+The default config uses `tts_engine: piper` with model `ru_RU-irina-medium`.
+If Piper is not available, you can still use `espeak-ng` as a simple fallback:
+
+```bash
 sudo apt install ffmpeg espeak-ng
 ```
 
-On macOS the node can also use the built-in `say` command. The default
-`tts_engine: auto` tries `say` first and then `espeak-ng`.
+On macOS the node can also use the built-in `say` command.
 
 ## Run
 
@@ -117,9 +132,10 @@ ros2 service call /voice/say rover_interfaces/srv/SpeakText "{text: 'Приве�
 - `min_rms`, `start_frames`, `stop_frames`: simple energy VAD tuning.
 - `enable_tts`: expose the speech playback service.
 - `tts_service_name`: service for playback, default `/voice/say`.
-- `tts_engine`: `auto`, `say`, or `espeak-ng`.
-- `tts_voice`: optional voice name. Empty means `Milena` for `say`, `ru` for
-  `espeak-ng`.
+- `tts_engine`: `piper`, `auto`, `say`, or `espeak-ng`.
+- `piper_model`: Piper voice name, default `ru_RU-irina-medium`.
+- `piper_data_dir`: directory with downloaded Piper voices.
+- `tts_voice`: optional voice name for `say`/`espeak-ng`.
 - `tts_rate`: speech rate passed to the selected synthesizer.
 
 ## Udev

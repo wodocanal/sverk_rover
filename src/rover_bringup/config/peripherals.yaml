@@ -129,10 +129,13 @@ waveshare_audio:
   serial_sink_baudrate: 115200
   enable_tts: true
   tts_service_name: /voice/say
-  tts_engine: auto
+  tts_engine: piper
   tts_voice: ''
   tts_rate: 175
   tts_target_peak: 28000.0
   tts_gain_limit: 4.0
   tts_queue_size: 4
   save_tts_wavs_dir: ''
+  piper_module: piper
+  piper_model: ru_RU-irina-medium
+  piper_data_dir: ~/sverk_rover/tts_voices

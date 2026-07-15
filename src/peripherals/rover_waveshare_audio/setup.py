@@ -30,6 +30,7 @@ setup(
         ('share/' + package_name, ['README.md']),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'tools'), glob('tools/*')),
         (os.path.join('share', package_name, 'udev'), glob('udev/*.rules')),
     ] + package_files('firmware'),
     install_requires=['setuptools', 'pyserial', 'numpy'],

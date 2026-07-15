@@ -43,6 +43,9 @@ def launch_setup(context):
         ('tts_engine', str),
         ('tts_voice', str),
         ('tts_rate', int),
+        ('piper_module', str),
+        ('piper_model', str),
+        ('piper_data_dir', str),
     ):
         value = maybe_override(context, name, cast)
         if value is not None:
@@ -81,5 +84,8 @@ def generate_launch_description():
         DeclareLaunchArgument('tts_engine', default_value=empty_default),
         DeclareLaunchArgument('tts_voice', default_value=empty_default),
         DeclareLaunchArgument('tts_rate', default_value=empty_default),
+        DeclareLaunchArgument('piper_module', default_value=empty_default),
+        DeclareLaunchArgument('piper_model', default_value=empty_default),
+        DeclareLaunchArgument('piper_data_dir', default_value=empty_default),
         OpaqueFunction(function=launch_setup),
     ])
