@@ -419,6 +419,7 @@ class WaveshareAudioNode(Node):
         self._serial: serial.Serial | None = None
         self._serial_lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._playback_active = threading.Event()
         self._connected = False
         self._last_status = ''
         self._last_connect_warning = 0.0
@@ -521,12 +522,15 @@ class WaveshareAudioNode(Node):
                 buffer.clear()
 
             try:
-                with self._serial_lock:
-                    serial_port = self._serial
-                if serial_port is None:
+                if self._playback_active.is_set():
+                    self._stop_event.wait(0.02)
                     continue
 
-                chunk = serial_port.read(4096)
+                with self._serial_lock:
+                    serial_port = self._serial
+                    if serial_port is None:
+                        continue
+                    chunk = serial_port.read(4096)
                 if not chunk:
                     continue
                 buffer.extend(chunk)
@@ -808,32 +812,37 @@ class WaveshareAudioNode(Node):
         prebuffer_frames = 3
         next_deadline = time.monotonic()
 
-        for offset in range(0, len(samples), playback_chunk_samples):
-            if self._stop_event.is_set():
-                return
+        self._playback_active.set()
+        self._cancel_serial_read()
+        try:
+            for offset in range(0, len(samples), playback_chunk_samples):
+                if self._stop_event.is_set():
+                    return
 
-            chunk = samples[offset:offset + playback_chunk_samples]
-            packet = (
-                HEADER.pack(
-                    PLAYBACK_MAGIC,
-                    self.expected_sample_rate,
-                    len(chunk),
-                    play_sequence,
+                chunk = samples[offset:offset + playback_chunk_samples]
+                packet = (
+                    HEADER.pack(
+                        PLAYBACK_MAGIC,
+                        self.expected_sample_rate,
+                        len(chunk),
+                        play_sequence,
+                    )
+                    + chunk.tobytes()
                 )
-                + chunk.tobytes()
-            )
-            self._write_playback_packet(packet)
-            play_sequence += 1
+                self._write_playback_packet(packet)
+                play_sequence += 1
 
-            if play_sequence <= prebuffer_frames:
-                continue
+                if play_sequence <= prebuffer_frames:
+                    continue
 
-            next_deadline += len(chunk) / (
-                self.expected_sample_rate * PLAYBACK_CHANNELS
-            )
-            sleep_for = next_deadline - time.monotonic()
-            if sleep_for > 0:
-                self._stop_event.wait(sleep_for)
+                next_deadline += len(chunk) / (
+                    self.expected_sample_rate * PLAYBACK_CHANNELS
+                )
+                sleep_for = next_deadline - time.monotonic()
+                if sleep_for > 0:
+                    self._stop_event.wait(sleep_for)
+        finally:
+            self._playback_active.clear()
 
     def _write_playback_packet(self, packet: bytes) -> None:
         try:
@@ -848,6 +857,20 @@ class WaveshareAudioNode(Node):
         except (OSError, SerialException) as exc:
             self._close_serial()
             raise RuntimeError(f'Waveshare audio serial write failed: {exc}') from exc
+
+    def _cancel_serial_read(self) -> None:
+        serial_port = self._serial
+        if serial_port is None:
+            return
+
+        cancel_read = getattr(serial_port, 'cancel_read', None)
+        if not callable(cancel_read):
+            return
+
+        try:
+            cancel_read()
+        except (OSError, SerialException):
+            pass
 
     @staticmethod
     def _run_subprocess(command: list[str]) -> None:
