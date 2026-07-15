@@ -5,8 +5,11 @@ import collections
 import json
 import os
 import queue
+import shutil
 import socket
 import struct
+import subprocess
+import tempfile
 import threading
 import time
 import types
@@ -23,7 +26,12 @@ from std_msgs.msg import String
 
 
 MAGIC = b'PCM1'
+PLAYBACK_MAGIC = b'SPK1'
 HEADER = struct.Struct('<4sHHI')
+PLAYBACK_CHANNELS = 2
+DEFAULT_SAY_VOICE = 'Milena'
+DEFAULT_ESPEAK_VOICE = 'ru'
+TARGET_TTS_PEAK = 28000.0
 SUPPORTED_MODELS = {
     'tiny',
     'base',
@@ -216,6 +224,27 @@ def save_wav(path: Path, sample_rate: int, samples: np.ndarray) -> None:
         wav_file.writeframes(samples.astype('<i2').tobytes())
 
 
+def save_wav_with_channels(
+    path: Path,
+    sample_rate: int,
+    samples: np.ndarray,
+    channels: int,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), 'wb') as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(samples.astype('<i2').tobytes())
+
+
+def require_tool(name: str) -> str:
+    tool = shutil.which(name)
+    if tool is None:
+        raise RuntimeError(f"Required tool '{name}' was not found in PATH")
+    return tool
+
+
 def prepare_whisper_import() -> None:
     os.environ.setdefault('NUMBA_JIT_COVERAGE', '0')
 
@@ -279,6 +308,15 @@ class WaveshareAudioNode(Node):
         self.declare_parameter('tcp_sink', '')
         self.declare_parameter('serial_sink_device', '')
         self.declare_parameter('serial_sink_baudrate', 115200)
+        self.declare_parameter('enable_tts', True)
+        self.declare_parameter('tts_input_topic', '/voice/say')
+        self.declare_parameter('tts_engine', 'auto')
+        self.declare_parameter('tts_voice', '')
+        self.declare_parameter('tts_rate', 175)
+        self.declare_parameter('tts_target_peak', TARGET_TTS_PEAK)
+        self.declare_parameter('tts_gain_limit', 4.0)
+        self.declare_parameter('tts_queue_size', 4)
+        self.declare_parameter('save_tts_wavs_dir', '')
 
         self.serial_device = str(self.get_parameter('serial_device').value).strip()
         self.baudrate = int(self.get_parameter('baudrate').value)
@@ -320,11 +358,34 @@ class WaveshareAudioNode(Node):
             str(self.get_parameter('serial_sink_device').value),
             int(self.get_parameter('serial_sink_baudrate').value),
         )
+        self.tts_enabled = bool(self.get_parameter('enable_tts').value)
+        self.tts_input_topic = str(self.get_parameter('tts_input_topic').value).strip()
+        self.tts_engine = str(self.get_parameter('tts_engine').value).strip().lower()
+        self.tts_voice = str(self.get_parameter('tts_voice').value).strip()
+        self.tts_rate = int(self.get_parameter('tts_rate').value)
+        self.tts_target_peak = max(
+            1.0,
+            float(self.get_parameter('tts_target_peak').value),
+        )
+        self.tts_gain_limit = max(
+            1.0,
+            float(self.get_parameter('tts_gain_limit').value),
+        )
+        self.save_tts_wavs_dir = Path(
+            str(self.get_parameter('save_tts_wavs_dir').value)
+        ).expanduser()
+        self.save_tts_wavs_enabled = bool(
+            str(self.get_parameter('save_tts_wavs_dir').value).strip()
+        )
 
         if not self.serial_device:
             raise ValueError('serial_device must not be empty')
         if self.baudrate <= 0:
             raise ValueError('baudrate must be positive')
+        if self.tts_enabled and not self.tts_input_topic:
+            raise ValueError('tts_input_topic must not be empty when enable_tts is true')
+        if self.tts_enabled and self.tts_rate <= 0:
+            raise ValueError('tts_rate must be positive')
 
         self.text_pub = self.create_publisher(String, self.output_topic, 10)
         self.status_pub = self.create_publisher(String, self.status_topic, 10)
@@ -348,6 +409,9 @@ class WaveshareAudioNode(Node):
         self.utterance_queue: queue.Queue[Utterance] = queue.Queue(
             maxsize=max(1, int(self.get_parameter('utterance_queue_size').value)),
         )
+        self.tts_queue: queue.Queue[str] = queue.Queue(
+            maxsize=max(1, int(self.get_parameter('tts_queue_size').value)),
+        )
 
         self._serial: serial.Serial | None = None
         self._serial_lock = threading.Lock()
@@ -356,6 +420,7 @@ class WaveshareAudioNode(Node):
         self._last_status = ''
         self._last_connect_warning = 0.0
         self._utterance_index = 0
+        self._tts_index = 0
 
         self._reader_thread = threading.Thread(
             target=self._read_loop,
@@ -369,13 +434,29 @@ class WaveshareAudioNode(Node):
         )
         self._reader_thread.start()
         self._transcriber_thread.start()
+        self._tts_subscription = None
+        self._tts_thread: threading.Thread | None = None
+        if self.tts_enabled:
+            self._tts_subscription = self.create_subscription(
+                String,
+                self.tts_input_topic,
+                self._tts_callback,
+                10,
+            )
+            self._tts_thread = threading.Thread(
+                target=self._tts_loop,
+                name='waveshare-audio-tts-playback',
+                daemon=True,
+            )
+            self._tts_thread.start()
         self.create_timer(1.0, self._publish_periodic_status)
 
         self.get_logger().info(
             'Waveshare Whisper STT node started: '
             f'{self.serial_device} @ {self.baudrate}, '
             f'model={self.whisper_model_name}, device={self.whisper_device}, '
-            f'output_topic={self.output_topic}'
+            f'output_topic={self.output_topic}, '
+            f'tts_topic={self.tts_input_topic if self.tts_enabled else "disabled"}'
         )
 
     def destroy_node(self) -> bool:
@@ -383,7 +464,10 @@ class WaveshareAudioNode(Node):
         self._close_serial()
         self.tcp_sink.close()
         self.serial_sink.close()
-        for thread in (self._reader_thread, self._transcriber_thread):
+        threads = [self._reader_thread, self._transcriber_thread]
+        if self._tts_thread is not None:
+            threads.append(self._tts_thread)
+        for thread in threads:
             if thread.is_alive():
                 thread.join(timeout=1.0)
         return super().destroy_node()
@@ -561,6 +645,210 @@ class WaveshareAudioNode(Node):
         self.tcp_sink.send(text)
         self.serial_sink.send(text)
         self._publish_status(f'transcribed: {text}')
+
+    def _tts_callback(self, message: String) -> None:
+        text = str(message.data or '').strip()
+        if not text:
+            return
+
+        try:
+            self.tts_queue.put_nowait(text)
+            self._publish_status(f'queued tts text: {text}')
+        except queue.Full:
+            self.get_logger().warn('Dropping TTS text: playback queue is full')
+            self._publish_status('dropping tts text: playback queue full')
+
+    def _tts_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                text = self.tts_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            try:
+                samples = self._synthesize_tts(text)
+                self._send_playback_samples(samples)
+                self._publish_status(f'tts spoken: {text}')
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn(f'TTS playback failed: {exc}')
+                self._publish_status(f'tts failed: {exc}')
+            finally:
+                self._tts_index += 1
+
+    def _synthesize_tts(self, text: str) -> np.ndarray:
+        engine = self._resolve_tts_engine()
+        ffmpeg_bin = require_tool('ffmpeg')
+
+        with tempfile.TemporaryDirectory(prefix='rover-waveshare-tts-') as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            pcm_path = tmp_path / 'speech.pcm'
+
+            if engine == 'say':
+                input_audio_path = self._synthesize_with_say(text, tmp_path)
+            elif engine == 'espeak-ng':
+                input_audio_path = self._synthesize_with_espeak_ng(text, tmp_path)
+            else:
+                raise RuntimeError(
+                    f'Unsupported tts_engine {self.tts_engine!r}. '
+                    'Use auto, say, or espeak-ng.'
+                )
+
+            self._run_subprocess([
+                ffmpeg_bin,
+                '-v',
+                'error',
+                '-y',
+                '-i',
+                str(input_audio_path),
+                '-ac',
+                '1',
+                '-ar',
+                str(self.expected_sample_rate),
+                '-f',
+                's16le',
+                str(pcm_path),
+            ])
+
+            mono_samples = np.fromfile(pcm_path, dtype='<i2').copy()
+            if mono_samples.size == 0:
+                return mono_samples
+
+            mono_samples = self._normalize_tts_samples(mono_samples)
+            stereo_samples = (
+                np.column_stack((mono_samples, mono_samples)).reshape(-1).astype('<i2')
+            )
+
+            if self.save_tts_wavs_enabled:
+                wav_path = self.save_tts_wavs_dir / f'{self._tts_index:05d}.wav'
+                save_wav_with_channels(
+                    wav_path,
+                    self.expected_sample_rate,
+                    stereo_samples,
+                    PLAYBACK_CHANNELS,
+                )
+
+            return stereo_samples
+
+    def _resolve_tts_engine(self) -> str:
+        requested = self.tts_engine or 'auto'
+        if requested != 'auto':
+            return requested
+
+        if shutil.which('say') is not None and shutil.which('ffmpeg') is not None:
+            return 'say'
+        if shutil.which('espeak-ng') is not None and shutil.which('ffmpeg') is not None:
+            return 'espeak-ng'
+        raise RuntimeError(
+            'No supported TTS backend found. Install ffmpeg and espeak-ng on '
+            'Raspberry Pi, or use macOS say with ffmpeg.'
+        )
+
+    def _synthesize_with_say(self, text: str, tmp_path: Path) -> Path:
+        say_bin = require_tool('say')
+        audio_path = tmp_path / 'speech.aiff'
+        voice = self.tts_voice or DEFAULT_SAY_VOICE
+        self._run_subprocess([
+            say_bin,
+            '-v',
+            voice,
+            '-r',
+            str(self.tts_rate),
+            '-o',
+            str(audio_path),
+            text,
+        ])
+        return audio_path
+
+    def _synthesize_with_espeak_ng(self, text: str, tmp_path: Path) -> Path:
+        espeak_bin = require_tool('espeak-ng')
+        audio_path = tmp_path / 'speech.wav'
+        voice = self.tts_voice or self.language or DEFAULT_ESPEAK_VOICE
+        self._run_subprocess([
+            espeak_bin,
+            '-v',
+            voice,
+            '-s',
+            str(self.tts_rate),
+            '-w',
+            str(audio_path),
+            text,
+        ])
+        return audio_path
+
+    def _normalize_tts_samples(self, samples: np.ndarray) -> np.ndarray:
+        peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+        if peak <= 0.0:
+            return samples.astype('<i2', copy=False)
+
+        gain = min(self.tts_target_peak / peak, self.tts_gain_limit)
+        boosted = np.clip(samples.astype(np.float32) * gain, -32768.0, 32767.0)
+        return boosted.astype('<i2')
+
+    def _send_playback_samples(self, samples: np.ndarray) -> None:
+        if samples.size == 0:
+            self._publish_status('tts produced empty audio')
+            return
+
+        samples = samples.astype('<i2', copy=False)
+        playback_chunk_samples = self.expected_frame_samples * PLAYBACK_CHANNELS
+        play_sequence = 0
+        prebuffer_frames = 3
+        next_deadline = time.monotonic()
+
+        for offset in range(0, len(samples), playback_chunk_samples):
+            if self._stop_event.is_set():
+                return
+
+            chunk = samples[offset:offset + playback_chunk_samples]
+            packet = (
+                HEADER.pack(
+                    PLAYBACK_MAGIC,
+                    self.expected_sample_rate,
+                    len(chunk),
+                    play_sequence,
+                )
+                + chunk.tobytes()
+            )
+            self._write_playback_packet(packet)
+            play_sequence += 1
+
+            if play_sequence <= prebuffer_frames:
+                continue
+
+            next_deadline += len(chunk) / (
+                self.expected_sample_rate * PLAYBACK_CHANNELS
+            )
+            sleep_for = next_deadline - time.monotonic()
+            if sleep_for > 0:
+                self._stop_event.wait(sleep_for)
+
+    def _write_playback_packet(self, packet: bytes) -> None:
+        try:
+            with self._serial_lock:
+                if self._serial is None:
+                    self._serial = self._open_serial()
+                serial_port = self._serial
+                if serial_port is None:
+                    raise RuntimeError(f'Unable to open {self.serial_device}')
+                serial_port.write(packet)
+                serial_port.flush()
+        except (OSError, SerialException) as exc:
+            self._close_serial()
+            raise RuntimeError(f'Waveshare audio serial write failed: {exc}') from exc
+
+    @staticmethod
+    def _run_subprocess(command: list[str]) -> None:
+        result = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            stdout = result.stdout.strip()
+            detail = stderr or stdout or f'exit code {result.returncode}'
+            raise RuntimeError(detail)
 
     def _write_optional_outputs(
         self,

@@ -127,3 +127,12 @@ waveshare_audio:
   tcp_sink: ''
   serial_sink_device: ''
   serial_sink_baudrate: 115200
+  enable_tts: true
+  tts_input_topic: /voice/say
+  tts_engine: auto
+  tts_voice: ''
+  tts_rate: 175
+  tts_target_peak: 28000.0
+  tts_gain_limit: 4.0
+  tts_queue_size: 4
+  save_tts_wavs_dir: ''

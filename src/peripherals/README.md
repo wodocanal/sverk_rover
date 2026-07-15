@@ -11,5 +11,5 @@ Packages:
 - `rover_imu` - Yahboom IMU driver and normalization tools.
 - `rover_led_strip` - addressable LED strip driver.
 - `rover_octoliner` - Amperka Octoliner line sensor driver.
-- `rover_waveshare_audio` - Waveshare ESP32-S3-AUDIO-Board audio streaming and Whisper speech-to-text bridge.
+- `rover_waveshare_audio` - Waveshare ESP32-S3-AUDIO-Board audio streaming, Whisper speech-to-text, and text-to-speech playback bridge.
 - `sllidar_ros2` - SLLIDAR/RPLIDAR ROS 2 driver.

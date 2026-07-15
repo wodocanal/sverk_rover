@@ -22,6 +22,10 @@ def maybe_override(context, name: str, cast=str):
     return cast(value)
 
 
+def as_bool(value: str) -> bool:
+    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 def launch_setup(context):
     overrides = {}
     for name, cast in (
@@ -34,6 +38,11 @@ def launch_setup(context):
         ('language', str),
         ('device', str),
         ('min_rms', float),
+        ('enable_tts', as_bool),
+        ('tts_input_topic', str),
+        ('tts_engine', str),
+        ('tts_voice', str),
+        ('tts_rate', int),
     ):
         value = maybe_override(context, name, cast)
         if value is not None:
@@ -67,5 +76,10 @@ def generate_launch_description():
         DeclareLaunchArgument('language', default_value=empty_default),
         DeclareLaunchArgument('device', default_value=empty_default),
         DeclareLaunchArgument('min_rms', default_value=empty_default),
+        DeclareLaunchArgument('enable_tts', default_value=empty_default),
+        DeclareLaunchArgument('tts_input_topic', default_value=empty_default),
+        DeclareLaunchArgument('tts_engine', default_value=empty_default),
+        DeclareLaunchArgument('tts_voice', default_value=empty_default),
+        DeclareLaunchArgument('tts_rate', default_value=empty_default),
         OpaqueFunction(function=launch_setup),
     ])

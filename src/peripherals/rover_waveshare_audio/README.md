@@ -1,17 +1,23 @@
 # rover_waveshare_audio
 
-ROS 2 Whisper STT bridge for the Waveshare `ESP32-S3-AUDIO-Board`.
+ROS 2 Whisper STT/TTS bridge for the Waveshare `ESP32-S3-AUDIO-Board`.
 
 The ESP32 firmware streams framed `16 kHz mono s16le` PCM packets over USB
 Serial/JTAG using the same `PCM1` protocol as the working `voice test`
 prototype. The ROS node reads those frames, detects utterances, transcribes
 them with Whisper, and publishes recognized text.
 
+The same serial link can also play speech back through the board speaker. The
+ROS node subscribes to a configurable text topic, synthesizes the text on the
+Raspberry Pi, converts it to `16 kHz stereo s16le`, and sends `SPK1` playback
+frames back to the ESP32.
+
 ## Topics
 
 - `/voice/text` (`std_msgs/msg/String`) recognized text.
 - `/voice/transcript` (`std_msgs/msg/String`) JSON transcript metadata.
 - `/waveshare_audio/status` (`std_msgs/msg/String`) connection/STT status.
+- `/voice/say` (`std_msgs/msg/String`) text to speak through the module.
 
 All topic names are configurable in `config/waveshare_audio.yaml`.
 
@@ -19,7 +25,7 @@ All topic names are configurable in `config/waveshare_audio.yaml`.
 
 The source prototypes from `voice test` are stored in `firmware/`:
 
-- `firmware/speech-stream-stt`: recommended firmware for ROS STT.
+- `firmware/speech-stream-stt`: recommended firmware for ROS STT/TTS.
 - `firmware/speech-command-test`: local ESP-SR wake-word/command test.
 
 Flash the streaming firmware:
@@ -59,6 +65,16 @@ update the unrelated `coverage` package used by Numba during import:
 python3 -m pip install -U 'coverage>=7.6.1'
 ```
 
+For TTS playback on Raspberry Pi install `ffmpeg` and a speech synthesizer:
+
+```bash
+sudo apt update
+sudo apt install ffmpeg espeak-ng
+```
+
+On macOS the node can also use the built-in `say` command. The default
+`tts_engine: auto` tries `say` first and then `espeak-ng`.
+
 ## Run
 
 Standalone:
@@ -81,6 +97,12 @@ ros2 launch rover_waveshare_audio waveshare_audio.launch.py \
   output_topic:=/agent/text
 ```
 
+Speak a one-shot phrase through the module:
+
+```bash
+ros2 topic pub --once /voice/say std_msgs/msg/String "{data: 'Привет, проверка динамика'}"
+```
+
 ## Important Parameters
 
 - `serial_device`: serial device, default `/dev/waveshare_audio`.
@@ -90,6 +112,12 @@ ros2 launch rover_waveshare_audio waveshare_audio.launch.py \
 - `language`: `ru`, `en`, or empty string for Whisper auto-detect.
 - `device`: `auto`, `cpu`, `cuda`, `mps`.
 - `min_rms`, `start_frames`, `stop_frames`: simple energy VAD tuning.
+- `enable_tts`: subscribe to text and play it through the board speaker.
+- `tts_input_topic`: text topic for playback, default `/voice/say`.
+- `tts_engine`: `auto`, `say`, or `espeak-ng`.
+- `tts_voice`: optional voice name. Empty means `Milena` for `say`, `ru` for
+  `espeak-ng`.
+- `tts_rate`: speech rate passed to the selected synthesizer.
 
 ## Udev
 

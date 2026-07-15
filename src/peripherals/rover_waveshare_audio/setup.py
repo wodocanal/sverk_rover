@@ -36,7 +36,7 @@ setup(
     zip_safe=True,
     maintainer='Rover Team',
     maintainer_email='maintainer@example.com',
-    description='Waveshare ESP32-S3-AUDIO-Board Whisper STT bridge for ROS 2.',
+    description='Waveshare ESP32-S3-AUDIO-Board Whisper STT/TTS bridge for ROS 2.',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [

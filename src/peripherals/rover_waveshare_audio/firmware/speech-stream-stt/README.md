@@ -9,20 +9,28 @@ The board:
 - sends framed PCM packets over `USB Serial/JTAG`.
 - only streams audio while the center user button is held, plus a `2s` grace period after release.
 
-The Mac host script:
+The host scripts:
 
 - reads the PCM frames,
 - detects utterances using a simple energy-based VAD,
 - transcribes each utterance with `Whisper`,
 - prints text to `stdout`,
 - can also append text to a file or forward it to a TCP socket or another serial/UART port.
+- can also run a simple voice-assistant loop and send spoken replies back to the board speaker.
 
 ## Firmware
 
-Flash the board:
+Flash the board from the source workspace:
 
 ```bash
-cd "/Users/urijgolysev/Documents/sniz/voice test/speech-stream-stt"
+cd ~/sverk_rover/src/peripherals/rover_waveshare_audio/firmware/speech-stream-stt
+./flash.sh
+```
+
+Or from an installed workspace:
+
+```bash
+cd ~/sverk_rover/install/rover_waveshare_audio/share/rover_waveshare_audio/firmware/speech-stream-stt
 ./flash.sh
 ```
 
@@ -31,8 +39,39 @@ cd "/Users/urijgolysev/Documents/sniz/voice test/speech-stream-stt"
 Run live transcription:
 
 ```bash
-cd "/Users/urijgolysev/Documents/sniz/voice test/speech-stream-stt"
+cd ~/sverk_rover/src/peripherals/rover_waveshare_audio/firmware/speech-stream-stt
 ./host/run_transcriber.sh --language ru
+```
+
+## Voice assistant loop
+
+Run a simple `speech -> text -> reply -> speech` loop:
+
+```bash
+cd ~/sverk_rover/src/peripherals/rover_waveshare_audio/firmware/speech-stream-stt
+./host/run_voice_agent.sh --language ru --model tiny
+```
+
+By default the spoken reply is a simple template:
+
+```text
+Я услышал: <ваша фраза>
+```
+
+You can plug in any external agent process. The recognized text is passed to the command on `stdin`, and the command reply is read from `stdout`:
+
+```bash
+./host/run_voice_agent.sh --language ru --agent-command "python3 my_agent.py"
+```
+
+Useful voice-agent options:
+
+```bash
+./host/run_voice_agent.sh --language ru --tts-voice Milena
+./host/run_voice_agent.sh --language ru --append-file conversation.txt
+./host/run_voice_agent.sh --language ru --jsonl-file conversation.jsonl
+./host/run_voice_agent.sh --list-voices
+./host/run_voice_agent.sh --speak-text "Привет, проверка динамика"
 ```
 
 Push-to-talk behavior:
