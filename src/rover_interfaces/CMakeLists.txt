@@ -18,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetLEDs.srv"
   "srv/SetLedStripState.srv"
   "srv/SetSensitivity.srv"
+  "srv/SpeakText.srv"
   DEPENDENCIES std_msgs sensor_msgs
 )
 

@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rover_interfaces.srv import SpeakText
 import serial
 from serial import SerialException
 from std_msgs.msg import String
@@ -309,7 +310,7 @@ class WaveshareAudioNode(Node):
         self.declare_parameter('serial_sink_device', '')
         self.declare_parameter('serial_sink_baudrate', 115200)
         self.declare_parameter('enable_tts', True)
-        self.declare_parameter('tts_input_topic', '/voice/say')
+        self.declare_parameter('tts_service_name', '/voice/say')
         self.declare_parameter('tts_engine', 'auto')
         self.declare_parameter('tts_voice', '')
         self.declare_parameter('tts_rate', 175)
@@ -359,7 +360,9 @@ class WaveshareAudioNode(Node):
             int(self.get_parameter('serial_sink_baudrate').value),
         )
         self.tts_enabled = bool(self.get_parameter('enable_tts').value)
-        self.tts_input_topic = str(self.get_parameter('tts_input_topic').value).strip()
+        self.tts_service_name = str(
+            self.get_parameter('tts_service_name').value
+        ).strip()
         self.tts_engine = str(self.get_parameter('tts_engine').value).strip().lower()
         self.tts_voice = str(self.get_parameter('tts_voice').value).strip()
         self.tts_rate = int(self.get_parameter('tts_rate').value)
@@ -382,8 +385,8 @@ class WaveshareAudioNode(Node):
             raise ValueError('serial_device must not be empty')
         if self.baudrate <= 0:
             raise ValueError('baudrate must be positive')
-        if self.tts_enabled and not self.tts_input_topic:
-            raise ValueError('tts_input_topic must not be empty when enable_tts is true')
+        if self.tts_enabled and not self.tts_service_name:
+            raise ValueError('tts_service_name must not be empty when enable_tts is true')
         if self.tts_enabled and self.tts_rate <= 0:
             raise ValueError('tts_rate must be positive')
 
@@ -434,14 +437,13 @@ class WaveshareAudioNode(Node):
         )
         self._reader_thread.start()
         self._transcriber_thread.start()
-        self._tts_subscription = None
+        self._tts_service = None
         self._tts_thread: threading.Thread | None = None
         if self.tts_enabled:
-            self._tts_subscription = self.create_subscription(
-                String,
-                self.tts_input_topic,
-                self._tts_callback,
-                10,
+            self._tts_service = self.create_service(
+                SpeakText,
+                self.tts_service_name,
+                self._handle_speak_text,
             )
             self._tts_thread = threading.Thread(
                 target=self._tts_loop,
@@ -456,7 +458,7 @@ class WaveshareAudioNode(Node):
             f'{self.serial_device} @ {self.baudrate}, '
             f'model={self.whisper_model_name}, device={self.whisper_device}, '
             f'output_topic={self.output_topic}, '
-            f'tts_topic={self.tts_input_topic if self.tts_enabled else "disabled"}'
+            f'tts_service={self.tts_service_name if self.tts_enabled else "disabled"}'
         )
 
     def destroy_node(self) -> bool:
@@ -646,17 +648,28 @@ class WaveshareAudioNode(Node):
         self.serial_sink.send(text)
         self._publish_status(f'transcribed: {text}')
 
-    def _tts_callback(self, message: String) -> None:
-        text = str(message.data or '').strip()
+    def _handle_speak_text(
+        self,
+        request: SpeakText.Request,
+        response: SpeakText.Response,
+    ) -> SpeakText.Response:
+        text = str(request.text or '').strip()
         if not text:
-            return
+            response.accepted = False
+            response.message = 'text is empty'
+            return response
 
         try:
             self.tts_queue.put_nowait(text)
+            response.accepted = True
+            response.message = 'queued'
             self._publish_status(f'queued tts text: {text}')
         except queue.Full:
             self.get_logger().warn('Dropping TTS text: playback queue is full')
+            response.accepted = False
+            response.message = 'playback queue is full'
             self._publish_status('dropping tts text: playback queue full')
+        return response
 
     def _tts_loop(self) -> None:
         while not self._stop_event.is_set():

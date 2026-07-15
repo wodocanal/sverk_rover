@@ -8,7 +8,7 @@ prototype. The ROS node reads those frames, detects utterances, transcribes
 them with Whisper, and publishes recognized text.
 
 The same serial link can also play speech back through the board speaker. The
-ROS node subscribes to a configurable text topic, synthesizes the text on the
+ROS node exposes a configurable service, synthesizes the requested text on the
 Raspberry Pi, converts it to `16 kHz stereo s16le`, and sends `SPK1` playback
 frames back to the ESP32.
 
@@ -17,9 +17,12 @@ frames back to the ESP32.
 - `/voice/text` (`std_msgs/msg/String`) recognized text.
 - `/voice/transcript` (`std_msgs/msg/String`) JSON transcript metadata.
 - `/waveshare_audio/status` (`std_msgs/msg/String`) connection/STT status.
-- `/voice/say` (`std_msgs/msg/String`) text to speak through the module.
 
-All topic names are configurable in `config/waveshare_audio.yaml`.
+## Services
+
+- `/voice/say` (`rover_interfaces/srv/SpeakText`) text to speak through the module.
+
+All topic and service names are configurable in `config/waveshare_audio.yaml`.
 
 ## Firmware
 
@@ -100,7 +103,7 @@ ros2 launch rover_waveshare_audio waveshare_audio.launch.py \
 Speak a one-shot phrase through the module:
 
 ```bash
-ros2 topic pub --once /voice/say std_msgs/msg/String "{data: 'Привет, проверка динамика'}"
+ros2 service call /voice/say rover_interfaces/srv/SpeakText "{text: 'Привет, проверка динамика'}"
 ```
 
 ## Important Parameters
@@ -112,8 +115,8 @@ ros2 topic pub --once /voice/say std_msgs/msg/String "{data: 'Привет, пр
 - `language`: `ru`, `en`, or empty string for Whisper auto-detect.
 - `device`: `auto`, `cpu`, `cuda`, `mps`.
 - `min_rms`, `start_frames`, `stop_frames`: simple energy VAD tuning.
-- `enable_tts`: subscribe to text and play it through the board speaker.
-- `tts_input_topic`: text topic for playback, default `/voice/say`.
+- `enable_tts`: expose the speech playback service.
+- `tts_service_name`: service for playback, default `/voice/say`.
 - `tts_engine`: `auto`, `say`, or `espeak-ng`.
 - `tts_voice`: optional voice name. Empty means `Milena` for `say`, `ru` for
   `espeak-ng`.

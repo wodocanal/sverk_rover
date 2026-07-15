@@ -34,7 +34,7 @@ waveshare_audio_node:
     serial_sink_baudrate: 115200
 
     enable_tts: true
-    tts_input_topic: /voice/say
+    tts_service_name: /voice/say
     tts_engine: auto
     tts_voice: ''
     tts_rate: 175
