@@ -1,3 +1,7 @@
+# Environment-first configuration
+
+In this final package, `FLEET_ROBOT_ID`, server/LLM/MCP and rover interface settings are intended to be exported in `~/.bashrc`. See the root `environment.example.sh`. The prompt presets in `config/` are behavior files, not network/robot identity configuration.
+
 # rover_agent_mcp
 
 `rover_agent_mcp` добавляет к роверу текстового агента и локальный MCP-style JSON-RPC сервер инструментов.
@@ -143,18 +147,36 @@ ros2 launch rover_agent_mcp agent_mcp.launch.py \
 
 ## ROS topics агента
 
+Версия 0.2 совместима с `fleet_text_bridge_ros2`. Параметр `robot_id` задаёт
+идентичность агента:
+
+```bash
+ros2 launch rover_agent_mcp agent_mcp.launch.py robot_id:=rover-01
+```
+
 ### `/agent/text_command`
 
-Входной topic для команд пользователя.
+Агент принимает новый fleet-envelope:
+
+```json
+{"message_id":"...","robot_id":"rover-01","text":"проедь прямо 30 см"}
+```
+
+`message_id` и `robot_id` не передаются в LLM. Агент обрабатывает только поле
+`text`, а метаданные сохраняет для ответа. Legacy plain text также принимается:
 
 ```bash
 ros2 topic pub --once /agent/text_command std_msgs/msg/String \
-"{data: 'проедь прямо 30 см, поверни направо на 90 градусов и поморгай лентой'}"
+"{data: 'проедь прямо 30 см'}"
 ```
 
 ### `/agent/status`
 
-Технический JSON-статус: получение команды, thinking, tool results, ошибки.
+JSON со статусом и корреляционными ID:
+
+```json
+{"message_id":"...","robot_id":"rover-01","status":"running","text":"Команда получена локальным агентом."}
+```
 
 ```bash
 ros2 topic echo /agent/status
@@ -162,17 +184,19 @@ ros2 topic echo /agent/status
 
 ### `/agent/answer`
 
-Человекочитаемый финальный ответ агента. Его удобно выводить в консоль, web UI, голосовой интерфейс или Telegram.
+Итоговый JSON-ответ:
+
+```json
+{"message_id":"...","robot_id":"rover-01","status":"completed","text":"Готово."}
+```
+
+При ошибке `status` равен `error`.
 
 ```bash
 ros2 topic echo /agent/answer
 ```
 
-Пример:
-
-```text
-Готово, проехал 30 см, повернулся направо и поморгал лентой.
-```
+Подробности: `FLEET_PROTOCOL.md`.
 
 ## Prompt customization
 

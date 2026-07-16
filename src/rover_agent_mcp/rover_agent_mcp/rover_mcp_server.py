@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import traceback
 import threading
 from typing import Any
@@ -120,8 +121,8 @@ class RoverMcpHttpServer(ThreadingHTTPServer):
 class RoverMcpServerNode(RoverRosBridge):
     def __init__(self) -> None:
         super().__init__()
-        self.declare_parameter('mcp_host', '127.0.0.1')
-        self.declare_parameter('mcp_port', 8765)
+        self.declare_parameter('mcp_host', os.getenv('MCP_HOST', '127.0.0.1'))
+        self.declare_parameter('mcp_port', int(os.getenv('MCP_PORT', '8765')))
         self._http_server: RoverMcpHttpServer | None = None
         self._http_thread: threading.Thread | None = None
 

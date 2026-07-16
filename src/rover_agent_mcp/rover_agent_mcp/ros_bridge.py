@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 import traceback
 from typing import Any
@@ -41,13 +42,13 @@ class RoverRosBridge(Node):
     def __init__(self) -> None:
         super().__init__('rover_mcp_ros_bridge')
 
-        self.declare_parameter('led_set_state_service', '/led_strip/set_state')
-        self.declare_parameter('led_state_topic', '/led_strip/state')
-        self.declare_parameter('cmd_vel_topic', '/cmd_vel_test')
-        self.declare_parameter('nav2_action_name', '/navigate_to_pose')
-        self.declare_parameter('odom_topic', '/odom')
-        self.declare_parameter('amcl_pose_topic', '/amcl_pose')
-        self.declare_parameter('scan_topic', '/scan')
+        self.declare_parameter('led_set_state_service', os.getenv('ROVER_LED_SERVICE', '/led_strip/set_state'))
+        self.declare_parameter('led_state_topic', os.getenv('ROVER_LED_STATE_TOPIC', '/led_strip/state'))
+        self.declare_parameter('cmd_vel_topic', os.getenv('ROVER_CMD_VEL_TOPIC', '/cmd_vel_test'))
+        self.declare_parameter('nav2_action_name', os.getenv('ROVER_NAV_ACTION', '/navigate_to_pose'))
+        self.declare_parameter('odom_topic', os.getenv('ROVER_ODOM_TOPIC', '/odom'))
+        self.declare_parameter('amcl_pose_topic', os.getenv('ROVER_AMCL_POSE_TOPIC', '/amcl_pose'))
+        self.declare_parameter('scan_topic', os.getenv('ROVER_SCAN_TOPIC', '/scan'))
         self.declare_parameter('default_forward_distance_m', 0.30)
         self.declare_parameter('default_forward_speed_mps', 0.12)
         self.declare_parameter('default_lateral_speed_mps', 0.10)
