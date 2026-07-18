@@ -1,6 +1,6 @@
 configure_motor_board:
   ros__parameters:
-    serial_device: /tmp/rover_devices/motor_controller
+    serial_device: /dev/ttyUSB0
     baudrate: 115200
     motor_type: 1
     encoder_lines: 11

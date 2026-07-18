@@ -111,7 +111,7 @@ def launch_setup(context):
                 'lidar_device',
                 config,
                 ('lidar', 'serial_port'),
-                '/tmp/rover_devices/lidar',
+                '/dev/ttyUSB2',
             )),
             'serial_baudrate': as_int(launch_value(
                 context,

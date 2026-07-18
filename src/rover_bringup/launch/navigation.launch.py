@@ -25,9 +25,12 @@ def generate_launch_description():
     use_waveshare_audio = LaunchConfiguration('use_waveshare_audio')
     use_web = LaunchConfiguration('use_web')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    discovery_mode = LaunchConfiguration('discovery_mode')
     use_rviz = LaunchConfiguration('use_rviz')
     map_file = LaunchConfiguration('map')
+    motor_device = LaunchConfiguration('motor_device')
+    imu_device = LaunchConfiguration('imu_device')
+    lidar_device = LaunchConfiguration('lidar_device')
+    lidar_baudrate = LaunchConfiguration('lidar_baudrate')
 
     robot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
@@ -45,7 +48,10 @@ def generate_launch_description():
             'use_web': use_web,
             'use_twist_mux': 'true',
             'use_sim_time': use_sim_time,
-            'discovery_mode': discovery_mode,
+            'motor_device': motor_device,
+            'imu_device': imu_device,
+            'lidar_device': lidar_device,
+            'lidar_baudrate': lidar_baudrate,
         }.items(),
     )
 
@@ -71,8 +77,11 @@ def generate_launch_description():
         DeclareLaunchArgument('use_waveshare_audio', default_value='false'),
         DeclareLaunchArgument('use_web', default_value='false'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
-        DeclareLaunchArgument('discovery_mode', default_value='configured'),
         DeclareLaunchArgument('use_rviz', default_value='false'),
+        DeclareLaunchArgument('motor_device', default_value=''),
+        DeclareLaunchArgument('imu_device', default_value=''),
+        DeclareLaunchArgument('lidar_device', default_value=''),
+        DeclareLaunchArgument('lidar_baudrate', default_value=''),
         DeclareLaunchArgument(
             'map',
             default_value=str(

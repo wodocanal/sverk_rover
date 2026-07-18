@@ -27,7 +27,7 @@ class BaseDriverNode(Node):
     def __init__(self) -> None:
         super().__init__('base_driver_node')
 
-        self.declare_parameter('serial_device', '/tmp/rover_devices/motor_controller')
+        self.declare_parameter('serial_device', '/dev/ttyUSB0')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('wheelbase_m', 0.135)

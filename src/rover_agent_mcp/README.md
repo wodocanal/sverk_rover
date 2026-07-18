@@ -103,8 +103,7 @@ ros2 launch rover_bringup robot.launch.py \
   use_rosboard:=false \
   use_foxglove:=false \
   use_twist_mux:=true \
-  use_sim_time:=false \
-  discovery_mode:=configured
+  use_sim_time:=false
 ```
 
 Для Nav2-команд запускай navigation bringup:
@@ -117,8 +116,7 @@ ros2 launch rover_bringup navigation.launch.py \
   use_web:=false \
   use_rosboard:=false \
   use_foxglove:=false \
-  use_sim_time:=false \
-  discovery_mode:=configured
+  use_sim_time:=false
 ```
 
 Затем агент:

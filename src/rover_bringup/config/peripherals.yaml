@@ -9,7 +9,7 @@ peripherals:
 lidar:
   model: sllidar_c1
   channel_type: serial
-  serial_port: /tmp/rover_devices/lidar
+  serial_port: /dev/ttyUSB2
   serial_baudrate: 460800
   probe_baudrates:
   - 460800
