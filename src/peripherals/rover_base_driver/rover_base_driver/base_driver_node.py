@@ -36,7 +36,9 @@ class BaseDriverNode(Node):
         self.declare_parameter('encoder_lines', 11.0)
         self.declare_parameter('reduction_ratio', 45.0)
         self.declare_parameter('quadrature_factor', 4.0)
+        self.declare_parameter('motor_command_order', [0, 1, 2, 3])
         self.declare_parameter('motor_command_signs', [1, -1, -1, 1])
+        self.declare_parameter('encoder_feedback_order', [0, 1, 2, 3])
         self.declare_parameter('encoder_feedback_signs', [1, -1, -1, 1])
         self.declare_parameter('control_rate_hz', 50.0)
         self.declare_parameter('command_timeout_sec', 0.50)
@@ -92,7 +94,9 @@ class BaseDriverNode(Node):
         self.protocol = QuadMdProtocol(
             self.device,
             int(self.get_parameter('baudrate').value),
+            list(self.get_parameter('motor_command_order').value),
             list(self.get_parameter('motor_command_signs').value),
+            list(self.get_parameter('encoder_feedback_order').value),
             list(self.get_parameter('encoder_feedback_signs').value),
         )
 

@@ -29,15 +29,29 @@ encoders:
 base_driver:
   baudrate: 115200
   cmd_vel_topic: /cmd_vel
+  # Controller ports for the mass-assembly motor harness:
+  # [front_right, rear_left, front_left, rear_right].
+  motor_command_order:
+  - 1
+  - 2
+  - 0
+  - 3
   motor_command_signs:
   - 1
-  - -1
-  - -1
   - 1
+  - 1
+  - 1
+  # Inverse of motor_command_order so encoder feedback stays in wheel order:
+  # [front_left, front_right, rear_left, rear_right].
+  encoder_feedback_order:
+  - 2
+  - 0
+  - 1
+  - 3
   encoder_feedback_signs:
   - 1
-  - -1
-  - -1
+  - 1
+  - 1
   - 1
   control_rate_hz: 50.0
   command_timeout_sec: 0.5

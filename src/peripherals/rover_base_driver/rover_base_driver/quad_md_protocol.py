@@ -24,10 +24,14 @@ class QuadMdProtocol:
         self,
         device: str,
         baudrate: int,
+        command_order: Sequence[int],
         command_signs: Sequence[int],
+        feedback_order: Sequence[int],
         feedback_signs: Sequence[int],
     ) -> None:
+        self.command_order = self._order(command_order)
         self.command_signs = self._signs(command_signs)
+        self.feedback_order = self._order(feedback_order)
         self.feedback_signs = self._signs(feedback_signs)
         self.port = serial.Serial(
             device,
@@ -60,6 +64,13 @@ class QuadMdProtocol:
             raise ValueError('sign arrays must contain four values, each -1 or +1')
         return result  # type: ignore[return-value]
 
+    @staticmethod
+    def _order(values: Sequence[int]) -> tuple[int, int, int, int]:
+        result = tuple(int(v) for v in values)
+        if len(result) != 4 or sorted(result) != [0, 1, 2, 3]:
+            raise ValueError('order arrays must be a permutation of 0, 1, 2, 3')
+        return result  # type: ignore[return-value]
+
     def write(self, command: str) -> None:
         if not command.startswith('$') or not command.endswith('#'):
             raise ValueError('invalid controller command framing')
@@ -72,8 +83,8 @@ class QuadMdProtocol:
         if len(values) != 4 or not all(math.isfinite(v) for v in values):
             raise ValueError('four finite wheel speeds are required')
         board = tuple(
-            max(-1000, min(1000, int(round(v * 1000.0)) * sign))
-            for v, sign in zip(values, self.command_signs)
+            max(-1000, min(1000, int(round(values[index] * 1000.0)) * sign))
+            for index, sign in zip(self.command_order, self.command_signs)
         )
         self.write('$spd:' + ','.join(str(v) for v in board) + '#')
         return board  # type: ignore[return-value]
@@ -121,7 +132,10 @@ class QuadMdProtocol:
                 raw = tuple(int(v) for v in fields)
             except ValueError:
                 return
-            counts = tuple(v * s for v, s in zip(raw, self.feedback_signs))
+            counts = tuple(
+                raw[index] * sign
+                for index, sign in zip(self.feedback_order, self.feedback_signs)
+            )
             with self.state_lock:
                 self.latest_counts = counts  # type: ignore[assignment]
                 self.sequence += 1
@@ -141,7 +155,10 @@ class QuadMdProtocol:
                 raw = tuple(float(v) for v in fields)
             except ValueError:
                 return
-            speeds = tuple(v * s / 1000.0 for v, s in zip(raw, self.feedback_signs))
+            speeds = tuple(
+                raw[index] * sign / 1000.0
+                for index, sign in zip(self.feedback_order, self.feedback_signs)
+            )
             with self.state_lock:
                 self.latest_speeds = speeds  # type: ignore[assignment]
             return
