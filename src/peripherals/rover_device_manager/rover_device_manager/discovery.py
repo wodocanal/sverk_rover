@@ -80,6 +80,17 @@ def physical_serial_devices() -> dict[str, str]:
     }
 
 
+def serial_aliases(device: str) -> list[str]:
+    """Return all stable aliases that currently point at a serial device."""
+    resolved = os.path.realpath(device)
+    aliases: list[str] = []
+    for pattern in ('/dev/serial/by-id/*', '/dev/serial/by-path/*'):
+        for alias in sorted(glob.glob(pattern)):
+            if os.path.realpath(alias) == resolved:
+                aliases.append(alias)
+    return aliases
+
+
 def preferred_stable_path(device: str) -> str:
     resolved = os.path.realpath(device)
     for pattern in ('/dev/serial/by-path/*', '/dev/serial/by-id/*'):
@@ -121,6 +132,207 @@ def udev_properties(device: str) -> dict[str, str]:
         if key in keep:
             properties[key] = value
     return properties
+
+
+def _unique_paths(paths: Iterable[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        text = str(path).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _role_defaults(role: str) -> tuple[int, str, str]:
+    if role == 'motor_controller':
+        return 115200, 'quad_md_ascii', 'quad_md'
+    if role == 'imu':
+        return 921600, 'yahboom_0x55', 'yahboom_10_axis'
+    if role == 'lidar':
+        return 460800, 'sllidar_serial', 'c1'
+    return 0, '', ''
+
+
+def _configured_baudrate(entry: dict[str, Any], role: str) -> int:
+    default_baudrate, _protocol, _profile = _role_defaults(role)
+    try:
+        baudrate = int(entry.get('baudrate', default_baudrate))
+    except (TypeError, ValueError):
+        baudrate = default_baudrate
+    return baudrate if baudrate > 0 else default_baudrate
+
+
+def _entry_aliases(entry: dict[str, Any]) -> list[str]:
+    raw_aliases = entry.get('aliases', [])
+    aliases = raw_aliases if isinstance(raw_aliases, list) else []
+    return _unique_paths([
+        str(entry.get('device', '')).strip(),
+        *(str(alias).strip() for alias in aliases),
+    ])
+
+
+def _usb_identity_conflicts(saved: dict[str, str], current: dict[str, str]) -> bool:
+    """Return true when saved USB metadata says this is clearly another device."""
+    if not saved or not current:
+        return False
+    for key in ('ID_SERIAL_SHORT', 'ID_SERIAL'):
+        saved_value = saved.get(key, '').strip()
+        current_value = current.get(key, '').strip()
+        if saved_value and current_value and saved_value != current_value:
+            return True
+    for key in ('ID_VENDOR_ID', 'ID_MODEL_ID'):
+        saved_value = saved.get(key, '').strip()
+        current_value = current.get(key, '').strip()
+        if saved_value and current_value and saved_value != current_value:
+            return True
+    return False
+
+
+def _usb_identity_score(saved: dict[str, str], current: dict[str, str]) -> int:
+    """Score topology-independent USB matches from strongest to weakest."""
+    if not saved or not current:
+        return 0
+    for key in ('ID_SERIAL_SHORT', 'ID_SERIAL'):
+        saved_value = saved.get(key, '').strip()
+        if saved_value and saved_value == current.get(key, '').strip():
+            return 100
+    saved_vid = saved.get('ID_VENDOR_ID', '').strip()
+    saved_pid = saved.get('ID_MODEL_ID', '').strip()
+    if (
+        saved_vid
+        and saved_pid
+        and saved_vid == current.get('ID_VENDOR_ID', '').strip()
+        and saved_pid == current.get('ID_MODEL_ID', '').strip()
+    ):
+        return 20
+    return 0
+
+
+def _usb_identity_candidates(
+    entry: dict[str, Any],
+    used_realpaths: set[str],
+) -> list[tuple[str, str]]:
+    saved_usb = entry.get('usb', {})
+    if not isinstance(saved_usb, dict):
+        return []
+    matches: list[tuple[int, str, str]] = []
+    for candidate in serial_candidates():
+        resolved = os.path.realpath(candidate)
+        if resolved in used_realpaths:
+            continue
+        score = _usb_identity_score(saved_usb, udev_properties(candidate))
+        if score <= 0:
+            continue
+        reason = (
+            'matched saved USB serial metadata'
+            if score >= 100
+            else 'matched saved USB vendor/product metadata'
+        )
+        matches.append((score, candidate, reason))
+    return [
+        (candidate, reason)
+        for _score, candidate, reason in sorted(
+            matches,
+            key=lambda item: (-item[0], item[1]),
+        )
+    ]
+
+
+def _configured_result(
+    role: str,
+    entry: dict[str, Any],
+    device: str,
+    confidence: str,
+    reason: str,
+) -> DeviceResult:
+    _default_baudrate, default_protocol, default_profile = _role_defaults(role)
+    return DeviceResult(
+        role=role,
+        device=device,
+        resolved_device=os.path.realpath(device),
+        baudrate=_configured_baudrate(entry, role),
+        confidence=confidence,
+        reason=reason,
+        protocol=str(entry.get('protocol', default_protocol) or default_protocol),
+        profile=str(entry.get('profile', default_profile) or default_profile),
+        parameters=dict(entry.get('parameters', {})),
+    )
+
+
+def _verify_configured_candidate(
+    role: str,
+    entry: dict[str, Any],
+    candidate: str,
+    confidence: str,
+    reason: str,
+    imu_baudrates: Sequence[int] = DEFAULT_IMU_BAUDRATES,
+    lidar_baudrates: Sequence[int] = DEFAULT_SLLIDAR_BAUDRATES,
+) -> tuple[Optional[DeviceResult], str]:
+    """Verify a relocated candidate before assigning it to a configured role."""
+    baudrate = _configured_baudrate(entry, role)
+    if role == 'motor_controller':
+        ok, probe_reason = probe_motor_controller(candidate, baudrate)
+        if ok:
+            return (
+                _configured_result(
+                    role,
+                    entry,
+                    preferred_stable_path(candidate),
+                    confidence,
+                    f'{reason}; {probe_reason}',
+                ),
+                '',
+            )
+        return None, probe_reason
+
+    if role == 'imu':
+        baudrates = (baudrate,) if baudrate > 0 else tuple(imu_baudrates)
+        ok, detected_baudrate, probe_reason = probe_yahboom_imu(
+            candidate,
+            baudrates=baudrates,
+        )
+        if ok:
+            result = _configured_result(
+                role,
+                entry,
+                preferred_stable_path(candidate),
+                confidence,
+                f'{reason}; {probe_reason}',
+            )
+            return DeviceResult(**{**asdict(result), 'baudrate': detected_baudrate}), ''
+        return None, probe_reason
+
+    if role == 'lidar':
+        baudrates = (baudrate,) if baudrate > 0 else tuple(lidar_baudrates)
+        ok, detected_baudrate, probe_reason, profile, parameters = probe_sllidar(
+            candidate,
+            baudrates=baudrates,
+        )
+        if ok:
+            result = _configured_result(
+                role,
+                entry,
+                preferred_stable_path(candidate),
+                confidence,
+                f'{reason}; {probe_reason}',
+            )
+            return (
+                DeviceResult(
+                    **{
+                        **asdict(result),
+                        'baudrate': detected_baudrate,
+                        'profile': profile or result.profile,
+                        'parameters': parameters or result.parameters,
+                    }
+                ),
+                '',
+            )
+        return None, probe_reason
+
+    return None, f'unsupported configured role {role!r}'
 
 
 def _valid_yahboom_frame(frame: bytes) -> bool:
@@ -441,7 +653,7 @@ def save_device_config(
     payload = {
         'schema_version': CONFIG_SCHEMA_VERSION,
         'created_at_utc': datetime.now(timezone.utc).isoformat(),
-        'identity_strategy': 'physical_usb_path',
+        'identity_strategy': 'physical_usb_path_with_protocol_relocation',
         'devices': devices,
     }
     serialized = json.dumps(payload, indent=2, ensure_ascii=False) + '\n'
@@ -459,53 +671,176 @@ def save_device_config(
     return path
 
 
-def _configured_results(
-    config_path: str,
-    require_imu: bool,
-    require_lidar: bool,
-) -> dict[str, DeviceResult]:
-    payload = load_device_config(config_path)
-    configured = payload['devices']
+def _required_roles(require_imu: bool, require_lidar: bool) -> list[str]:
     required = ['motor_controller']
     if require_imu:
         required.append('imu')
     if require_lidar:
         required.append('lidar')
+    return required
+
+
+def _configured_role_result(
+    role: str,
+    entry: dict[str, Any],
+    used_realpaths: set[str],
+    imu_baudrates: Sequence[int],
+    lidar_baudrates: Sequence[int],
+) -> tuple[Optional[DeviceResult], str]:
+    failures: list[str] = []
+    aliases = _entry_aliases(entry)
+    configured_device = aliases[0] if aliases else ''
+    saved_usb = entry.get('usb', {})
+    saved_usb = saved_usb if isinstance(saved_usb, dict) else {}
+
+    if configured_device and os.path.exists(configured_device):
+        resolved = os.path.realpath(configured_device)
+        if resolved in used_realpaths:
+            return (
+                None,
+                f'configured path collision: {configured_device} resolves to {resolved}',
+            )
+        current_usb = udev_properties(configured_device)
+        if not _usb_identity_conflicts(saved_usb, current_usb):
+            return (
+                _configured_result(
+                    role,
+                    entry,
+                    configured_device,
+                    'configured_physical_path',
+                    'loaded from persistent setup configuration',
+                ),
+                '',
+            )
+        result, reason = _verify_configured_candidate(
+            role,
+            entry,
+            configured_device,
+            'configured_path_protocol_verified',
+            'configured path exists but USB metadata changed',
+            imu_baudrates,
+            lidar_baudrates,
+        )
+        if result is not None:
+            return result, ''
+        failures.append(f'{configured_device}: USB metadata changed and {reason}')
+
+    for alias in aliases[1:]:
+        if not os.path.exists(alias):
+            continue
+        resolved = os.path.realpath(alias)
+        if resolved in used_realpaths:
+            continue
+        result, reason = _verify_configured_candidate(
+            role,
+            entry,
+            alias,
+            'configured_alias_protocol_verified',
+            f'configured alias {alias} is available',
+            imu_baudrates,
+            lidar_baudrates,
+        )
+        if result is not None:
+            return result, ''
+        failures.append(f'{alias}: {reason}')
+
+    for candidate, match_reason in _usb_identity_candidates(entry, used_realpaths):
+        result, reason = _verify_configured_candidate(
+            role,
+            entry,
+            candidate,
+            'configured_usb_identity_protocol_verified',
+            match_reason,
+            imu_baudrates,
+            lidar_baudrates,
+        )
+        if result is not None:
+            return result, ''
+        failures.append(f'{candidate}: {reason}')
+
+    if configured_device:
+        failures.insert(
+            0,
+            f'configured path is unavailable: {configured_device}',
+        )
+    return None, '; '.join(failures) or 'no configured candidate paths'
+
+
+def _mark_protocol_relocated(
+    results: dict[str, DeviceResult],
+    reason: str,
+) -> dict[str, DeviceResult]:
+    relocated: dict[str, DeviceResult] = {}
+    for role, result in results.items():
+        relocated[role] = DeviceResult(
+            **{
+                **asdict(result),
+                'confidence': f'{result.confidence}_configured_fallback',
+                'reason': f'{reason}; {result.reason}',
+            }
+        )
+    return relocated
+
+
+def _configured_results(
+    config_path: str,
+    require_imu: bool,
+    require_lidar: bool,
+    imu_baudrates: Sequence[int] = DEFAULT_IMU_BAUDRATES,
+    lidar_baudrates: Sequence[int] = DEFAULT_SLLIDAR_BAUDRATES,
+    allow_protocol_relocation: bool = True,
+) -> dict[str, DeviceResult]:
+    payload = load_device_config(config_path)
+    configured = payload['devices']
+    required = _required_roles(require_imu, require_lidar)
 
     results: dict[str, DeviceResult] = {}
     used: set[str] = set()
+    failures: list[str] = []
     for role in required:
         entry = configured.get(role)
         if not isinstance(entry, dict):
-            raise RuntimeError(
-                f'Role {role!r} is absent from {expand_config_path(config_path)}. '
-                'Run the setup wizard again.'
+            failures.append(
+                f'role {role!r} is absent from {expand_config_path(config_path)}'
             )
-        device = str(entry.get('device', '')).strip()
-        if not device or not os.path.exists(device):
-            raise RuntimeError(
-                f'Configured {role} path is unavailable: {device or "<empty>"}. '
-                'Check USB cabling or rerun setup_devices.'
-            )
-        resolved = os.path.realpath(device)
-        if resolved in used:
-            raise RuntimeError(
-                f'Configured path collision: {role} resolves to {resolved}, '
-                'which is already assigned to another role.'
-            )
-        used.add(resolved)
-        results[role] = DeviceResult(
-            role=role,
-            device=device,
-            resolved_device=resolved,
-            baudrate=int(entry.get('baudrate', 0)),
-            confidence='configured_physical_path',
-            reason='loaded from persistent setup configuration',
-            protocol=str(entry.get('protocol', '')),
-            profile=str(entry.get('profile', '')),
-            parameters=dict(entry.get('parameters', {})),
+            continue
+
+        result, failure = _configured_role_result(
+            role,
+            entry,
+            used,
+            imu_baudrates,
+            lidar_baudrates,
         )
-    return results
+        if result is None:
+            failures.append(f'{role}: {failure}')
+            continue
+
+        used.add(result.resolved_device)
+        results[role] = result
+
+    if not failures:
+        return results
+
+    if allow_protocol_relocation:
+        reason = (
+            'configured USB paths could not be used; relocated by protocol '
+            f'discovery ({"; ".join(failures)})'
+        )
+        return _mark_protocol_relocated(
+            _discover_roles(
+                require_imu=require_imu,
+                require_lidar=require_lidar,
+                imu_baudrates=imu_baudrates,
+                lidar_baudrates=lidar_baudrates,
+            ),
+            reason,
+        )
+
+    raise RuntimeError(
+        'Configured device paths are unavailable or invalid. '
+        + '; '.join(failures)
+    )
 
 
 def verify_results(results: dict[str, DeviceResult]) -> dict[str, DeviceResult]:
@@ -564,14 +899,40 @@ def prepare_devices(
     if any((motor_device, imu_device, lidar_device)):
         normalized = 'full'
     if normalized == 'configured':
-        results = _configured_results(config_path, require_imu, require_lidar)
-    elif normalized == 'verify':
-        results = verify_results(
-            _configured_results(config_path, require_imu, require_lidar)
+        results = _configured_results(
+            config_path,
+            require_imu,
+            require_lidar,
+            imu_baudrates=imu_baudrates,
+            lidar_baudrates=lidar_baudrates,
+            allow_protocol_relocation=True,
         )
+    elif normalized == 'verify':
+        configured_results = _configured_results(
+            config_path,
+            require_imu,
+            require_lidar,
+            imu_baudrates=imu_baudrates,
+            lidar_baudrates=lidar_baudrates,
+            allow_protocol_relocation=True,
+        )
+        try:
+            results = verify_results(configured_results)
+        except RuntimeError as exc:
+            results = _mark_protocol_relocated(
+                _discover_roles(
+                    require_imu=require_imu,
+                    require_lidar=require_lidar,
+                    motor_device=motor_device,
+                    imu_device=imu_device,
+                    lidar_device=lidar_device,
+                    imu_baudrates=imu_baudrates,
+                    lidar_baudrates=lidar_baudrates,
+                ),
+                f'configured verification failed; relocated by protocol discovery ({exc})',
+            )
     elif normalized == 'full':
-        results = discover(
-            runtime_dir=runtime_dir,
+        results = _discover_roles(
             require_imu=require_imu,
             require_lidar=require_lidar,
             motor_device=motor_device,
@@ -580,7 +941,6 @@ def prepare_devices(
             imu_baudrates=imu_baudrates,
             lidar_baudrates=lidar_baudrates,
         )
-        return results
     else:
         raise RuntimeError(
             f'Unknown discovery mode {mode!r}; use configured, verify or full'
@@ -590,8 +950,7 @@ def prepare_devices(
     return results
 
 
-def discover(
-    runtime_dir: str = '/tmp/rover_devices',
+def _discover_roles(
     require_imu: bool = True,
     require_lidar: bool = False,
     motor_device: Optional[str] = None,
@@ -600,7 +959,6 @@ def discover(
     imu_baudrates: Sequence[int] = DEFAULT_IMU_BAUDRATES,
     lidar_baudrates: Sequence[int] = DEFAULT_SLLIDAR_BAUDRATES,
 ) -> dict[str, DeviceResult]:
-    """Full protocol discovery. Intended for diagnostics, not normal launch."""
     candidates = serial_candidates(
         path for path in (motor_device, imu_device, lidar_device) if path
     )
@@ -709,5 +1067,28 @@ def discover(
     if len(resolved_roles) != len(set(resolved_roles)):
         raise RuntimeError('One physical serial device was assigned more than once')
 
+    return results
+
+
+def discover(
+    runtime_dir: str = '/tmp/rover_devices',
+    require_imu: bool = True,
+    require_lidar: bool = False,
+    motor_device: Optional[str] = None,
+    imu_device: Optional[str] = None,
+    lidar_device: Optional[str] = None,
+    imu_baudrates: Sequence[int] = DEFAULT_IMU_BAUDRATES,
+    lidar_baudrates: Sequence[int] = DEFAULT_SLLIDAR_BAUDRATES,
+) -> dict[str, DeviceResult]:
+    """Full protocol discovery. Intended for diagnostics, not normal launch."""
+    results = _discover_roles(
+        require_imu=require_imu,
+        require_lidar=require_lidar,
+        motor_device=motor_device,
+        imu_device=imu_device,
+        lidar_device=lidar_device,
+        imu_baudrates=imu_baudrates,
+        lidar_baudrates=lidar_baudrates,
+    )
     _write_runtime(runtime_dir, results)
     return results

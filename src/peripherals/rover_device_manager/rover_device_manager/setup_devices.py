@@ -24,6 +24,7 @@ from .discovery import (
     probe_sllidar,
     probe_yahboom_imu,
     save_device_config,
+    serial_aliases,
     udev_properties,
 )
 
@@ -316,6 +317,7 @@ def _detect_role(
 def _config_entry(result: DeviceResult) -> dict[str, Any]:
     entry = {
         'device': result.device,
+        'aliases': serial_aliases(result.device),
         'baudrate': result.baudrate,
         'protocol': result.protocol,
         'profile': result.profile,
@@ -330,7 +332,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             'Interactive one-time setup of Quad-MD, Yahboom IMU and SLLIDAR '
-            'using stable physical USB paths.'
+            'using stable USB paths plus protocol relocation fallback.'
         )
     )
     parser.add_argument('--config', default=DEFAULT_DEVICE_CONFIG)
@@ -345,7 +347,7 @@ def main() -> None:
     print('=========================')
     print('Stop robot.launch.py and any node that may have a serial port open.')
     print('Keep the rover stationary; for first hardware setup, raise the wheels.')
-    print('This setup uses physical USB paths, not USB serial numbers.')
+    print('This setup saves physical USB paths and any available USB aliases.')
     print()
     print('Disconnect the rover Quad-MD, IMU and lidar USB cables.')
     print('Unrelated serial devices may remain connected.')

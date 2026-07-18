@@ -14,7 +14,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             'Prepare rover serial aliases from saved configuration or run '
-            'explicit protocol discovery.'
+            'protocol discovery when the USB topology changed.'
         )
     )
     parser.add_argument(
@@ -22,8 +22,8 @@ def main() -> None:
         choices=('configured', 'verify', 'full'),
         default='configured',
         help=(
-            'configured: fast saved paths; verify: saved paths plus protocol '
-            'checks; full: scan every serial port'
+            'configured: fast saved paths with protocol relocation fallback; '
+            'verify: configured plus protocol checks; full: scan every serial port'
         ),
     )
     parser.add_argument('--config', default=DEFAULT_DEVICE_CONFIG)
