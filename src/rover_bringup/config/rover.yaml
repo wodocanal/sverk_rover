@@ -27,7 +27,6 @@ encoders:
   reduction_ratio: 45.0
   quadrature_factor: 4.0
 base_driver:
-  serial_device: /dev/ttyUSB0
   baudrate: 115200
   cmd_vel_topic: /cmd_vel
   motor_command_signs:
@@ -80,7 +79,7 @@ wheel_odometry:
   - 999.0
   - 0.12
 imu:
-  serial_device: /dev/ttyUSB1
+  serial_device: /tmp/rover_devices/imu
   baudrate: 921600
   frame_id: imu_link
   imu_topic: /imu/data

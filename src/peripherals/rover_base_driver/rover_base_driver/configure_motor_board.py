@@ -13,7 +13,7 @@ class ConfigureMotorBoard(Node):
 
     def __init__(self) -> None:
         super().__init__('configure_motor_board')
-        self.declare_parameter('serial_device', '/dev/ttyUSB0')
+        self.declare_parameter('serial_device', '/tmp/rover_devices/motor_controller')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('motor_type', 1)
         self.declare_parameter('encoder_lines', 11)

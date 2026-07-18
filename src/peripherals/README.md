@@ -7,6 +7,7 @@ Packages:
 
 - `rover_base_driver` - motor controller communication and encoder feedback.
 - `rover_camera` - USB camera driver.
+- `rover_device_manager` - serial device discovery and persistent device setup.
 - `rover_imu` - Yahboom IMU driver and normalization tools.
 - `rover_led_strip` - addressable LED strip driver.
 - `rover_octoliner` - Amperka Octoliner line sensor driver.

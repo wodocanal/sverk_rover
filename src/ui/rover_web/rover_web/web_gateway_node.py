@@ -498,6 +498,7 @@ class RoverWebGateway(Node):
         self.declare_parameter('wheel_odom_topic', '/wheel/odometry')
         self.declare_parameter('imu_topic', '/imu/data')
         self.declare_parameter('diagnostics_topic', '/diagnostics')
+        self.declare_parameter('runtime_dir', '/tmp/rover_devices')
         self.declare_parameter('activity_limit', 1000)
         self.declare_parameter('stop_hold_sec', 0.75)
 
@@ -609,6 +610,9 @@ class RoverWebGateway(Node):
         self.wheel_odom_topic = str(self.get_parameter('wheel_odom_topic').value)
         self.imu_topic = str(self.get_parameter('imu_topic').value)
         self.diagnostics_topic = str(self.get_parameter('diagnostics_topic').value)
+        self.runtime_dir = Path(
+            str(self.get_parameter('runtime_dir').value)
+        ).expanduser()
         self.activity_limit = max(
             100, int(self.get_parameter('activity_limit').value)
         )
@@ -1534,11 +1538,16 @@ class RoverWebGateway(Node):
         }
 
     def _devices_payload(self) -> dict[str, Any]:
-        return {
-            'available': False,
-            'devices': {},
-            'message': 'rover_device_manager is disabled',
-        }
+        path = self.runtime_dir / 'devices.json'
+        try:
+            value = json.loads(path.read_text(encoding='utf-8'))
+            return {
+                'available': isinstance(value, dict),
+                'path': str(path),
+                'devices': value if isinstance(value, dict) else {},
+            }
+        except (OSError, json.JSONDecodeError):
+            return {'available': False, 'path': str(path), 'devices': {}}
 
     def status_payload(self) -> dict[str, Any]:
         with self._lock:

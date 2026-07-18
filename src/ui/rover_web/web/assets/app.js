@@ -2071,7 +2071,7 @@ async function connectLidar() {
 
 function setLidarSettingsForm(parameters = {}) {
   $('#lidar-setting-channel-type').value = parameters.channel_type || 'serial';
-  $('#lidar-setting-serial-port').value = parameters.serial_port || '/dev/ttyUSB2';
+  $('#lidar-setting-serial-port').value = parameters.serial_port || '/tmp/rover_devices/lidar';
   $('#lidar-setting-serial-baudrate').value = String(parameters.serial_baudrate ?? 460800);
   $('#lidar-setting-frame-id').value = parameters.frame_id || 'lidar_link';
   $('#lidar-setting-scan-mode').value = parameters.scan_mode || 'Standard';
@@ -2083,7 +2083,7 @@ function setLidarSettingsForm(parameters = {}) {
 function lidarSettingsPayloadFromForm() {
   return {
     channel_type: $('#lidar-setting-channel-type').value.trim() || 'serial',
-    serial_port: $('#lidar-setting-serial-port').value.trim() || '/dev/ttyUSB2',
+    serial_port: $('#lidar-setting-serial-port').value.trim() || '/tmp/rover_devices/lidar',
     serial_baudrate: Number($('#lidar-setting-serial-baudrate').value || '460800'),
     frame_id: $('#lidar-setting-frame-id').value.trim() || 'lidar_link',
     scan_mode: $('#lidar-setting-scan-mode').value.trim() || 'Standard',

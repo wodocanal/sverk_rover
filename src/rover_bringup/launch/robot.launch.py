@@ -7,10 +7,12 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    EmitEvent,
     IncludeLaunchDescription,
     LogInfo,
     OpaqueFunction,
 )
+from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
@@ -21,6 +23,8 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
+from rover_device_manager.discovery import DEFAULT_DEVICE_CONFIG, prepare_devices
 
 
 def as_bool(text: str) -> bool:
@@ -56,6 +60,9 @@ def launch_setup(context):
         context
     )
     ui_config_file = LaunchConfiguration('ui_config_file').perform(context)
+    runtime_dir = LaunchConfiguration('runtime_dir').perform(context)
+    device_config = LaunchConfiguration('device_config').perform(context)
+    discovery_mode = LaunchConfiguration('discovery_mode').perform(context)
 
     use_imu = as_bool(LaunchConfiguration('use_imu').perform(context))
     use_lidar = as_bool(LaunchConfiguration('use_lidar').perform(context))
@@ -78,44 +85,52 @@ def launch_setup(context):
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
     imu_override = LaunchConfiguration('imu_device').perform(context).strip() or None
     lidar_override = LaunchConfiguration('lidar_device').perform(context).strip() or None
-    lidar_baudrate_override = (
-        LaunchConfiguration('lidar_baudrate').perform(context).strip() or None
-    )
 
     config = read_yaml_file(config_file)
     peripherals_config = read_yaml_file(peripherals_config_file)
     lidar_config = dict(peripherals_config.get('lidar', {}))
-    imu_config = dict(config.get('imu', {}))
-    base_config = dict(config.get('base_driver', {}))
 
-    motor_device = str(
-        motor_override or base_config.get('serial_device', '/dev/ttyUSB0')
-    )
-    imu_device = str(imu_override or imu_config.get('serial_device', '/dev/ttyUSB1'))
-    lidar_device = str(
-        lidar_override or lidar_config.get('serial_port', '/dev/ttyUSB2')
-    )
-    lidar_baudrate = str(
-        lidar_baudrate_override or lidar_config.get('serial_baudrate', 460800)
-    )
+    try:
+        probe_baudrates = tuple(
+            int(value) for value in lidar_config.get(
+                'probe_baudrates', [460800, 115200, 256000, 1000000]
+            )
+        )
+        results = prepare_devices(
+            mode=discovery_mode,
+            config_path=device_config,
+            runtime_dir=runtime_dir,
+            require_imu=use_imu,
+            require_lidar=use_lidar,
+            motor_device=motor_override,
+            imu_device=imu_override,
+            lidar_device=lidar_override,
+            lidar_baudrates=probe_baudrates,
+        )
+    except Exception as exc:
+        return [
+            LogInfo(msg=f'[ERROR] Hardware discovery failed: {exc}'),
+            EmitEvent(event=Shutdown(reason='serial device discovery failed')),
+        ]
 
-    configured = [f'motor controller: {motor_device}']
-    if use_imu:
-        configured.append(f'IMU: {imu_device}')
-    if use_lidar:
-        configured.append(f'lidar: {lidar_device} @ {lidar_baudrate}')
+    detected = [
+        f"motor controller: {results['motor_controller'].resolved_device}"
+    ]
+    if 'imu' in results:
+        detected.append(f"IMU: {results['imu'].resolved_device}")
+    if 'lidar' in results:
+        detected.append(f"lidar: {results['lidar'].resolved_device}")
     actions = [LogInfo(
         msg=(
-            'Device manager disabled; using configured serial devices: '
-            + '; '.join(configured)
+            f'Device mode={discovery_mode}; ' + '; '.join(detected)
         )
     )]
 
     geometry = config['geometry']
     encoders = config['encoders']
-    base_params = base_config
+    base_params = dict(config['base_driver'])
     base_params.update({
-        'serial_device': motor_device,
+        'serial_device': str(Path(runtime_dir) / 'motor_controller'),
         'wheel_radius_m': geometry['wheel_radius_m'],
         'wheelbase_m': geometry['wheelbase_m'],
         'track_width_m': geometry['track_width_m'],
@@ -219,10 +234,27 @@ def launch_setup(context):
             'use_sim_time': as_launch_bool(use_sim_time),
         }
         if use_lidar:
+            detected_lidar = results['lidar']
+            detected_lidar_params = dict(detected_lidar.parameters)
             peripheral_arguments.update({
-                'lidar_device': lidar_device,
-                'lidar_baudrate': lidar_baudrate,
+                'lidar_device': str(Path(runtime_dir) / 'lidar'),
+                'lidar_baudrate': str(detected_lidar.baudrate),
             })
+            add_if_set(
+                peripheral_arguments,
+                'lidar_scan_mode',
+                detected_lidar_params.get('scan_mode'),
+            )
+            add_if_set(
+                peripheral_arguments,
+                'lidar_scan_frequency',
+                detected_lidar_params.get('scan_frequency'),
+            )
+            add_if_set(
+                peripheral_arguments,
+                'lidar_range_min',
+                detected_lidar_params.get('range_min'),
+            )
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('rover_bringup'), 'launch', 'peripherals.launch.py'
@@ -254,7 +286,8 @@ def launch_setup(context):
     ) / 'config'
     if use_imu:
         imu_params.update({
-            'serial_device': imu_device,
+            'serial_device': str(Path(runtime_dir) / 'imu'),
+            'baudrate': results['imu'].baudrate,
         })
         actions.extend([
             Node(
@@ -299,6 +332,17 @@ def generate_launch_description():
             'ui_config_file',
             default_value=bringup_file('config', 'ui.yaml'),
         ),
+        DeclareLaunchArgument('runtime_dir', default_value='/tmp/rover_devices'),
+        DeclareLaunchArgument(
+            'device_config',
+            default_value=DEFAULT_DEVICE_CONFIG,
+            description='Persistent device setup JSON file',
+        ),
+        DeclareLaunchArgument(
+            'discovery_mode',
+            default_value='configured',
+            description='configured (fast), verify, or full',
+        ),
         DeclareLaunchArgument('use_imu', default_value='true'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
@@ -327,6 +371,5 @@ def generate_launch_description():
         DeclareLaunchArgument('motor_device', default_value=''),
         DeclareLaunchArgument('imu_device', default_value=''),
         DeclareLaunchArgument('lidar_device', default_value=''),
-        DeclareLaunchArgument('lidar_baudrate', default_value=''),
         OpaqueFunction(function=launch_setup),
     ])

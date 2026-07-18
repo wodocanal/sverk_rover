@@ -42,7 +42,7 @@ class YahboomImuNode(Node):
     def __init__(self) -> None:
         super().__init__("yahboom_imu_node")
 
-        self.declare_parameter("serial_device", "/dev/ttyUSB1")
+        self.declare_parameter("serial_device", "/tmp/rover_devices/imu")
         self.declare_parameter("baudrate", 921600)
         self.declare_parameter("frame_id", "imu_link")
         self.declare_parameter("imu_topic", "/imu/data")
