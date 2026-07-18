@@ -29,16 +29,29 @@ encoders:
 base_driver:
   baudrate: 115200
   cmd_vel_topic: /cmd_vel
+  # Compensates the corrected mecanum wheel layout where X/Y were swapped.
+  motor_command_order:
+  - 3
+  - 1
+  - 2
+  - 0
   motor_command_signs:
-  - 1
   - -1
   - -1
+  - -1
+  - -1
+  # Inverse of motor_command_order so encoder feedback stays in wheel order:
+  # [front_left, front_right, rear_left, rear_right].
+  encoder_feedback_order:
+  - 3
   - 1
+  - 2
+  - 0
   encoder_feedback_signs:
-  - 1
   - -1
   - -1
-  - 1
+  - -1
+  - -1
   control_rate_hz: 50.0
   command_timeout_sec: 0.5
   feedback_timeout_sec: 0.35
