@@ -9,13 +9,13 @@ components:
   localization: true
   imu: true
   lidar: true
-  camera: true
-  vision: true
-  led_strip: true
-  octoliner: true
+  camera: false
+  vision: false
+  led_strip: false
+  octoliner: false
   waveshare_audio: false
   web: true
-  display: false
-  rosboard: true
-  twist_mux: false
+  display: true
+  rosboard: false
+  twist_mux: true
 
