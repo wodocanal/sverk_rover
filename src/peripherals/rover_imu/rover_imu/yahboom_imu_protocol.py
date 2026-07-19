@@ -1,13 +1,21 @@
-"""Parser for the Yahboom 10-axis IMU 0x55 serial protocol.
+"""Parser for the Yahboom/YB-MRA02 IMU 0x55 serial protocol.
 
 The official Yahboom Raspberry Pi example uses fixed 11-byte frames:
   0x55, frame_type, 8 payload bytes, checksum
 
-Supported frame types in this driver:
+Supported and safely skipped frame types in this driver:
+  0x50 time
   0x51 acceleration
   0x52 angular velocity
   0x53 Euler orientation
   0x54 magnetic field (diagnostic/optional)
+  0x55 port status
+  0x56 pressure/altitude
+  0x57 GPS longitude/latitude
+  0x58 GPS ground speed
+  0x59 quaternion
+  0x5A satellite positioning accuracy
+  0x5F read register response
 
 The checksum is the low byte of the sum of the first 10 bytes.
 """
@@ -27,10 +35,18 @@ TYPE_GYROSCOPE = 0x52
 TYPE_EULER = 0x53
 TYPE_MAGNETIC = 0x54
 SUPPORTED_TYPES = {
+    0x50,
     TYPE_ACCELERATION,
     TYPE_GYROSCOPE,
     TYPE_EULER,
     TYPE_MAGNETIC,
+    0x55,
+    0x56,
+    0x57,
+    0x58,
+    0x59,
+    0x5A,
+    0x5F,
 }
 STANDARD_GRAVITY = 9.80665
 

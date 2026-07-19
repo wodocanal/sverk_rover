@@ -16,8 +16,33 @@ import serial
 
 YAHBOOM_FRAME_HEADER = 0x55
 YAHBOOM_FRAME_LENGTH = 11
-YAHBOOM_FRAME_TYPES = {0x51, 0x52, 0x53, 0x54}
-DEFAULT_IMU_BAUDRATES = (921600, 115200, 57600, 38400, 19200, 9600)
+YAHBOOM_FRAME_TYPES = {
+    0x50,  # time
+    0x51,  # acceleration
+    0x52,  # angular velocity
+    0x53,  # Euler angle
+    0x54,  # magnetic field
+    0x55,  # port status
+    0x56,  # pressure/altitude
+    0x57,  # GPS longitude/latitude
+    0x58,  # GPS ground speed
+    0x59,  # quaternion
+    0x5A,  # satellite positioning accuracy
+    0x5F,  # read register response
+}
+YAHBOOM_REQUIRED_IMU_TYPES = {0x51, 0x52}
+YAHBOOM_USEFUL_IMU_TYPES = {0x51, 0x52, 0x53, 0x54, 0x59}
+DEFAULT_IMU_BAUDRATES = (
+    921600,
+    115200,
+    9600,
+    230400,
+    460800,
+    57600,
+    38400,
+    19200,
+    4800,
+)
 DEFAULT_SLLIDAR_BAUDRATES = (460800, 115200, 256000, 1000000)
 SLLIDAR_GET_INFO = b'\xA5\x50'
 SLLIDAR_STOP = b'\xA5\x25'
@@ -150,7 +175,7 @@ def _role_defaults(role: str) -> tuple[int, str, str]:
     if role == 'motor_controller':
         return 115200, 'quad_md_ascii', 'quad_md'
     if role == 'imu':
-        return 921600, 'yahboom_0x55', 'yahboom_10_axis'
+        return 921600, 'yahboom_0x55', 'yb_mra02_v1'
     if role == 'lidar':
         return 460800, 'sllidar_serial', 'c1'
     return 0, '', ''
@@ -362,11 +387,51 @@ def _scan_yahboom_frames(data: bytes) -> tuple[int, set[int]]:
     return valid, frame_types
 
 
+def _read_serial_bytes(
+    port: serial.Serial,
+    *,
+    duration_sec: float,
+    target_bytes: int,
+) -> bytes:
+    deadline = time.monotonic() + duration_sec
+    data = bytearray()
+    while time.monotonic() < deadline:
+        chunk = port.read(512)
+        if chunk:
+            data.extend(chunk)
+        if len(data) >= target_bytes:
+            break
+    return bytes(data)
+
+
+def _enable_yahboom_imu_outputs(port: serial.Serial) -> None:
+    """Ask Yahboom/Wit-style IMUs to stream ACC/GYRO/ANGLE/MAG frames.
+
+    YB-MRA02-V1.0 can ship with a different output mask from the older rover
+    IMU. The command is intentionally not followed by SAVE, so this is a
+    runtime compatibility nudge rather than permanent module reconfiguration.
+    """
+    unlock = b'\xFF\xAA\x69\x88\xB5'
+    output_acc_gyro_angle_mag = b'\xFF\xAA\x02\x1E\x00'
+    port.write(unlock)
+    port.flush()
+    time.sleep(0.03)
+    port.write(output_acc_gyro_angle_mag)
+    port.flush()
+    time.sleep(0.12)
+
+
 def probe_yahboom_imu(
     device: str,
     baudrates: Sequence[int] = DEFAULT_IMU_BAUDRATES,
 ) -> tuple[bool, int, str]:
-    """Passively identify the Yahboom 0x55/11-byte IMU protocol."""
+    """Identify Yahboom/Wit-style 0x55/11-byte IMU streams.
+
+    Older rover IMUs already stream acceleration and gyro frames. Newer
+    YB-MRA02-V1.0 boards can expose a different output mask, so verification
+    performs a passive read first and then asks the module to enable the core
+    IMU frame set before retrying.
+    """
     failures: list[str] = []
     for baudrate in baudrates:
         try:
@@ -376,33 +441,67 @@ def probe_yahboom_imu(
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0.04,
+                timeout=0.06,
                 write_timeout=0.4,
             ) as port:
                 time.sleep(0.08)
                 port.reset_input_buffer()
-                deadline = time.monotonic() + 0.55
-                data = bytearray()
-                while time.monotonic() < deadline:
-                    chunk = port.read(512)
-                    if chunk:
-                        data.extend(chunk)
-                    if len(data) >= 220:
-                        break
-
-                valid, types = _scan_yahboom_frames(bytes(data))
-                if valid >= 4 and 0x51 in types and 0x52 in types:
-                    type_text = ','.join(
-                        f'0x{value:02X}' for value in sorted(types)
-                    )
+                data = _read_serial_bytes(
+                    port,
+                    duration_sec=0.85,
+                    target_bytes=260,
+                )
+                valid, types = _scan_yahboom_frames(data)
+                type_text = ','.join(f'0x{value:02X}' for value in sorted(types))
+                has_core = YAHBOOM_REQUIRED_IMU_TYPES.issubset(types)
+                if valid >= 2 and has_core:
                     return (
                         True,
                         baudrate,
-                        f'Yahboom 0x55 frames verified: {valid} frames, '
-                        f'types {type_text}',
+                        f'Yahboom/YB-MRA02 0x55 frames verified: '
+                        f'{valid} frames, types {type_text}',
                     )
+
+                if valid > 0 and types & YAHBOOM_USEFUL_IMU_TYPES:
+                    try:
+                        _enable_yahboom_imu_outputs(port)
+                        port.reset_input_buffer()
+                        data = _read_serial_bytes(
+                            port,
+                            duration_sec=1.05,
+                            target_bytes=320,
+                        )
+                        active_valid, active_types = _scan_yahboom_frames(data)
+                        active_type_text = ','.join(
+                            f'0x{value:02X}' for value in sorted(active_types)
+                        )
+                        if (
+                            active_valid >= 2
+                            and YAHBOOM_REQUIRED_IMU_TYPES.issubset(active_types)
+                        ):
+                            return (
+                                True,
+                                baudrate,
+                                'Yahboom/YB-MRA02 0x55 frames verified after '
+                                f'enabling IMU outputs: {active_valid} frames, '
+                                f'types {active_type_text}',
+                            )
+                        failures.append(
+                            f'{baudrate}: saw Yahboom frames ({valid}, '
+                            f'types {type_text}) but no ACC+GYRO after output '
+                            f'enable ({active_valid}, types {active_type_text})'
+                        )
+                        continue
+                    except (OSError, serial.SerialException) as exc:
+                        failures.append(
+                            f'{baudrate}: saw Yahboom frames ({valid}, '
+                            f'types {type_text}) but output enable failed: {exc}'
+                        )
+                        continue
+
                 failures.append(
                     f'{baudrate}: {valid} valid frames from {len(data)} bytes'
+                    + (f', types {type_text}' if type_text else '')
                 )
         except (OSError, serial.SerialException) as exc:
             failures.append(f'{baudrate}: {exc}')
@@ -990,7 +1089,7 @@ def _discover_roles(
                     confidence='protocol_verified',
                     reason=reason,
                     protocol='yahboom_0x55',
-                    profile='yahboom_10_axis',
+                    profile='yb_mra02_v1',
                 )
                 used_realpaths.add(resolved)
                 break
@@ -998,7 +1097,7 @@ def _discover_roles(
 
         if require_imu and 'imu' not in results:
             details = '; '.join(imu_failures) or 'no candidates'
-            raise RuntimeError(f'Yahboom 10-axis IMU not detected. {details}')
+            raise RuntimeError(f'Yahboom/YB-MRA02 IMU not detected. {details}')
 
     # Check Quad-MD before sending SLLIDAR binary commands to all remaining
     # ports. This avoids treating a continuous $MAll/$MSPD stream as lidar data.

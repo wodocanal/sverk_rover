@@ -1,4 +1,4 @@
-"""Native ROS 2 driver for the Yahboom 10-axis IMU USB protocol."""
+"""Native ROS 2 driver for the Yahboom/YB-MRA02 IMU USB protocol."""
 
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ class YahboomImuNode(Node):
         self.create_timer(1.0, self._publish_frame_count)
 
         self.get_logger().info(
-            f"Yahboom 10-axis IMU connected: {self.serial_device} "
+            f"Yahboom/YB-MRA02 IMU connected: {self.serial_device} "
             f"@ {self.baudrate}; output /imu/data"
         )
         self.get_logger().info(

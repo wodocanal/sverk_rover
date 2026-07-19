@@ -31,7 +31,7 @@ from .discovery import (
 
 ROLE_LABELS = {
     'motor_controller': 'Quad-MD motor controller',
-    'imu': 'Yahboom 10-axis IMU',
+    'imu': 'Yahboom YB-MRA02-V1.0 IMU',
     'lidar': 'SLLIDAR',
 }
 
@@ -285,7 +285,7 @@ def _detect_role(
                     confidence='setup_protocol_verified',
                     reason=reason,
                     protocol='yahboom_0x55',
-                    profile='yahboom_10_axis',
+                    profile='yb_mra02_v1',
                 )
         else:
             ok, baudrate, reason, profile, parameters = (
@@ -331,7 +331,7 @@ def _config_entry(result: DeviceResult) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            'Interactive one-time setup of Quad-MD, Yahboom IMU and SLLIDAR '
+        'Interactive one-time setup of Quad-MD, Yahboom YB-MRA02 IMU and SLLIDAR '
             'using stable USB paths plus protocol relocation fallback.'
         )
     )

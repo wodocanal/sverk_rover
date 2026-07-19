@@ -2,7 +2,7 @@
 <package format="3">
   <name>rover_imu</name>
   <version>0.2.0</version>
-  <description>Native Yahboom 10-axis IMU serial driver and normalization tools.</description>
+  <description>Native Yahboom/YB-MRA02 IMU serial driver and normalization tools.</description>
   <maintainer email="maintainer@example.com">Rover Team</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_python</buildtool_depend>

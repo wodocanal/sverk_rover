@@ -15,7 +15,7 @@ setup(
     install_requires=['setuptools', 'pyserial'],
     zip_safe=True,
     maintainer='Rover Team', maintainer_email='maintainer@example.com',
-    description='Native Yahboom 10-axis IMU serial driver for ROS 2.',
+    description='Native Yahboom/YB-MRA02 IMU serial driver for ROS 2.',
     license='Apache-2.0',
     entry_points={'console_scripts': [
         'imu_normalizer_node = rover_imu.imu_normalizer_node:main',
