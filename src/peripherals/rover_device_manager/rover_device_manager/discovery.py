@@ -185,6 +185,21 @@ def _unique_paths(paths: Iterable[str]) -> list[str]:
     return result
 
 
+def _unique_ints(values: Iterable[int]) -> list[int]:
+    result: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number <= 0 or number in seen:
+            continue
+        seen.add(number)
+        result.append(number)
+    return result
+
+
 def _role_defaults(role: str) -> tuple[int, str, str]:
     if role == 'motor_controller':
         return 115200, 'quad_md_ascii', 'quad_md'
@@ -202,6 +217,13 @@ def _configured_baudrate(entry: dict[str, Any], role: str) -> int:
     except (TypeError, ValueError):
         baudrate = default_baudrate
     return baudrate if baudrate > 0 else default_baudrate
+
+
+def _probe_baudrates_with_saved_first(
+    saved_baudrate: int,
+    fallback_baudrates: Sequence[int],
+) -> tuple[int, ...]:
+    return tuple(_unique_ints([saved_baudrate, *fallback_baudrates]))
 
 
 def _entry_aliases(entry: dict[str, Any]) -> list[str]:
@@ -328,10 +350,9 @@ def _verify_configured_candidate(
         return None, probe_reason
 
     if role == 'imu':
-        baudrates = (baudrate,) if baudrate > 0 else tuple(imu_baudrates)
         ok, detected_baudrate, probe_reason = probe_yahboom_imu(
             candidate,
-            baudrates=baudrates,
+            baudrates=_probe_baudrates_with_saved_first(baudrate, imu_baudrates),
         )
         if ok:
             result = _configured_result(
@@ -508,7 +529,14 @@ def probe_yahboom_imu(
     IMU frame set before retrying.
     """
     failures: list[str] = []
-    for baudrate in baudrates:
+    probe_baudrates = list(baudrates)
+    if 115200 in probe_baudrates:
+        # The YB-MRA02 USB bridge can be quiet on the first open immediately
+        # after hot-plug, then start streaming a moment later. Retry the native
+        # baud after the other attempts before declaring setup failure.
+        probe_baudrates.append(115200)
+
+    for attempt_index, baudrate in enumerate(probe_baudrates):
         try:
             with serial.Serial(
                 device,
@@ -519,12 +547,11 @@ def probe_yahboom_imu(
                 timeout=0.06,
                 write_timeout=0.4,
             ) as port:
-                time.sleep(0.08)
-                port.reset_input_buffer()
+                time.sleep(0.20 if baudrate == 115200 else 0.08)
                 data = _read_serial_bytes(
                     port,
-                    duration_sec=0.85,
-                    target_bytes=260,
+                    duration_sec=1.60 if baudrate == 115200 else 0.85,
+                    target_bytes=520 if baudrate == 115200 else 260,
                 )
                 valid, types = _scan_yahboom_frames(data)
                 v2_valid, v2_types = _scan_yb_mra02_frames(data)
@@ -555,16 +582,12 @@ def probe_yahboom_imu(
                 active_v2_types: set[int] = set()
                 active_v2_type_text = ''
                 try_enable_outputs = (
-                    valid == 0
-                    or v2_valid == 0
-                    or types & YAHBOOM_USEFUL_IMU_TYPES
+                    bool(types & YAHBOOM_USEFUL_IMU_TYPES)
                     or data.count(bytes([YAHBOOM_FRAME_HEADER])) > 0
-                    or data.count(bytes([YB_MRA02_FRAME_HEAD1, YB_MRA02_FRAME_HEAD2])) > 0
                 )
                 if try_enable_outputs:
                     try:
                         _enable_yahboom_imu_outputs(port)
-                        port.reset_input_buffer()
                         data = _read_serial_bytes(
                             port,
                             duration_sec=1.05,
@@ -613,7 +636,9 @@ def probe_yahboom_imu(
                         continue
 
                 failures.append(
-                    f'{baudrate}: {valid} valid frames from {len(data)} bytes'
+                    f'{baudrate}'
+                    + (f'#{attempt_index + 1}' if baudrate == 115200 else '')
+                    + f': {valid} valid frames from {len(data)} bytes'
                     + (f', types {type_text}' if type_text else '')
                     + (
                         f'; {v2_valid} valid 7E23 frames'
@@ -1084,9 +1109,13 @@ def verify_results(results: dict[str, DeviceResult]) -> dict[str, DeviceResult]:
             if not ok:
                 raise RuntimeError(f'Configured motor controller failed verification: {reason}')
         elif role == 'imu':
+            fallback_baudrates = _probe_baudrates_with_saved_first(
+                result.baudrate,
+                DEFAULT_IMU_BAUDRATES,
+            )
             ok, baudrate, reason = probe_yahboom_imu(
                 result.device,
-                baudrates=(result.baudrate,),
+                baudrates=fallback_baudrates,
             )
             if not ok:
                 raise RuntimeError(f'Configured IMU failed verification: {reason}')

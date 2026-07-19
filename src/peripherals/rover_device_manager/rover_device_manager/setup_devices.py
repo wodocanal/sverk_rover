@@ -240,6 +240,22 @@ def _confirm_retry(reason: str) -> bool:
             return False
 
 
+def _confirm_accept_unverified_imu(reason: str) -> bool:
+    print(f'  Verification failed: {reason}')
+    print(
+        '  If this is definitely the only newly connected IMU, it can be saved '
+        'by its stable USB path and verified later by rover_imu.'
+    )
+    while True:
+        answer = input(
+            '  Accept this port as IMU without protocol verification? [y/N]: '
+        ).strip().lower()
+        if answer in ('y', 'yes'):
+            return True
+        if answer in ('', 'n', 'no'):
+            return False
+
+
 def _detect_role(
     role: str,
     known_realpaths: set[str],
@@ -272,6 +288,7 @@ def _detect_role(
                     profile='quad_md',
                 )
         elif role == 'imu':
+            time.sleep(1.0)
             ok, baudrate, reason = probe_yahboom_imu(
                 stable_path,
                 DEFAULT_IMU_BAUDRATES,
@@ -284,6 +301,20 @@ def _detect_role(
                     baudrate=baudrate,
                     confidence='setup_protocol_verified',
                     reason=reason,
+                    protocol='yahboom_serial',
+                    profile='yb_mra02_v1',
+                )
+            if _confirm_accept_unverified_imu(reason):
+                return DeviceResult(
+                    role=role,
+                    device=stable_path,
+                    resolved_device=resolved,
+                    baudrate=115200,
+                    confidence='setup_physical_path_only',
+                    reason=(
+                        'Accepted by operator as YB-MRA02 IMU after protocol '
+                        f'verification failed: {reason}'
+                    ),
                     protocol='yahboom_serial',
                     profile='yb_mra02_v1',
                 )
@@ -309,6 +340,20 @@ def _detect_role(
                     profile=profile,
                     parameters=parameters,
                 )
+
+        if role == 'imu':
+            print('  IMU was not accepted without verification.')
+            while True:
+                answer = input('  Retry this device? [Y/n]: ').strip().lower()
+                if answer in ('', 'y', 'yes'):
+                    retry = True
+                    break
+                if answer in ('n', 'no'):
+                    retry = False
+                    break
+            if not retry:
+                raise RuntimeError(f'{label} was not configured: {reason}')
+            continue
 
         if not _confirm_retry(reason):
             raise RuntimeError(f'{label} was not configured: {reason}')
