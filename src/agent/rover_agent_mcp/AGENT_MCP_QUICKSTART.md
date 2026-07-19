@@ -3,7 +3,7 @@
 Подробная документация агента теперь лежит здесь:
 
 ```text
-src/agent/rover_agent_mcp/README.md
+src/rover_agent_mcp/README.md
 ```
 
 Короткий запуск через Sverk AI:
