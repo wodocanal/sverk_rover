@@ -46,11 +46,8 @@ Terminal 2, optional RViz:
 ros2 launch rover_description display_slam.launch.py
 ```
 
-Terminal 3, manual mecanum control:
-
-```bash
-ros2 run rover_teleop mecanum_keyboard
-```
+Use the web UI, Nav2 tools, or another `/cmd_vel` publisher for manual movement
+while mapping.
 
 Save the finished map while SLAM is still running:
 
