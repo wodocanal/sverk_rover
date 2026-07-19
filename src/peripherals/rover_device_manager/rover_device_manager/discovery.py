@@ -387,6 +387,22 @@ def _scan_yahboom_frames(data: bytes) -> tuple[int, set[int]]:
     return valid, frame_types
 
 
+def _byte_sample(data: bytes, limit: int = 48) -> str:
+    if not data:
+        return 'empty'
+    sample = data[:limit]
+    hex_text = sample.hex(' ')
+    ascii_text = ''.join(chr(value) if 32 <= value < 127 else '.' for value in sample)
+    printable = sum(1 for value in data if value in (9, 10, 13) or 32 <= value < 127)
+    printable_ratio = printable / max(1, len(data))
+    headers = data.count(bytes([YAHBOOM_FRAME_HEADER]))
+    return (
+        f'hex[{len(sample)}/{len(data)}]={hex_text}; '
+        f'ascii={ascii_text!r}; printable={printable_ratio:.0%}; '
+        f'0x55_count={headers}'
+    )
+
+
 def _read_serial_bytes(
     port: serial.Serial,
     *,
@@ -412,11 +428,15 @@ def _enable_yahboom_imu_outputs(port: serial.Serial) -> None:
     runtime compatibility nudge rather than permanent module reconfiguration.
     """
     unlock = b'\xFF\xAA\x69\x88\xB5'
-    output_acc_gyro_angle_mag = b'\xFF\xAA\x02\x1E\x00'
+    output_acc_gyro_angle_mag_port = b'\xFF\xAA\x02\x3E\x00'
+    output_rate_10hz = b'\xFF\xAA\x03\x06\x00'
     port.write(unlock)
     port.flush()
     time.sleep(0.03)
-    port.write(output_acc_gyro_angle_mag)
+    port.write(output_acc_gyro_angle_mag_port)
+    port.flush()
+    time.sleep(0.03)
+    port.write(output_rate_10hz)
     port.flush()
     time.sleep(0.12)
 
@@ -462,7 +482,15 @@ def probe_yahboom_imu(
                         f'{valid} frames, types {type_text}',
                     )
 
-                if valid > 0 and types & YAHBOOM_USEFUL_IMU_TYPES:
+                active_valid = 0
+                active_types: set[int] = set()
+                active_type_text = ''
+                try_enable_outputs = (
+                    valid == 0
+                    or types & YAHBOOM_USEFUL_IMU_TYPES
+                    or data.count(bytes([YAHBOOM_FRAME_HEADER])) > 0
+                )
+                if try_enable_outputs:
                     try:
                         _enable_yahboom_imu_outputs(port)
                         port.reset_input_buffer()
@@ -486,22 +514,25 @@ def probe_yahboom_imu(
                                 f'enabling IMU outputs: {active_valid} frames, '
                                 f'types {active_type_text}',
                             )
-                        failures.append(
-                            f'{baudrate}: saw Yahboom frames ({valid}, '
-                            f'types {type_text}) but no ACC+GYRO after output '
-                            f'enable ({active_valid}, types {active_type_text})'
-                        )
-                        continue
                     except (OSError, serial.SerialException) as exc:
                         failures.append(
-                            f'{baudrate}: saw Yahboom frames ({valid}, '
-                            f'types {type_text}) but output enable failed: {exc}'
+                            f'{baudrate}: output enable failed after '
+                            f'{valid} valid frames from {len(data)} bytes'
+                            + (f', types {type_text}' if type_text else '')
+                            + f'; {exc}'
                         )
                         continue
 
                 failures.append(
                     f'{baudrate}: {valid} valid frames from {len(data)} bytes'
                     + (f', types {type_text}' if type_text else '')
+                    + (
+                        f'; after enable: {active_valid} valid frames'
+                        + (f', types {active_type_text}' if active_type_text else '')
+                        if try_enable_outputs
+                        else ''
+                    )
+                    + f'; sample: {_byte_sample(data)}'
                 )
         except (OSError, serial.SerialException) as exc:
             failures.append(f'{baudrate}: {exc}')
