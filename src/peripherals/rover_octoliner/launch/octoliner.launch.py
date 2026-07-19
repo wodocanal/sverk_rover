@@ -11,7 +11,7 @@ def generate_launch_description():
     default_config = str(
         Path(get_package_share_directory('rover_octoliner'))
         / 'config'
-        / 'octoliner.yaml'
+        / 'default.example.yaml'
     )
     return LaunchDescription([
         DeclareLaunchArgument('config_file', default_value=default_config),

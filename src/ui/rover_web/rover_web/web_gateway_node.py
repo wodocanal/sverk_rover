@@ -443,11 +443,11 @@ class RoverWebGateway(Node):
         self.declare_parameter('port', 8765)
         self.declare_parameter(
             'identity_file',
-            str(share / 'config' / 'robot_identity.yaml'),
+            str(share / 'config' / 'robot_identity.default.example.yaml'),
         )
         self.declare_parameter(
             'rover_config_file',
-            str(rover_share / 'config' / 'rover.yaml'),
+            str(rover_share / 'config' / 'robots' / 'rover_v1.yaml'),
         )
         self.declare_parameter('web_root', str(share / 'web'))
         self.declare_parameter(
@@ -565,7 +565,7 @@ class RoverWebGateway(Node):
                 voice_config_file = str(
                     Path(get_package_share_directory(self.voice_package))
                     / 'config'
-                    / 'waveshare_audio.yaml'
+                    / 'default.example.yaml'
                 )
             except Exception:
                 voice_config_file = ''

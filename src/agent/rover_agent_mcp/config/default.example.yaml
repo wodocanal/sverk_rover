@@ -1,0 +1,27 @@
+rover_mcp_server:
+  ros__parameters:
+    mcp_host: 127.0.0.1
+    mcp_port: 8765
+    cmd_vel_topic: /cmd_vel_test
+    led_set_state_service: /led_strip/set_state
+    led_state_topic: /led_strip/state
+    nav2_action_name: /navigate_to_pose
+    odom_topic: /odom
+    amcl_pose_topic: /amcl_pose
+    scan_topic: /scan
+
+rover_agent_text_node:
+  ros__parameters:
+    robot_id: rover-01
+    mcp_url: http://127.0.0.1:8765/mcp
+    text_command_topic: /agent/text_command
+    status_topic: /agent/status
+    answer_topic: /agent/answer
+    prompt_file: ''
+    llm_base_url: ''
+    llm_model: ''
+    llm_api_key_env: OPENAI_API_KEY
+    native_tool_mode: auto
+    timeout_s: 120.0
+    max_tool_rounds: 8
+

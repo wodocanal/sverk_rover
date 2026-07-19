@@ -1,0 +1,15 @@
+description:
+  use_sim_time: false
+  xacro:
+    wheel_radius: 0.03
+    wheel_width: 0.03
+    wheelbase: 0.135
+    track_width: 0.195
+    chassis_length: 0.22
+    chassis_width: 0.2
+    chassis_height: 0.06
+    imu_xyz: [0.0, 0.0, 0.06]
+    imu_rpy: [0.0, 0.0, 0.0]
+    lidar_xyz: [0.0, 0.0, 0.1]
+    lidar_rpy: [0.0, 0.0, 3.141592653589793]
+

@@ -9,7 +9,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     share = Path(get_package_share_directory('rover_vision'))
-    config_file = share / 'config' / 'vision.yaml'
+    config_file = share / 'config' / 'default.example.yaml'
 
     return LaunchDescription([
         DeclareLaunchArgument('config_file', default_value=str(config_file)),

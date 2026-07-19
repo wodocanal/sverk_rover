@@ -11,7 +11,7 @@ def default_config_file() -> str:
     return str(
         Path(get_package_share_directory('rover_waveshare_audio'))
         / 'config'
-        / 'waveshare_audio.yaml'
+        / 'default.example.yaml'
     )
 
 

@@ -24,7 +24,7 @@ def generate_launch_description():
         DeclareLaunchArgument('autostart', default_value='true'),
         DeclareLaunchArgument(
             'params_file',
-            default_value=str(pkg_share / 'config' / 'slam_toolbox_params.yaml'),
+            default_value=str(pkg_share / 'config' / 'slam_toolbox.default.example.yaml'),
         ),
         DeclareLaunchArgument('use_rviz', default_value='false'),
         DeclareLaunchArgument(

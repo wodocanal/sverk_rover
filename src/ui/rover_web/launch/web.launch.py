@@ -14,7 +14,8 @@ def default_rover_config_file() -> str:
         return str(
             Path(get_package_share_directory('rover_bringup'))
             / 'config'
-            / 'rover.yaml'
+            / 'robots'
+            / 'rover_v1.yaml'
         )
     except Exception:
         return ''
@@ -84,7 +85,7 @@ def launch_setup(context, web_share_text: str, terminal_shell: str):
             'PYTHONNOUSERSITE': '1',
         },
         parameters=[
-            str(web_share / 'config' / 'web.yaml'),
+            LaunchConfiguration('config_file'),
             {
                 'bind_address': LaunchConfiguration('bind_address'),
                 'port': ParameterValue(
@@ -110,9 +111,7 @@ def launch_setup(context, web_share_text: str, terminal_shell: str):
                     LaunchConfiguration('rosboard_port'),
                     value_type=int,
                 ),
-                'identity_file': str(
-                    web_share / 'config' / 'robot_identity.yaml'
-                ),
+                'identity_file': LaunchConfiguration('identity_file'),
                 'web_root': str(web_share / 'web'),
                 'motion_executor_path': str(
                     web_share / 'tools' / 'rover_motion_executor.py'
@@ -128,9 +127,19 @@ def generate_launch_description():
     web_share = Path(get_package_share_directory('rover_web'))
     terminal_shell = str(web_share / 'tools' / 'rover_terminal_shell.sh')
     actions = [
+        DeclareLaunchArgument(
+            'config_file',
+            default_value=str(web_share / 'config' / 'default.example.yaml'),
+        ),
         DeclareLaunchArgument('bind_address', default_value='0.0.0.0'),
         DeclareLaunchArgument('port', default_value='8765'),
         DeclareLaunchArgument('command_topic', default_value='/cmd_vel'),
+        DeclareLaunchArgument(
+            'identity_file',
+            default_value=str(
+                web_share / 'config' / 'robot_identity.default.example.yaml'
+            ),
+        ),
         DeclareLaunchArgument(
             'rover_config_file',
             default_value=default_rover_config_file(),

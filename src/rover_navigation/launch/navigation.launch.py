@@ -39,7 +39,7 @@ def generate_launch_description():
         DeclareLaunchArgument('autostart', default_value='true'),
         DeclareLaunchArgument(
             'params_file',
-            default_value=str(pkg_share / 'config' / 'nav2_params.yaml'),
+            default_value=str(pkg_share / 'config' / 'nav2.default.example.yaml'),
         ),
         DeclareLaunchArgument(
             'map',

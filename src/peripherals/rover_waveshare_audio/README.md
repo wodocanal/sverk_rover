@@ -22,7 +22,8 @@ frames back to the ESP32.
 
 - `/voice/say` (`rover_interfaces/srv/SpeakText`) text to speak through the module.
 
-All topic and service names are configurable in `config/waveshare_audio.yaml`.
+Standalone defaults live in `config/default.example.yaml`. During normal rover
+bringup, topic and service names come from `rover_bringup/config`.
 
 ## Firmware
 
