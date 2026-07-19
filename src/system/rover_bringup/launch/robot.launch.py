@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -38,6 +39,11 @@ from rover_device_manager.discovery import DEFAULT_DEVICE_CONFIG, prepare_device
 def add_if_set(arguments: dict[str, str], key: str, value) -> None:
     if value is not None and str(value).strip():
         arguments[key] = str(value)
+
+
+def set_if_blank(target: dict, key: str, value) -> None:
+    if not str(target.get(key, '')).strip():
+        target[key] = value
 
 
 def flag(context, profile_config: dict, argument: str, component: str, default: bool):
@@ -123,6 +129,10 @@ def launch_setup(context):
     use_rosboard = flag(
         context, profile_config, 'use_rosboard', 'rosboard', True
     )
+    use_agent = flag(context, profile_config, 'use_agent', 'agent', False)
+    use_fleet_bridge = flag(
+        context, profile_config, 'use_fleet_bridge', 'fleet_bridge', False
+    )
     use_mux = flag(context, profile_config, 'use_twist_mux', 'twist_mux', False)
     use_sim_time = override_bool(
         LaunchConfiguration('use_sim_time').perform(context),
@@ -140,6 +150,8 @@ def launch_setup(context):
     topics_config = read_yaml_file(topics_config_file)
     topics = dict(topics_config.get('topics', {}))
     frames = dict(topics_config.get('frames', {}))
+    robot_identity = dict(robot_config.get('robot', {}))
+    robot_id = str(robot_identity.get('id', 'rover-01'))
 
     if peripherals_config_file:
         legacy_peripherals = read_yaml_file(peripherals_config_file)
@@ -401,6 +413,129 @@ def launch_setup(context):
             parameters=[ekf_config],
             remappings=[('odometry/filtered', topics.get('odom', '/odom'))],
         ))
+
+    if use_agent or use_fleet_bridge:
+        agent_component = load_component(components_dir, 'agent')
+        agent_command_topic = topics.get('agent_text_command', '/agent/text_command')
+        agent_status_topic = topics.get('agent_status', '/agent/status')
+        agent_answer_topic = topics.get('agent_answer', '/agent/answer')
+        mcp_params = deep_merge(
+            {
+                'mcp_host': '127.0.0.1',
+                'mcp_port': 8766,
+                'cmd_vel_topic': topics.get('cmd_vel_test', '/cmd_vel_test'),
+                'led_set_state_service': topics.get(
+                    'led_set_state', '/led_strip/set_state'
+                ),
+                'led_state_topic': topics.get('led_state', '/led_strip/state'),
+                'nav2_action_name': '/navigate_to_pose',
+                'odom_topic': topics.get('odom', '/odom'),
+                'amcl_pose_topic': topics.get('amcl_pose', '/amcl_pose'),
+                'scan_topic': topics.get('scan', '/scan'),
+            },
+            dict(agent_component.get('mcp_server', {})),
+        )
+        mcp_url = (
+            f"http://127.0.0.1:{int(mcp_params.get('mcp_port', 8766))}/mcp"
+        )
+        set_if_blank(
+            mcp_params,
+            'cmd_vel_topic',
+            topics.get('cmd_vel_test', '/cmd_vel_test'),
+        )
+        set_if_blank(
+            mcp_params,
+            'led_set_state_service',
+            topics.get('led_set_state', '/led_strip/set_state'),
+        )
+        set_if_blank(
+            mcp_params,
+            'led_state_topic',
+            topics.get('led_state', '/led_strip/state'),
+        )
+        set_if_blank(mcp_params, 'nav2_action_name', '/navigate_to_pose')
+        set_if_blank(mcp_params, 'odom_topic', topics.get('odom', '/odom'))
+        set_if_blank(
+            mcp_params,
+            'amcl_pose_topic',
+            topics.get('amcl_pose', '/amcl_pose'),
+        )
+        set_if_blank(mcp_params, 'scan_topic', topics.get('scan', '/scan'))
+        default_prompt_file = str(
+            Path(get_package_share_directory('rover_agent_mcp'))
+            / 'config'
+            / 'default_system_prompt.md'
+        )
+        text_agent_params = deep_merge(
+            {
+                'robot_id': robot_id,
+                'mcp_url': mcp_url,
+                'text_command_topic': agent_command_topic,
+                'status_topic': agent_status_topic,
+                'answer_topic': agent_answer_topic,
+                'prompt_file': default_prompt_file,
+                'llm_base_url': '',
+                'llm_model': '',
+                'llm_api_key_env': 'OPENAI_API_KEY',
+                'native_tool_mode': 'auto',
+                'timeout_s': 120.0,
+                'max_tool_rounds': 8,
+            },
+            dict(agent_component.get('text_agent', {})),
+        )
+        if not str(text_agent_params.get('mcp_url', '')).strip():
+            text_agent_params['mcp_url'] = mcp_url
+        if not str(text_agent_params.get('prompt_file', '')).strip():
+            text_agent_params['prompt_file'] = default_prompt_file
+        set_if_blank(text_agent_params, 'robot_id', robot_id)
+        set_if_blank(text_agent_params, 'text_command_topic', agent_command_topic)
+        set_if_blank(text_agent_params, 'status_topic', agent_status_topic)
+        set_if_blank(text_agent_params, 'answer_topic', agent_answer_topic)
+
+        if use_agent:
+            actions.append(Node(
+                package='rover_agent_mcp',
+                executable='rover_mcp_server',
+                name='rover_mcp_server',
+                output='screen',
+                parameters=[mcp_params],
+            ))
+            actions.append(Node(
+                package='rover_agent_mcp',
+                executable='agent_text_node',
+                name='rover_agent_text_node',
+                output='screen',
+                parameters=[text_agent_params],
+            ))
+
+        if use_fleet_bridge:
+            fleet_bridge_params = deep_merge(
+                {
+                    'robot_id': robot_id,
+                    'mqtt_host': '127.0.0.1',
+                    'mqtt_port': 1883,
+                    'mqtt_topic_prefix': 'fleet/v1/robots',
+                    'mqtt_username': '',
+                    'mqtt_password_env': 'FLEET_MQTT_PASSWORD',
+                    'command_topic': agent_command_topic,
+                    'answer_topic': agent_answer_topic,
+                    'status_topic': agent_status_topic,
+                    'duplicate_cache_size': 100,
+                    'agent_command_timeout_sec': 300.0,
+                },
+                dict(agent_component.get('fleet_bridge', {})),
+            )
+            set_if_blank(fleet_bridge_params, 'robot_id', robot_id)
+            set_if_blank(fleet_bridge_params, 'command_topic', agent_command_topic)
+            set_if_blank(fleet_bridge_params, 'answer_topic', agent_answer_topic)
+            set_if_blank(fleet_bridge_params, 'status_topic', agent_status_topic)
+            actions.append(Node(
+                package='fleet_text_bridge_ros2',
+                executable='bridge_node',
+                name='fleet_text_bridge',
+                output='screen',
+                parameters=[fleet_bridge_params],
+            ))
     return actions
 
 
@@ -473,6 +608,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_waveshare_audio', default_value=empty_default),
         DeclareLaunchArgument('use_web', default_value=empty_default),
         DeclareLaunchArgument('use_rosboard', default_value=empty_default),
+        DeclareLaunchArgument('use_agent', default_value=empty_default),
+        DeclareLaunchArgument('use_fleet_bridge', default_value=empty_default),
         DeclareLaunchArgument('rosboard_port', default_value='8888'),
         DeclareLaunchArgument('use_twist_mux', default_value=empty_default),
         DeclareLaunchArgument('use_sim_time', default_value=empty_default),

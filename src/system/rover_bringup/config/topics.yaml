@@ -23,6 +23,10 @@ topics:
   voice_status: /waveshare_audio/status
   voice_transcript: /voice/transcript
   agent_text: /agent/text
+  agent_text_command: /agent/text_command
+  agent_status: /agent/status
+  agent_answer: /agent/answer
+  amcl_pose: /amcl_pose
   battery_state: /battery/state
 
 frames:

@@ -9,6 +9,7 @@ launched and understood in isolation.
 - `robots/`: physical robot identity, geometry, wheel layout and calibration.
 - `profiles/`: which components are enabled for a launch mode.
 - `components/`: runtime parameters for each hardware, discovery or UI component.
+- `components/agent.yaml`: local MCP/LLM agent and MQTT fleet bridge settings.
 - `topics.yaml`: shared topic names and TF frame names.
 - `localization/`: EKF parameter files used by `rover_bringup`.
 - `navigation/`: Nav2 and SLAM parameter files used by `rover_bringup`.

@@ -17,5 +17,6 @@ components:
   web: false
   display: false
   rosboard: false
+  agent: false
+  fleet_bridge: false
   twist_mux: true
-

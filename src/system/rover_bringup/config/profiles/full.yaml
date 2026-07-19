@@ -14,8 +14,10 @@ components:
   web: true
   display: true
   rosboard: true
+  agent: true
+  fleet_bridge: true
 
   octoliner: false
   waveshare_audio: false
-  camera: false
+  camera: true
   vision: false

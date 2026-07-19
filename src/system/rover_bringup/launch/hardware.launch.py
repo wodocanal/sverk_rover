@@ -22,6 +22,8 @@ def generate_launch_description():
     use_waveshare_audio = LaunchConfiguration('use_waveshare_audio')
     use_web = LaunchConfiguration('use_web')
     use_rosboard = LaunchConfiguration('use_rosboard')
+    use_agent = LaunchConfiguration('use_agent')
+    use_fleet_bridge = LaunchConfiguration('use_fleet_bridge')
     use_twist_mux = LaunchConfiguration('use_twist_mux')
     return LaunchDescription([
         DeclareLaunchArgument('profile', default_value='hardware'),
@@ -39,6 +41,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_waveshare_audio', default_value=empty_default),
         DeclareLaunchArgument('use_web', default_value=empty_default),
         DeclareLaunchArgument('use_rosboard', default_value=empty_default),
+        DeclareLaunchArgument('use_agent', default_value=empty_default),
+        DeclareLaunchArgument('use_fleet_bridge', default_value=empty_default),
         DeclareLaunchArgument('use_twist_mux', default_value=empty_default),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
@@ -60,6 +64,8 @@ def generate_launch_description():
                 'use_waveshare_audio': use_waveshare_audio,
                 'use_web': use_web,
                 'use_rosboard': use_rosboard,
+                'use_agent': use_agent,
+                'use_fleet_bridge': use_fleet_bridge,
                 'use_twist_mux': use_twist_mux,
             }.items(),
         ),
