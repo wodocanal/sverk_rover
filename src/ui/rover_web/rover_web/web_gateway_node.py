@@ -80,7 +80,14 @@ MAP_IMAGE_EXTENSIONS = {
 
 
 def default_maps_root(workspace_root: Path) -> str:
-    source_maps = workspace_root / 'src' / 'rover_navigation' / 'maps' / 'current'
+    source_maps = (
+        workspace_root
+        / 'src'
+        / 'motion'
+        / 'rover_navigation'
+        / 'maps'
+        / 'current'
+    )
     if source_maps.exists():
         return str(source_maps)
     try:

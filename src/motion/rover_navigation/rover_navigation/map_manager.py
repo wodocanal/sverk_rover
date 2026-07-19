@@ -60,7 +60,7 @@ def find_source_package() -> Path:
         share = Path(get_package_share_directory(PACKAGE_NAME))
         installed_package_xml = share / 'package.xml'
         if installed_package_xml.exists():
-            # With --symlink-install this resolves directly to src/rover_navigation.
+            # With --symlink-install this resolves directly to the source package.
             candidates.append(installed_package_xml.resolve().parent)
     except Exception:
         pass
@@ -69,14 +69,17 @@ def find_source_package() -> Path:
         prefix = Path(get_package_prefix(PACKAGE_NAME))
         workspace_candidates = [prefix.parent, prefix.parent.parent]
         for workspace in workspace_candidates:
+            candidates.append(workspace / 'src' / 'motion' / PACKAGE_NAME)
             candidates.append(workspace / 'src' / PACKAGE_NAME)
     except Exception:
         pass
 
+    candidates.append(Path.home() / 'ros2_ws' / 'src' / 'motion' / PACKAGE_NAME)
     candidates.append(Path.home() / 'ros2_ws' / 'src' / PACKAGE_NAME)
 
     current = Path.cwd().resolve()
     for parent in (current, *current.parents):
+        candidates.append(parent / 'src' / 'motion' / PACKAGE_NAME)
         candidates.append(parent / 'src' / PACKAGE_NAME)
         if parent.name == PACKAGE_NAME:
             candidates.append(parent)
@@ -97,7 +100,7 @@ def find_source_package() -> Path:
     raise MapManagerError(
         'Не удалось найти исходный пакет rover_navigation. '
         'Запустите команду из workspace или задайте '
-        'ROVER_NAVIGATION_SOURCE_DIR=~/ros2_ws/src/rover_navigation.'
+        'ROVER_NAVIGATION_SOURCE_DIR=~/ros2_ws/src/motion/rover_navigation.'
     )
 
 

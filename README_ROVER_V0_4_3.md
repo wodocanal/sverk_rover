@@ -6,7 +6,7 @@ bringup for mapping, navigation and map updating.
 ## Map layout
 
 ```text
-src/rover_navigation/maps/
+src/motion/rover_navigation/maps/
 ├── current/          # map used by default by Nav2
 │   ├── map.yaml
 │   ├── map.pgm       # or another image format
@@ -16,7 +16,7 @@ src/rover_navigation/maps/
 └── archive/          # previous current maps
 ```
 
-`src/rover_navigation/maps/current` is authoritative. The map command also
+`src/motion/rover_navigation/maps/current` is authoritative. The map command also
 synchronizes the installed package copy, so navigation can start immediately
 without rebuilding. A future colcon build installs the same source map again.
 
