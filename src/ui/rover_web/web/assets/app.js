@@ -3509,7 +3509,7 @@ function renderVisualizationMapSelector() {
   if (!validMaps.length) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = 'Нет карт в maps/';
+    option.textContent = 'Нет карт в текущей папке навигации';
     select.append(option);
     select.disabled = true;
     visibleToggle.disabled = true;

@@ -77,6 +77,22 @@ MAP_IMAGE_EXTENSIONS = {
     '.tif',
     '.tiff',
 }
+
+
+def default_maps_root(workspace_root: Path) -> str:
+    source_maps = workspace_root / 'src' / 'rover_navigation' / 'maps' / 'current'
+    if source_maps.exists():
+        return str(source_maps)
+    try:
+        return str(
+            Path(get_package_share_directory('rover_navigation'))
+            / 'maps'
+            / 'current'
+        )
+    except Exception:
+        return str(source_maps)
+
+
 CAMERA_PARAMETER_NAMES = [
     'device',
     'image_topic',
@@ -462,7 +478,7 @@ class RoverWebGateway(Node):
             'hackathon_files_root',
             str(workspace_root / 'hackathon_files'),
         )
-        self.declare_parameter('maps_root', str(workspace_root / 'maps'))
+        self.declare_parameter('maps_root', default_maps_root(workspace_root))
         self.declare_parameter(
             'seed_plans_directory',
             str(share / 'plans'),

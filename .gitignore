@@ -2,8 +2,15 @@
 /**/install
 /**/log
 
-# macOS filesystem metadata.
+# OS filesystem metadata.
 .DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+Thumbs.db
+desktop.ini
 
 # Local user/runtime files that should not live in the repo.
 /.bash_history
