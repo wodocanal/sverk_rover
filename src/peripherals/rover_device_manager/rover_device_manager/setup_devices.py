@@ -284,7 +284,7 @@ def _detect_role(
                     baudrate=baudrate,
                     confidence='setup_protocol_verified',
                     reason=reason,
-                    protocol='yahboom_0x55',
+                    protocol='yahboom_serial',
                     profile='yb_mra02_v1',
                 )
         else:

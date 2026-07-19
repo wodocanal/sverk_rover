@@ -20,11 +20,17 @@ from .yahboom_imu_protocol import (
     TYPE_EULER,
     TYPE_GYROSCOPE,
     TYPE_MAGNETIC,
+    TYPE_YB_MRA02_EULER,
+    TYPE_YB_MRA02_QUATERNION,
+    TYPE_YB_MRA02_RAW,
     YahboomFrameParser,
     decode_acceleration,
     decode_euler,
     decode_gyroscope,
     decode_magnetic_raw,
+    decode_yb_mra02_euler,
+    decode_yb_mra02_quaternion,
+    decode_yb_mra02_raw,
     quaternion_from_euler,
     remap_vector,
 )
@@ -43,7 +49,7 @@ class YahboomImuNode(Node):
         super().__init__("yahboom_imu_node")
 
         self.declare_parameter("serial_device", "/tmp/rover_devices/imu")
-        self.declare_parameter("baudrate", 921600)
+        self.declare_parameter("baudrate", 115200)
         self.declare_parameter("frame_id", "imu_link")
         self.declare_parameter("imu_topic", "/imu/data")
         self.declare_parameter("mag_topic", "/imu/mag")
@@ -157,10 +163,14 @@ class YahboomImuNode(Node):
         self._acceleration: Optional[tuple[float, float, float]] = None
         self._gyro: Optional[tuple[float, float, float]] = None
         self._euler: Optional[tuple[float, float, float]] = None
-        self._magnetic: Optional[tuple[int, int, int]] = None
+        self._orientation_quaternion: Optional[
+            tuple[float, float, float, float]
+        ] = None
+        self._magnetic: Optional[tuple[float, float, float]] = None
         self._last_accel_time = 0.0
         self._last_gyro_time = 0.0
         self._last_euler_time = 0.0
+        self._last_quaternion_time = 0.0
         self._last_mag_time = 0.0
         self._last_warning_time = 0.0
         self._last_mag_publish_time = 0.0
@@ -216,6 +226,29 @@ class YahboomImuNode(Node):
 
             with self._lock:
                 for frame in frames:
+                    if frame.protocol == 'yb_mra02_v1':
+                        if frame.frame_type == TYPE_YB_MRA02_RAW:
+                            acceleration, gyro, magnetic = decode_yb_mra02_raw(
+                                frame.payload
+                            )
+                            self._acceleration = acceleration
+                            self._gyro = gyro
+                            self._magnetic = tuple(
+                                value / self.mag_scale for value in magnetic
+                            )
+                            self._last_accel_time = now
+                            self._last_gyro_time = now
+                            self._last_mag_time = now
+                        elif frame.frame_type == TYPE_YB_MRA02_EULER:
+                            self._euler = decode_yb_mra02_euler(frame.payload)
+                            self._last_euler_time = now
+                        elif frame.frame_type == TYPE_YB_MRA02_QUATERNION:
+                            self._orientation_quaternion = (
+                                decode_yb_mra02_quaternion(frame.payload)
+                            )
+                            self._last_quaternion_time = now
+                        continue
+
                     if frame.frame_type == TYPE_ACCELERATION:
                         self._acceleration = decode_acceleration(frame.payload)
                         self._last_accel_time = now
@@ -236,9 +269,11 @@ class YahboomImuNode(Node):
             gyro = self._gyro
             euler = self._euler
             magnetic = self._magnetic
+            orientation_quaternion = self._orientation_quaternion
             accel_time = self._last_accel_time
             gyro_time = self._last_gyro_time
             euler_time = self._last_euler_time
+            quaternion_time = self._last_quaternion_time
             mag_time = self._last_mag_time
             serial_fault = self._serial_fault
 
@@ -251,7 +286,7 @@ class YahboomImuNode(Node):
         if acceleration is None or gyro is None:
             if now_mono - self._last_warning_time > 2.0:
                 self.get_logger().warning(
-                    "Waiting for valid 0x51 acceleration and 0x52 gyro frames"
+                    "Waiting for valid IMU acceleration and gyro frames"
                 )
                 self._last_warning_time = now_mono
             return
@@ -286,6 +321,20 @@ class YahboomImuNode(Node):
         message.angular_velocity_covariance = list(self.gyro_covariance)
 
         if (
+            self.publish_orientation
+            and orientation_quaternion is not None
+            and now_mono - quaternion_time <= self.data_timeout
+        ):
+            (
+                message.orientation.x,
+                message.orientation.y,
+                message.orientation.z,
+                message.orientation.w,
+            ) = orientation_quaternion
+            message.orientation_covariance = list(
+                self.orientation_covariance
+            )
+        elif (
             self.publish_orientation
             and euler is not None
             and now_mono - euler_time <= self.data_timeout

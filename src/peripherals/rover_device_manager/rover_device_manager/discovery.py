@@ -32,9 +32,23 @@ YAHBOOM_FRAME_TYPES = {
 }
 YAHBOOM_REQUIRED_IMU_TYPES = {0x51, 0x52}
 YAHBOOM_USEFUL_IMU_TYPES = {0x51, 0x52, 0x53, 0x54, 0x59}
+YB_MRA02_FRAME_HEAD1 = 0x7E
+YB_MRA02_FRAME_HEAD2 = 0x23
+YB_MRA02_MAX_FRAME_LENGTH = 64
+YB_MRA02_FUNC_RAW = 0x04
+YB_MRA02_FUNC_QUATERNION = 0x16
+YB_MRA02_FUNC_EULER = 0x26
+YB_MRA02_FRAME_TYPES = {
+    YB_MRA02_FUNC_RAW,
+    YB_MRA02_FUNC_QUATERNION,
+    YB_MRA02_FUNC_EULER,
+    0x07,  # version
+    0x32,  # return state
+    0x34,  # barometer
+}
 DEFAULT_IMU_BAUDRATES = (
-    921600,
     115200,
+    921600,
     9600,
     230400,
     460800,
@@ -175,7 +189,7 @@ def _role_defaults(role: str) -> tuple[int, str, str]:
     if role == 'motor_controller':
         return 115200, 'quad_md_ascii', 'quad_md'
     if role == 'imu':
-        return 921600, 'yahboom_0x55', 'yb_mra02_v1'
+        return 115200, 'yahboom_serial', 'yb_mra02_v1'
     if role == 'lidar':
         return 460800, 'sllidar_serial', 'c1'
     return 0, '', ''
@@ -387,6 +401,46 @@ def _scan_yahboom_frames(data: bytes) -> tuple[int, set[int]]:
     return valid, frame_types
 
 
+def _valid_yb_mra02_frame(frame: bytes) -> bool:
+    return (
+        len(frame) >= 5
+        and frame[0] == YB_MRA02_FRAME_HEAD1
+        and frame[1] == YB_MRA02_FRAME_HEAD2
+        and len(frame) == frame[2]
+        and frame[2] <= YB_MRA02_MAX_FRAME_LENGTH
+        and frame[3] in YB_MRA02_FRAME_TYPES
+        and (sum(frame[:-1]) & 0xFF) == frame[-1]
+    )
+
+
+def _scan_yb_mra02_frames(data: bytes) -> tuple[int, set[int]]:
+    valid = 0
+    frame_types: set[int] = set()
+    index = 0
+    while index + 5 <= len(data):
+        if (
+            data[index] != YB_MRA02_FRAME_HEAD1
+            or data[index + 1] != YB_MRA02_FRAME_HEAD2
+        ):
+            index += 1
+            continue
+        frame_length = int(data[index + 2])
+        if frame_length < 5 or frame_length > YB_MRA02_MAX_FRAME_LENGTH:
+            index += 1
+            continue
+        frame_end = index + frame_length
+        if frame_end > len(data):
+            break
+        frame = data[index:frame_end]
+        if _valid_yb_mra02_frame(frame):
+            valid += 1
+            frame_types.add(frame[3])
+            index = frame_end
+        else:
+            index += 1
+    return valid, frame_types
+
+
 def _byte_sample(data: bytes, limit: int = 48) -> str:
     if not data:
         return 'empty'
@@ -396,10 +450,11 @@ def _byte_sample(data: bytes, limit: int = 48) -> str:
     printable = sum(1 for value in data if value in (9, 10, 13) or 32 <= value < 127)
     printable_ratio = printable / max(1, len(data))
     headers = data.count(bytes([YAHBOOM_FRAME_HEADER]))
+    v2_headers = data.count(bytes([YB_MRA02_FRAME_HEAD1, YB_MRA02_FRAME_HEAD2]))
     return (
         f'hex[{len(sample)}/{len(data)}]={hex_text}; '
         f'ascii={ascii_text!r}; printable={printable_ratio:.0%}; '
-        f'0x55_count={headers}'
+        f'0x55_count={headers}; 7e23_count={v2_headers}'
     )
 
 
@@ -472,7 +527,11 @@ def probe_yahboom_imu(
                     target_bytes=260,
                 )
                 valid, types = _scan_yahboom_frames(data)
+                v2_valid, v2_types = _scan_yb_mra02_frames(data)
                 type_text = ','.join(f'0x{value:02X}' for value in sorted(types))
+                v2_type_text = ','.join(
+                    f'0x{value:02X}' for value in sorted(v2_types)
+                )
                 has_core = YAHBOOM_REQUIRED_IMU_TYPES.issubset(types)
                 if valid >= 2 and has_core:
                     return (
@@ -481,14 +540,26 @@ def probe_yahboom_imu(
                         f'Yahboom/YB-MRA02 0x55 frames verified: '
                         f'{valid} frames, types {type_text}',
                     )
+                if v2_valid >= 2 and YB_MRA02_FUNC_RAW in v2_types:
+                    return (
+                        True,
+                        baudrate,
+                        f'Yahboom YB-MRA02 7E23 frames verified: '
+                        f'{v2_valid} frames, functions {v2_type_text}',
+                    )
 
                 active_valid = 0
                 active_types: set[int] = set()
                 active_type_text = ''
+                active_v2_valid = 0
+                active_v2_types: set[int] = set()
+                active_v2_type_text = ''
                 try_enable_outputs = (
                     valid == 0
+                    or v2_valid == 0
                     or types & YAHBOOM_USEFUL_IMU_TYPES
                     or data.count(bytes([YAHBOOM_FRAME_HEADER])) > 0
+                    or data.count(bytes([YB_MRA02_FRAME_HEAD1, YB_MRA02_FRAME_HEAD2])) > 0
                 )
                 if try_enable_outputs:
                     try:
@@ -503,6 +574,13 @@ def probe_yahboom_imu(
                         active_type_text = ','.join(
                             f'0x{value:02X}' for value in sorted(active_types)
                         )
+                        active_v2_valid, active_v2_types = _scan_yb_mra02_frames(
+                            data
+                        )
+                        active_v2_type_text = ','.join(
+                            f'0x{value:02X}'
+                            for value in sorted(active_v2_types)
+                        )
                         if (
                             active_valid >= 2
                             and YAHBOOM_REQUIRED_IMU_TYPES.issubset(active_types)
@@ -513,6 +591,17 @@ def probe_yahboom_imu(
                                 'Yahboom/YB-MRA02 0x55 frames verified after '
                                 f'enabling IMU outputs: {active_valid} frames, '
                                 f'types {active_type_text}',
+                            )
+                        if (
+                            active_v2_valid >= 2
+                            and YB_MRA02_FUNC_RAW in active_v2_types
+                        ):
+                            return (
+                                True,
+                                baudrate,
+                                'Yahboom YB-MRA02 7E23 frames verified after '
+                                f'enabling outputs: {active_v2_valid} frames, '
+                                f'functions {active_v2_type_text}',
                             )
                     except (OSError, serial.SerialException) as exc:
                         failures.append(
@@ -527,8 +616,22 @@ def probe_yahboom_imu(
                     f'{baudrate}: {valid} valid frames from {len(data)} bytes'
                     + (f', types {type_text}' if type_text else '')
                     + (
+                        f'; {v2_valid} valid 7E23 frames'
+                        + (f', functions {v2_type_text}' if v2_type_text else '')
+                    )
+                    + (
                         f'; after enable: {active_valid} valid frames'
                         + (f', types {active_type_text}' if active_type_text else '')
+                        if try_enable_outputs
+                        else ''
+                    )
+                    + (
+                        f'; after enable: {active_v2_valid} valid 7E23 frames'
+                        + (
+                            f', functions {active_v2_type_text}'
+                            if active_v2_type_text
+                            else ''
+                        )
                         if try_enable_outputs
                         else ''
                     )
@@ -1119,7 +1222,7 @@ def _discover_roles(
                     baudrate=baudrate,
                     confidence='protocol_verified',
                     reason=reason,
-                    protocol='yahboom_0x55',
+                    protocol='yahboom_serial',
                     profile='yb_mra02_v1',
                 )
                 used_realpaths.add(resolved)
