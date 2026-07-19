@@ -33,6 +33,7 @@ value into this directory and leaving the package config as a generic example.
 ```bash
 ros2 launch rover_bringup robot.launch.py profile:=full
 ros2 launch rover_bringup robot.launch.py profile:=minimal
+ros2 launch rover_bringup robot.launch.py profile:=agent
 ros2 launch rover_bringup robot.launch.py profile:=hardware
 ros2 launch rover_bringup robot.launch.py profile:=navigation
 ros2 launch rover_bringup robot.launch.py profile:=mapping

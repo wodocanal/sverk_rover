@@ -22,7 +22,7 @@ src/system/rover_bringup/config/
 ├── components/    # per-component runtime params
 ├── localization/  # EKF params used by bringup
 ├── navigation/    # Nav2 and SLAM params used by bringup
-├── profiles/      # launch presets: full, hardware, mapping, navigation, minimal
+├── profiles/      # launch presets: full, agent, hardware, mapping, navigation, minimal
 ├── robots/        # robot identity, geometry and calibration
 └── topics.yaml    # shared topics and TF frame names
 ```
@@ -77,6 +77,12 @@ Minimal base, odometry and robot description:
 
 ```bash
 ros2 launch rover_bringup robot.launch.py profile:=minimal
+```
+
+AI agent, local MCP server and MQTT fleet bridge only:
+
+```bash
+ros2 launch rover_bringup robot.launch.py profile:=agent
 ```
 
 The `full` profile currently enables the base driver, wheel odometry, robot

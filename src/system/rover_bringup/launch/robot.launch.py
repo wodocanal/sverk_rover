@@ -159,40 +159,50 @@ def launch_setup(context):
     else:
         lidar_config = component_section(components_dir, 'lidar', 'lidar')
 
-    try:
-        probe_baudrates = tuple(
-            int(value) for value in lidar_config.get(
-                'probe_baudrates', [460800, 115200, 256000, 1000000]
+    results = {}
+    needs_serial_devices = (
+        use_base
+        or use_imu
+        or use_lidar
+        or bool(motor_override or imu_override or lidar_override)
+    )
+    if needs_serial_devices:
+        try:
+            probe_baudrates = tuple(
+                int(value) for value in lidar_config.get(
+                    'probe_baudrates', [460800, 115200, 256000, 1000000]
+                )
             )
-        )
-        results = prepare_devices(
-            mode=discovery_mode,
-            config_path=device_config,
-            runtime_dir=runtime_dir,
-            require_imu=use_imu,
-            require_lidar=use_lidar,
-            motor_device=motor_override,
-            imu_device=imu_override,
-            lidar_device=lidar_override,
-            lidar_baudrates=probe_baudrates,
-        )
-    except Exception as exc:
-        return [
-            LogInfo(msg=f'[ERROR] Hardware discovery failed: {exc}'),
-            EmitEvent(event=Shutdown(reason='serial device discovery failed')),
-        ]
+            results = prepare_devices(
+                mode=discovery_mode,
+                config_path=device_config,
+                runtime_dir=runtime_dir,
+                require_imu=use_imu,
+                require_lidar=use_lidar,
+                motor_device=motor_override,
+                imu_device=imu_override,
+                lidar_device=lidar_override,
+                lidar_baudrates=probe_baudrates,
+            )
+        except Exception as exc:
+            return [
+                LogInfo(msg=f'[ERROR] Hardware discovery failed: {exc}'),
+                EmitEvent(event=Shutdown(reason='serial device discovery failed')),
+            ]
 
-    detected = [
-        f"motor controller: {results['motor_controller'].resolved_device}"
-    ]
-    if 'imu' in results:
-        detected.append(f"IMU: {results['imu'].resolved_device}")
-    if 'lidar' in results:
-        detected.append(f"lidar: {results['lidar'].resolved_device}")
+        detected = [
+            f"motor controller: {results['motor_controller'].resolved_device}"
+        ]
+        if 'imu' in results:
+            detected.append(f"IMU: {results['imu'].resolved_device}")
+        if 'lidar' in results:
+            detected.append(f"lidar: {results['lidar'].resolved_device}")
+        device_status = f'device mode={discovery_mode}; ' + '; '.join(detected)
+    else:
+        device_status = 'serial device discovery skipped; no serial hardware enabled'
     actions = [LogInfo(
         msg=(
-            f'Profile={profile_name}; device mode={discovery_mode}; '
-            + '; '.join(detected)
+            f'Profile={profile_name}; {device_status}'
         )
     )]
 
