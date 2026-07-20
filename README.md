@@ -110,6 +110,54 @@ ros2 launch rover_bringup robot.launch.py profile:=full use_fleet_bridge:=false
 ros2 launch rover_bringup robot.launch.py profile:=navigation use_nav2:=false
 ```
 
+## Systemd Autostart
+
+The rover can run the main bringup as a Linux service. Install it on the rover
+after the workspace has been built:
+
+```bash
+cd ~/sverk_rover
+deploy/systemd/install.sh
+```
+
+The installer creates:
+
+```text
+/etc/systemd/system/rover-bringup.service
+/etc/default/rover-bringup
+```
+
+Edit `/etc/default/rover-bringup` to choose the launch profile and overrides:
+
+```bash
+sudo nano /etc/default/rover-bringup
+```
+
+Common settings:
+
+```bash
+ROVER_PROFILE=full
+ROVER_DISCOVERY_MODE=configured
+ROVER_LAUNCH_ARGS="use_camera:=false use_agent:=false"
+```
+
+Control the rover stack with:
+
+```bash
+sudo systemctl start rover-bringup
+sudo systemctl stop rover-bringup
+sudo systemctl restart rover-bringup
+systemctl status rover-bringup
+journalctl -u rover-bringup -f
+```
+
+Enable or disable autostart on boot:
+
+```bash
+sudo systemctl enable rover-bringup
+sudo systemctl disable rover-bringup
+```
+
 ## Web UI And Agent
 
 The web UI starts from the `full` profile and listens on port `8765` by default.
