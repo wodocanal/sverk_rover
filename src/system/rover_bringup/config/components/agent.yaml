@@ -17,8 +17,8 @@ text_agent:
   status_topic: '@topics.agent_status'
   answer_topic: '@topics.agent_answer'
   prompt_file: '@paths.default_agent_prompt'
-  llm_base_url: '@env.OPENAI_BASE_URL'
-  llm_model: '@env.OPENAI_MODEL'
+  llm_base_url: 'https://ai.sverk.io/v1'
+  llm_model: 'qwen35'
   llm_api_key_env: OPENAI_API_KEY
   native_tool_mode: auto
   timeout_s: 120.0
@@ -26,7 +26,7 @@ text_agent:
 
 fleet_bridge:
   robot_id: '@robot.id'
-  mqtt_host: 127.0.0.1
+  mqtt_host: 10.63.18.111
   mqtt_port: 1883
   mqtt_topic_prefix: fleet/v1/robots
   mqtt_username: '@env.FLEET_MQTT_USERNAME'
