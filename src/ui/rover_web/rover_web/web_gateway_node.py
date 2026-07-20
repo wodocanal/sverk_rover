@@ -387,6 +387,18 @@ def read_yaml(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
         return fallback
 
 
+def normalize_identity_config(config: dict[str, Any]) -> dict[str, Any]:
+    robot = config.get('robot')
+    if not isinstance(robot, dict):
+        return dict(config)
+
+    identity = dict(robot)
+    robot_id = identity.pop('id', None)
+    if robot_id is not None:
+        identity['robot_id'] = robot_id
+    return identity
+
+
 def quaternion_yaw(message: Odometry) -> float:
     q = message.pose.pose.orientation
     return math.atan2(
@@ -470,7 +482,7 @@ class RoverWebGateway(Node):
         )
         self.declare_parameter(
             'rover_config_file',
-            str(rover_share / 'config' / 'robots' / 'rover_v1.yaml'),
+            str(rover_share / 'config' / 'rover_v1.yaml'),
         )
         self.declare_parameter('web_root', str(share / 'web'))
         self.declare_parameter(
@@ -643,15 +655,15 @@ class RoverWebGateway(Node):
             0.2, float(self.get_parameter('stop_hold_sec').value)
         )
 
-        self.identity = read_yaml(
-            self.identity_path,
-            {
-                'robot_id': 'sverh-rover-0001',
-                'hostname': socket.gethostname(),
-                'company': 'Сверх',
-                'model': 'mecanum-rover-v1',
-                'software_version': '0.1.0',
-            },
+        identity_fallback = {
+            'robot_id': 'sverh-rover-0001',
+            'hostname': socket.gethostname(),
+            'company': 'Сверх',
+            'model': 'mecanum-rover-v1',
+            'software_version': '0.1.0',
+        }
+        self.identity = normalize_identity_config(
+            read_yaml(self.identity_path, identity_fallback)
         )
         self.rover_config = read_yaml(self.rover_config_path, {})
 

@@ -67,6 +67,8 @@ def generate_launch_description():
             'use_agent': use_agent,
             'use_fleet_bridge': use_fleet_bridge,
             'use_twist_mux': use_twist_mux,
+            'use_nav2': 'false',
+            'use_slam': 'false',
             'use_sim_time': use_sim_time,
             'discovery_mode': discovery_mode,
         }.items(),

@@ -23,7 +23,7 @@ src/system/rover_bringup/config/
 ├── localization/  # EKF params used by bringup
 ├── navigation/    # Nav2 and SLAM params used by bringup
 ├── profiles/      # launch presets: full, agent, hardware, mapping, navigation, minimal
-├── robots/        # robot identity, geometry and calibration
+├── rover_v1.yaml  # robot identity, geometry and calibration
 └── topics.yaml    # shared topics and TF frame names
 ```
 
@@ -85,6 +85,18 @@ AI agent, local MCP server and MQTT fleet bridge only:
 ros2 launch rover_bringup robot.launch.py profile:=agent
 ```
 
+Nav2 navigation with the current map:
+
+```bash
+ros2 launch rover_bringup robot.launch.py profile:=navigation
+```
+
+SLAM Toolbox mapping:
+
+```bash
+ros2 launch rover_bringup robot.launch.py profile:=mapping
+```
+
 The `full` profile currently enables the base driver, wheel odometry, robot
 description, EKF localization, IMU, lidar, LED strip, web UI, display UI,
 rosboard, `twist_mux`, local agent and MQTT fleet bridge.
@@ -95,6 +107,7 @@ Any component can be overridden from the command line:
 ros2 launch rover_bringup robot.launch.py profile:=full use_camera:=false
 ros2 launch rover_bringup robot.launch.py profile:=full use_agent:=false
 ros2 launch rover_bringup robot.launch.py profile:=full use_fleet_bridge:=false
+ros2 launch rover_bringup robot.launch.py profile:=navigation use_nav2:=false
 ```
 
 ## Web UI And Agent

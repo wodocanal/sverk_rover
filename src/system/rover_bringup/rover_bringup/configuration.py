@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,28 @@ def deep_merge(*sources: dict[str, Any]) -> dict[str, Any]:
     for source in sources:
         result = _merge_two(result, source)
     return result
+
+
+def resolve_references(value: Any, sources: dict[str, Any]) -> Any:
+    if isinstance(value, dict):
+        return {key: resolve_references(item, sources) for key, item in value.items()}
+    if isinstance(value, list):
+        return [resolve_references(item, sources) for item in value]
+    if isinstance(value, str) and value.startswith('@'):
+        return _resolve_reference(value[1:], sources)
+    return value
+
+
+def _resolve_reference(reference: str, sources: dict[str, Any]) -> Any:
+    if reference.startswith('env.'):
+        return os.getenv(reference.removeprefix('env.'), '')
+
+    current: Any = sources
+    for part in reference.split('.'):
+        if not isinstance(current, dict) or part not in current:
+            raise KeyError(f'Unknown config reference: @{reference}')
+        current = current[part]
+    return current
 
 
 def _merge_two(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -79,4 +102,3 @@ def load_component(components_dir: str, name: str) -> dict[str, Any]:
 def set_if_missing(target: dict[str, Any], key: str, value: Any) -> None:
     if key not in target or target[key] in ('', None):
         target[key] = value
-

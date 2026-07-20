@@ -14,7 +14,6 @@ def default_rover_config_file() -> str:
         return str(
             Path(get_package_share_directory('rover_bringup'))
             / 'config'
-            / 'robots'
             / 'rover_v1.yaml'
         )
     except Exception:
@@ -136,9 +135,7 @@ def generate_launch_description():
         DeclareLaunchArgument('command_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument(
             'identity_file',
-            default_value=str(
-                web_share / 'config' / 'robot_identity.default.example.yaml'
-            ),
+            default_value=default_rover_config_file(),
         ),
         DeclareLaunchArgument(
             'rover_config_file',

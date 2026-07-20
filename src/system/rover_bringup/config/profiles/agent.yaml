@@ -21,3 +21,5 @@ components:
 
   agent: true
   fleet_bridge: true
+  nav2: false
+  slam: false

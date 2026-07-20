@@ -9,8 +9,8 @@ components:
   localization: true
   imu: true
   lidar: true
-  camera: true
-  vision: true
+  camera: false
+  vision: false
   led_strip: false
   octoliner: false
   waveshare_audio: false
@@ -20,3 +20,5 @@ components:
   agent: false
   fleet_bridge: false
   twist_mux: false
+  nav2: false
+  slam: true

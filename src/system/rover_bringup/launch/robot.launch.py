@@ -10,6 +10,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     LogInfo,
     OpaqueFunction,
+    TimerAction,
 )
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -32,6 +33,7 @@ from rover_bringup.configuration import (
     load_profile,
     override_bool,
     read_yaml_file,
+    resolve_references,
 )
 from rover_device_manager.discovery import DEFAULT_DEVICE_CONFIG, prepare_devices
 
@@ -68,7 +70,7 @@ def launch_setup(context):
     )
     robot_config_file = (
         LaunchConfiguration('robot_config_file').perform(context).strip()
-        or bringup_config_path('robots', 'rover_v1.yaml')
+        or bringup_config_path('rover_v1.yaml')
     )
     legacy_config_file = LaunchConfiguration('config_file').perform(context).strip()
     if legacy_config_file:
@@ -133,9 +135,15 @@ def launch_setup(context):
     use_fleet_bridge = flag(
         context, profile_config, 'use_fleet_bridge', 'fleet_bridge', False
     )
+    use_nav2 = flag(context, profile_config, 'use_nav2', 'nav2', False)
+    use_slam = flag(context, profile_config, 'use_slam', 'slam', False)
     use_mux = flag(context, profile_config, 'use_twist_mux', 'twist_mux', False)
     use_sim_time = override_bool(
         LaunchConfiguration('use_sim_time').perform(context),
+        False,
+    )
+    use_rviz = override_bool(
+        LaunchConfiguration('use_rviz').perform(context),
         False,
     )
 
@@ -145,6 +153,21 @@ def launch_setup(context):
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
     imu_override = LaunchConfiguration('imu_device').perform(context).strip() or None
     lidar_override = LaunchConfiguration('lidar_device').perform(context).strip() or None
+    nav2_map_file = LaunchConfiguration('map').perform(context).strip()
+    nav2_params_file = (
+        LaunchConfiguration('nav2_params_file').perform(context).strip()
+        or bringup_config_path('navigation', 'nav2_params.yaml')
+    )
+    slam_params_file = (
+        LaunchConfiguration('slam_params_file').perform(context).strip()
+        or bringup_config_path('navigation', 'slam_toolbox_params.yaml')
+    )
+    nav2_start_delay = float(
+        LaunchConfiguration('nav2_start_delay').perform(context).strip() or '2.0'
+    )
+    slam_start_delay = float(
+        LaunchConfiguration('slam_start_delay').perform(context).strip() or '2.0'
+    )
 
     robot_config = read_yaml_file(robot_config_file)
     topics_config = read_yaml_file(topics_config_file)
@@ -152,6 +175,10 @@ def launch_setup(context):
     frames = dict(topics_config.get('frames', {}))
     robot_identity = dict(robot_config.get('robot', {}))
     robot_id = str(robot_identity.get('id', 'rover-01'))
+    reference_context = {
+        'robot': robot_identity,
+        'topics': topics,
+    }
 
     if peripherals_config_file:
         legacy_peripherals = read_yaml_file(peripherals_config_file)
@@ -205,6 +232,11 @@ def launch_setup(context):
             f'Profile={profile_name}; {device_status}'
         )
     )]
+    if use_nav2 and use_slam:
+        return [
+            LogInfo(msg='[ERROR] use_nav2 and use_slam cannot both be true.'),
+            EmitEvent(event=Shutdown(reason='conflicting navigation modes')),
+        ]
 
     geometry = dict(robot_config['geometry'])
     encoders = dict(robot_config['encoders'])
@@ -256,6 +288,7 @@ def launch_setup(context):
     xacro_file = PathJoinSubstitution([
         FindPackageShare('rover_description'), 'urdf', 'rover.urdf.xacro'
     ])
+    chassis_xyz = geometry.get('chassis_xyz', [0.0125, 0.0, 0.0096])
     imu_xyz, imu_rpy = geometry['imu_xyz'], geometry['imu_rpy']
     lidar_xyz = geometry.get('lidar_xyz', [0.0, 0.0, 0.10])
     lidar_rpy = geometry.get('lidar_rpy', [0.0, 0.0, 0.0])
@@ -268,6 +301,9 @@ def launch_setup(context):
         ' chassis_length:=', str(geometry['chassis_length_m']),
         ' chassis_width:=', str(geometry['chassis_width_m']),
         ' chassis_height:=', str(geometry['chassis_height_m']),
+        ' chassis_x:=', str(chassis_xyz[0]),
+        ' chassis_y:=', str(chassis_xyz[1]),
+        ' chassis_z:=', str(chassis_xyz[2]),
         ' imu_x:=', str(imu_xyz[0]),
         ' imu_y:=', str(imu_xyz[1]),
         ' imu_z:=', str(imu_xyz[2]),
@@ -445,6 +481,7 @@ def launch_setup(context):
             },
             dict(agent_component.get('mcp_server', {})),
         )
+        mcp_params = resolve_references(mcp_params, reference_context)
         mcp_url = (
             f"http://127.0.0.1:{int(mcp_params.get('mcp_port', 8766))}/mcp"
         )
@@ -476,6 +513,11 @@ def launch_setup(context):
             / 'config'
             / 'default_system_prompt.md'
         )
+        agent_reference_context = {
+            **reference_context,
+            'mcp': {'url': mcp_url},
+            'paths': {'default_agent_prompt': default_prompt_file},
+        }
         text_agent_params = deep_merge(
             {
                 'robot_id': robot_id,
@@ -492,6 +534,10 @@ def launch_setup(context):
                 'max_tool_rounds': 8,
             },
             dict(agent_component.get('text_agent', {})),
+        )
+        text_agent_params = resolve_references(
+            text_agent_params,
+            agent_reference_context,
         )
         if not str(text_agent_params.get('mcp_url', '')).strip():
             text_agent_params['mcp_url'] = mcp_url
@@ -535,6 +581,10 @@ def launch_setup(context):
                 },
                 dict(agent_component.get('fleet_bridge', {})),
             )
+            fleet_bridge_params = resolve_references(
+                fleet_bridge_params,
+                agent_reference_context,
+            )
             set_if_blank(fleet_bridge_params, 'robot_id', robot_id)
             set_if_blank(fleet_bridge_params, 'command_topic', agent_command_topic)
             set_if_blank(fleet_bridge_params, 'answer_topic', agent_answer_topic)
@@ -546,6 +596,47 @@ def launch_setup(context):
                 output='screen',
                 parameters=[fleet_bridge_params],
             ))
+    if use_nav2:
+        if not nav2_map_file:
+            nav2_map_file = str(
+                Path(get_package_share_directory('rover_navigation'))
+                / 'maps'
+                / 'current'
+                / 'map.yaml'
+            )
+        actions.append(TimerAction(
+            period=nav2_start_delay,
+            actions=[IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(PathJoinSubstitution([
+                    FindPackageShare('rover_navigation'),
+                    'launch',
+                    'navigation.launch.py',
+                ])),
+                launch_arguments={
+                    'use_sim_time': as_launch_bool(use_sim_time),
+                    'map': nav2_map_file,
+                    'params_file': nav2_params_file,
+                    'use_rviz': as_launch_bool(use_rviz),
+                }.items(),
+            )],
+        ))
+
+    if use_slam:
+        actions.append(TimerAction(
+            period=slam_start_delay,
+            actions=[IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(PathJoinSubstitution([
+                    FindPackageShare('rover_navigation'),
+                    'launch',
+                    'slam.launch.py',
+                ])),
+                launch_arguments={
+                    'use_sim_time': as_launch_bool(use_sim_time),
+                    'params_file': slam_params_file,
+                    'use_rviz': as_launch_bool(use_rviz),
+                }.items(),
+            )],
+        ))
     return actions
 
 
@@ -556,7 +647,7 @@ def generate_launch_description():
         DeclareLaunchArgument('profile_file', default_value=empty_default),
         DeclareLaunchArgument(
             'robot_config_file',
-            default_value=bringup_config_path('robots', 'rover_v1.yaml'),
+            default_value=bringup_config_path('rover_v1.yaml'),
         ),
         # Deprecated compatibility alias for older commands.
         DeclareLaunchArgument('config_file', default_value=empty_default),
@@ -620,9 +711,27 @@ def generate_launch_description():
         DeclareLaunchArgument('use_rosboard', default_value=empty_default),
         DeclareLaunchArgument('use_agent', default_value=empty_default),
         DeclareLaunchArgument('use_fleet_bridge', default_value=empty_default),
+        DeclareLaunchArgument('use_nav2', default_value=empty_default),
+        DeclareLaunchArgument('use_slam', default_value=empty_default),
         DeclareLaunchArgument('rosboard_port', default_value='8888'),
         DeclareLaunchArgument('use_twist_mux', default_value=empty_default),
         DeclareLaunchArgument('use_sim_time', default_value=empty_default),
+        DeclareLaunchArgument('use_rviz', default_value=empty_default),
+        DeclareLaunchArgument(
+            'map',
+            default_value=empty_default,
+            description='Map YAML used when Nav2 is enabled',
+        ),
+        DeclareLaunchArgument(
+            'nav2_params_file',
+            default_value=bringup_config_path('navigation', 'nav2_params.yaml'),
+        ),
+        DeclareLaunchArgument(
+            'slam_params_file',
+            default_value=bringup_config_path('navigation', 'slam_toolbox_params.yaml'),
+        ),
+        DeclareLaunchArgument('nav2_start_delay', default_value='2.0'),
+        DeclareLaunchArgument('slam_start_delay', default_value='2.0'),
         DeclareLaunchArgument('motor_device', default_value=empty_default),
         DeclareLaunchArgument('imu_device', default_value=empty_default),
         DeclareLaunchArgument('lidar_device', default_value=empty_default),

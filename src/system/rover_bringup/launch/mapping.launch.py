@@ -28,6 +28,8 @@ def generate_launch_description():
     use_agent = LaunchConfiguration('use_agent')
     use_fleet_bridge = LaunchConfiguration('use_fleet_bridge')
     use_twist_mux = LaunchConfiguration('use_twist_mux')
+    use_nav2 = LaunchConfiguration('use_nav2')
+    use_slam = LaunchConfiguration('use_slam')
     use_sim_time = LaunchConfiguration('use_sim_time')
     discovery_mode = LaunchConfiguration('discovery_mode')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -56,19 +58,12 @@ def generate_launch_description():
             'use_agent': use_agent,
             'use_fleet_bridge': use_fleet_bridge,
             'use_twist_mux': use_twist_mux,
+            'use_nav2': use_nav2,
+            'use_slam': use_slam,
             'use_sim_time': use_sim_time,
             'discovery_mode': discovery_mode,
-        }.items(),
-    )
-
-    slam_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('rover_navigation'), 'launch', 'slam.launch.py'
-        ])),
-        launch_arguments={
-            'use_sim_time': use_sim_time,
             'use_rviz': use_rviz,
-            'params_file': params_file,
+            'slam_params_file': params_file,
         }.items(),
     )
 
@@ -91,6 +86,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_agent', default_value=''),
         DeclareLaunchArgument('use_fleet_bridge', default_value=''),
         DeclareLaunchArgument('use_twist_mux', default_value=''),
+        DeclareLaunchArgument('use_nav2', default_value=''),
+        DeclareLaunchArgument('use_slam', default_value=''),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('discovery_mode', default_value='configured'),
         DeclareLaunchArgument('use_rviz', default_value='false'),
@@ -101,5 +98,4 @@ def generate_launch_description():
             ),
         ),
         robot_launch,
-        slam_launch,
     ])

@@ -16,6 +16,8 @@ components:
   rosboard: true
   agent: true
   fleet_bridge: true
+  nav2: false
+  slam: false
 
   octoliner: false
   waveshare_audio: false

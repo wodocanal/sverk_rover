@@ -20,3 +20,5 @@ components:
   agent: false
   fleet_bridge: false
   twist_mux: false
+  nav2: false
+  slam: false

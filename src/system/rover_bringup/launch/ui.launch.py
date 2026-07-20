@@ -117,7 +117,7 @@ def launch_setup(context):
             'identity_file',
             config,
             ('web', 'identity_file'),
-            package_file('rover_bringup', 'config', 'robots', 'rover_v1_identity.yaml'),
+            package_file('rover_bringup', 'config', 'rover_v1.yaml'),
         ),
         'terminal_enabled': launch_value(
             context, 'terminal_enabled', config, ('terminal', 'enabled'), True
@@ -147,7 +147,7 @@ def launch_setup(context):
             'rover_config_file',
             config,
             ('web', 'rover_config_file'),
-            package_file('rover_bringup', 'config', 'robots', 'rover_v1.yaml'),
+            package_file('rover_bringup', 'config', 'rover_v1.yaml'),
         ),
         'plans_directory': launch_value_or_default(
             context,
