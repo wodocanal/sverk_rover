@@ -240,6 +240,11 @@ def launch_setup(context):
 
     geometry = dict(robot_config['geometry'])
     encoders = dict(robot_config['encoders'])
+    lidar_filter_params = component_section(
+        components_dir,
+        'lidar_filter',
+        'lidar_filter',
+    )
     base_component = load_component(components_dir, 'base')
     base_params = deep_merge(
         dict(base_component.get('base_driver', {})),
@@ -292,6 +297,21 @@ def launch_setup(context):
     imu_xyz, imu_rpy = geometry['imu_xyz'], geometry['imu_rpy']
     lidar_xyz = geometry.get('lidar_xyz', [0.0, 0.0, 0.10])
     lidar_rpy = geometry.get('lidar_rpy', [0.0, 0.0, 0.0])
+    chassis_half_length = float(geometry['chassis_length_m']) / 2.0
+    chassis_half_width = float(geometry['chassis_width_m']) / 2.0
+    lidar_filter_params.update({
+        'input_topic': topics.get('scan_raw', '/scan'),
+        'output_topic': topics.get('scan', '/scan_filtered'),
+        'base_frame_id': frames.get('base', 'base_link'),
+        'footprint_min_x_m': float(chassis_xyz[0]) - chassis_half_length,
+        'footprint_max_x_m': float(chassis_xyz[0]) + chassis_half_length,
+        'footprint_min_y_m': float(chassis_xyz[1]) - chassis_half_width,
+        'footprint_max_y_m': float(chassis_xyz[1]) + chassis_half_width,
+        'fallback_sensor_x_m': float(lidar_xyz[0]),
+        'fallback_sensor_y_m': float(lidar_xyz[1]),
+        'fallback_sensor_yaw_rad': float(lidar_rpy[2]),
+        'use_sim_time': use_sim_time,
+    })
     robot_description = ParameterValue(Command([
         FindExecutable(name='xacro'), ' ', xacro_file,
         ' wheel_radius:=', str(geometry['wheel_radius_m']),
@@ -346,6 +366,15 @@ def launch_setup(context):
                 'robot_description': robot_description,
                 'use_sim_time': use_sim_time,
             }],
+        ))
+
+    if use_lidar:
+        actions.append(Node(
+            package='rover_lidar_filter',
+            executable='lidar_footprint_filter',
+            name='lidar_footprint_filter',
+            output='screen',
+            parameters=[lidar_filter_params],
         ))
 
     if use_mux:
@@ -477,7 +506,7 @@ def launch_setup(context):
                 'nav2_action_name': '/navigate_to_pose',
                 'odom_topic': topics.get('odom', '/odom'),
                 'amcl_pose_topic': topics.get('amcl_pose', '/amcl_pose'),
-                'scan_topic': topics.get('scan', '/scan'),
+                'scan_topic': topics.get('scan', '/scan_filtered'),
             },
             dict(agent_component.get('mcp_server', {})),
         )
@@ -507,7 +536,7 @@ def launch_setup(context):
             'amcl_pose_topic',
             topics.get('amcl_pose', '/amcl_pose'),
         )
-        set_if_blank(mcp_params, 'scan_topic', topics.get('scan', '/scan'))
+        set_if_blank(mcp_params, 'scan_topic', topics.get('scan', '/scan_filtered'))
         default_prompt_file = str(
             Path(get_package_share_directory('rover_agent_mcp'))
             / 'config'

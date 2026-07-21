@@ -14,7 +14,7 @@ components:
   led_strip: false
   octoliner: false
   waveshare_audio: false
-  web: false
+  web: true
   display: false
   rosboard: false
   agent: false

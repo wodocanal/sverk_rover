@@ -197,6 +197,7 @@ def launch_setup(context):
             name='sllidar_node',
             output='screen',
             parameters=[lidar_params],
+            remappings=[('scan', topics.get('scan_raw', '/scan'))],
         ))
 
     if use_camera:

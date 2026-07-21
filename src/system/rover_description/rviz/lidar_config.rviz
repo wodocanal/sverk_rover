@@ -69,7 +69,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /scan
+        Value: /scan_filtered
       Use Fixed Frame: true
       Value: true
     - Class: rviz_default_plugins/TF

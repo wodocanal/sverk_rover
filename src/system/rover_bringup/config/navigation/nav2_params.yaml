@@ -10,7 +10,7 @@ amcl:
     global_frame_id: map
     odom_frame_id: odom
     robot_model_type: nav2_amcl::OmniMotionModel
-    scan_topic: /scan
+    scan_topic: /scan_filtered
     map_topic: /map
     laser_model_type: likelihood_field
     laser_likelihood_max_dist: 2.0
@@ -128,7 +128,7 @@ local_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered
           data_type: LaserScan
           clearing: true
           marking: true
@@ -163,7 +163,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered
           data_type: LaserScan
           clearing: true
           marking: true

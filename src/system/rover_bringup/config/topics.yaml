@@ -6,7 +6,8 @@ topics:
   wheel_encoders: /wheel/encoders
   wheel_odometry: /wheel/odometry
   odom: /odom
-  scan: /scan
+  scan_raw: /scan
+  scan: /scan_filtered
   image_raw: /image_raw
   image_raw_compressed: /image_raw/compressed
   image_processed: /image_processed

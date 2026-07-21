@@ -1945,7 +1945,8 @@ function renderLidarTopics() {
   }
 
   if (!topics.some((item) => item.name === state.selectedLidarTopic)) {
-    state.selectedLidarTopic = topics[0].name;
+    const preferredTopic = topics.find((item) => item.name === '/scan_filtered') || topics[0];
+    state.selectedLidarTopic = preferredTopic.name;
     state.selectedLidarType = LASER_SCAN_TYPE;
   }
 

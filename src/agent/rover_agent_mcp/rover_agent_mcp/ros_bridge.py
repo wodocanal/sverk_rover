@@ -48,7 +48,7 @@ class RoverRosBridge(Node):
         self.declare_parameter('nav2_action_name', os.getenv('ROVER_NAV_ACTION', '/navigate_to_pose'))
         self.declare_parameter('odom_topic', os.getenv('ROVER_ODOM_TOPIC', '/odom'))
         self.declare_parameter('amcl_pose_topic', os.getenv('ROVER_AMCL_POSE_TOPIC', '/amcl_pose'))
-        self.declare_parameter('scan_topic', os.getenv('ROVER_SCAN_TOPIC', '/scan'))
+        self.declare_parameter('scan_topic', os.getenv('ROVER_SCAN_TOPIC', '/scan_filtered'))
         self.declare_parameter('default_forward_distance_m', 0.30)
         self.declare_parameter('default_forward_speed_mps', 0.12)
         self.declare_parameter('default_lateral_speed_mps', 0.10)

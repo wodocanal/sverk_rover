@@ -25,7 +25,7 @@ def generate_launch_description():
             'nav2_action_name': os.getenv('ROVER_NAV_ACTION', '/navigate_to_pose'),
             'odom_topic': os.getenv('ROVER_ODOM_TOPIC', '/odom'),
             'amcl_pose_topic': os.getenv('ROVER_AMCL_POSE_TOPIC', '/amcl_pose'),
-            'scan_topic': os.getenv('ROVER_SCAN_TOPIC', '/scan'),
+            'scan_topic': os.getenv('ROVER_SCAN_TOPIC', '/scan_filtered'),
         }]),
         Node(package='rover_agent_mcp', executable='agent_text_node', name='rover_agent_text_node', output='screen', parameters=[{
             'robot_id': os.getenv('FLEET_ROBOT_ID', 'rover-01'),
