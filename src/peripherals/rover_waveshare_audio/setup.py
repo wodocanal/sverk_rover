@@ -13,8 +13,21 @@ def package_files(directory: str):
     root = Path(directory)
     if not root.exists():
         return files
+    ignored_dirs = {
+        '__pycache__',
+        'build',
+        'managed_components',
+    }
+    ignored_suffixes = {
+        '.pyc',
+        '.pyo',
+    }
     for path in root.rglob('*'):
+        if any(part in ignored_dirs for part in path.parts):
+            continue
         if path.is_file():
+            if path.suffix in ignored_suffixes:
+                continue
             install_dir = Path('share') / package_name / path.parent
             files.append((str(install_dir), [str(path)]))
     return files

@@ -222,9 +222,32 @@ static void begin_playback_output_locked(void)
 {
     if (s_playback_muted) {
         set_playback_amp_enabled(true);
-        esp_audio_set_play_mute(false);
         vTaskDelay(pdMS_TO_TICKS(PLAYBACK_UNMUTE_SETTLE_MS));
         s_playback_muted = false;
+    }
+}
+
+static void play_silence_locked(uint32_t duration_ms)
+{
+    static const int16_t silence[FEEDBACK_TONE_CHUNK_FRAMES * PLAYBACK_CHANNELS] = {0};
+    uint32_t frames_remaining = (PCM_SAMPLE_RATE * duration_ms) / 1000;
+
+    while (frames_remaining > 0) {
+        uint32_t frames_this_chunk = frames_remaining;
+        if (frames_this_chunk > FEEDBACK_TONE_CHUNK_FRAMES) {
+            frames_this_chunk = FEEDBACK_TONE_CHUNK_FRAMES;
+        }
+
+        esp_err_t ret = esp_audio_play(
+            silence,
+            frames_this_chunk * PLAYBACK_CHANNELS * sizeof(int16_t),
+            pdMS_TO_TICKS(50));
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to play silence before muting: %s", esp_err_to_name(ret));
+            return;
+        }
+
+        frames_remaining -= frames_this_chunk;
     }
 }
 
@@ -234,8 +257,7 @@ static void stop_playback_output_locked(void)
         return;
     }
 
-    esp_audio_play_silence(40);
-    esp_audio_set_play_mute(true);
+    play_silence_locked(40);
     vTaskDelay(pdMS_TO_TICKS(PLAYBACK_MUTE_SETTLE_MS));
     set_playback_amp_enabled(false);
     s_playback_muted = true;
@@ -597,7 +619,6 @@ void app_main(void)
     s_playback_mutex = xSemaphoreCreateMutex();
     ESP_ERROR_CHECK(s_playback_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(esp_audio_set_play_vol(PLAYBACK_VOLUME));
-    ESP_ERROR_CHECK(esp_audio_set_play_mute(true));
 
     ESP_LOGI(TAG, "Starting PCM stream task");
     ESP_LOGI(TAG, "Output: 16 kHz mono s16le over USB serial");

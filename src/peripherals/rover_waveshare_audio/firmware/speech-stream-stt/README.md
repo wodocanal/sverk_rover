@@ -1,114 +1,134 @@
 # ESP32-S3 Audio Serial STT Bridge
 
-This project turns the Waveshare `ESP32-S3-AUDIO-Board` into a USB serial audio front-end.
+Firmware for the Waveshare `ESP32-S3-AUDIO-Board` used by the
+`rover_waveshare_audio` ROS 2 package.
 
-The board:
-
-- captures microphone audio,
-- mixes the two microphone channels down to `16 kHz mono s16le`,
-- sends framed PCM packets over `USB Serial/JTAG`.
-- only streams audio while the center user button is held, plus a `2s` grace period after release.
-
-The host scripts:
-
-- reads the PCM frames,
-- detects utterances using a simple energy-based VAD,
-- transcribes each utterance with `Whisper`,
-- prints text to `stdout`,
-- can also append text to a file or forward it to a TCP socket or another serial/UART port.
-- can also run a simple voice-assistant loop and send spoken replies back to the board speaker.
-
-## Firmware
-
-Flash the board from the source workspace:
-
-```bash
-cd ~/sverk_rover/src/peripherals/rover_waveshare_audio/firmware/speech-stream-stt
-./flash.sh
-```
-
-Or from an installed workspace:
-
-```bash
-cd ~/sverk_rover/install/rover_waveshare_audio/share/rover_waveshare_audio/firmware/speech-stream-stt
-./flash.sh
-```
-
-## Host transcription
-
-Run live transcription:
-
-```bash
-cd ~/sverk_rover/src/peripherals/rover_waveshare_audio/firmware/speech-stream-stt
-./host/run_transcriber.sh --language ru
-```
-
-## Voice assistant loop
-
-Run a simple `speech -> text -> reply -> speech` loop:
-
-```bash
-cd ~/sverk_rover/src/peripherals/rover_waveshare_audio/firmware/speech-stream-stt
-./host/run_voice_agent.sh --language ru --model tiny
-```
-
-By default the spoken reply is a simple template:
+For the complete flashing and rover runtime guide, see:
 
 ```text
-Я услышал: <ваша фраза>
+src/peripherals/rover_waveshare_audio/README.md
 ```
 
-You can plug in any external agent process. The recognized text is passed to the command on `stdin`, and the command reply is read from `stdout`:
+## What This Firmware Does
+
+- Captures microphone audio from the Waveshare ESP32-S3 audio board.
+- Mixes the microphone channels to `16 kHz mono s16le`.
+- Sends framed `PCM1` packets over USB Serial/JTAG.
+- Receives framed `SPK1` playback packets from the host.
+- Plays received speech through the board speaker.
+- Streams only while the center user button is held, plus about 2 seconds
+  after release.
+- Shows basic state on the RGB LED ring.
+
+The ROS node expects this streaming firmware. The sibling
+`speech-command-test` firmware is only a standalone ESP-SR demo.
+
+## Flash
+
+From a source workspace on Ubuntu:
 
 ```bash
-./host/run_voice_agent.sh --language ru --agent-command "python3 my_agent.py"
+cd ~/sverk_rover
+src/peripherals/rover_waveshare_audio/tools/flash_waveshare_audio_ubuntu.sh
 ```
 
-Useful voice-agent options:
+From a source workspace on macOS:
 
 ```bash
-./host/run_voice_agent.sh --language ru --tts-voice Milena
-./host/run_voice_agent.sh --language ru --append-file conversation.txt
-./host/run_voice_agent.sh --language ru --jsonl-file conversation.jsonl
-./host/run_voice_agent.sh --list-voices
-./host/run_voice_agent.sh --speak-text "Привет, проверка динамика"
+cd ~/sverk_rover
+src/peripherals/rover_waveshare_audio/tools/flash_waveshare_audio_macos.sh
 ```
 
-Push-to-talk behavior:
+From Windows PowerShell:
 
-- hold the center user button on the board to speak
-- after release, the board keeps streaming for about `2` more seconds
-- LED states: white = idle, blinking green = listening
-
-Pick a specific Whisper model for testing:
-
-```bash
-./host/run_transcriber.sh --language ru --model tiny
-./host/run_transcriber.sh --language ru --model base
-./host/run_transcriber.sh --language ru --model small
-./host/run_transcriber.sh --language ru --model medium
-./host/run_transcriber.sh --language ru --model large
-./host/run_transcriber.sh --language ru --model turbo
+```powershell
+cd C:\path\to\sverk_rover
+src\peripherals\rover_waveshare_audio\tools\flash_waveshare_audio_windows.ps1
 ```
 
-Show all supported model names:
+From an installed ROS workspace:
 
 ```bash
-./host/run_transcriber.sh --list-models
+cd ~/sverk_rover/install/rover_waveshare_audio/share/rover_waveshare_audio
+tools/flash_waveshare_audio_ubuntu.sh
+```
+
+Inspect ports:
+
+```bash
+src/peripherals/rover_waveshare_audio/tools/flash_waveshare_audio_ubuntu.sh --list
+```
+
+Force a port:
+
+```bash
+src/peripherals/rover_waveshare_audio/tools/flash_waveshare_audio_ubuntu.sh --port /dev/ttyACM0
+src/peripherals/rover_waveshare_audio/tools/flash_waveshare_audio_macos.sh --port /dev/cu.usbmodem101
+```
+
+```powershell
+src\peripherals\rover_waveshare_audio\tools\flash_waveshare_audio_windows.ps1 --port COM5
 ```
 
 Useful options:
 
 ```bash
-./host/run_transcriber.sh --language ru --append-file transcripts.txt
-./host/run_transcriber.sh --language ru --jsonl-file transcripts.jsonl
-./host/run_transcriber.sh --language ru --tcp 127.0.0.1:9000
-./host/run_transcriber.sh --language ru --out-serial /dev/cu.usbserial-0001 --out-serial-baud 115200
-./host/run_transcriber.sh --language ru --save-wavs-dir utterances
+--dry-run
+--erase
+--monitor
+--no-clean
+--clean-only
+--allow-any-single-port
 ```
 
-If the board gets another serial port:
+After successful flashing the helper removes generated ESP-IDF artifacts:
+
+```text
+build/
+managed_components/
+sdkconfig.old
+**/__pycache__/
+```
+
+It keeps `sdkconfig` and `dependencies.lock`.
+
+The legacy local command still works:
 
 ```bash
-./host/run_transcriber.sh --port /dev/cu.usbmodem11401
+./flash.sh
+```
+
+## Quick Non-ROS Test
+
+Run live transcription directly from this firmware directory:
+
+```bash
+./host/run_transcriber.sh --language ru --model tiny
+```
+
+Run a simple speech-to-speech test:
+
+```bash
+./host/run_voice_agent.sh --language ru --model tiny
+```
+
+Useful host options:
+
+```bash
+./host/run_transcriber.sh --list-models
+./host/run_transcriber.sh --language ru --save-wavs-dir utterances
+./host/run_voice_agent.sh --speak-text "Привет, проверка динамика"
+```
+
+## Push-To-Talk
+
+Hold the center user button on the board to speak. After release, the firmware
+keeps streaming briefly so the phrase ending is captured.
+
+Expected visible behavior:
+
+```text
+white LED           idle
+blinking green LED  listening
+volume buttons      speaker volume up/down
 ```
