@@ -43,6 +43,7 @@ class UsbCameraNode(Node):
         self.declare_parameter('jpeg_quality', 85)
         self.declare_parameter('reconnect_interval_sec', 2.0)
         self.declare_parameter('get_frame_service', 'get_frame')
+        self.declare_parameter('rotate', 0)
 
         self._config_lock = threading.RLock()
         self.capture_lock = threading.RLock()
@@ -116,6 +117,7 @@ class UsbCameraNode(Node):
         self.get_frame_service_name = str(
             self.get_parameter('get_frame_service').value
         )
+        self.rotate = int(self.get_parameter('rotate').value)
         self._validate_configuration()
 
     def _validate_configuration(self) -> None:
@@ -136,6 +138,8 @@ class UsbCameraNode(Node):
             )
         if not self.get_frame_service_name.strip():
             raise ValueError('get_frame_service must not be empty')
+        if self.rotate not in (0, 90, 180, 270):
+            raise ValueError('rotate must be one of 0, 90, 180, 270')
 
     def _configure_publishers(self) -> None:
         if self.raw_publisher is not None:
@@ -194,6 +198,7 @@ class UsbCameraNode(Node):
             'jpeg_quality': self.jpeg_quality,
             'reconnect_interval_sec': self.reconnect_interval,
             'get_frame_service': self.get_frame_service_name,
+            'rotate': self.rotate,
         }
 
         try:
@@ -230,6 +235,9 @@ class UsbCameraNode(Node):
                 )
             if not get_frame_service_name.strip():
                 raise ValueError('get_frame_service must not be empty')
+            rotate = int(candidate['rotate'])
+            if rotate not in (0, 90, 180, 270):
+                raise ValueError('rotate must be one of 0, 90, 180, 270')
         except (TypeError, ValueError) as exc:
             return SetParametersResult(successful=False, reason=str(exc))
 
@@ -264,6 +272,7 @@ class UsbCameraNode(Node):
             self.jpeg_quality = jpeg_quality
             self.reconnect_interval = reconnect_interval
             self.get_frame_service_name = get_frame_service_name
+            self.rotate = rotate
 
             if old_publish != (
                 self.publish_raw,
@@ -361,6 +370,16 @@ class UsbCameraNode(Node):
         )
         return False
 
+    @staticmethod
+    def _rotate_frame(frame: np.ndarray, rotate: int) -> np.ndarray:
+        if rotate == 90:
+            return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        if rotate == 180:
+            return cv2.rotate(frame, cv2.ROTATE_180)
+        if rotate == 270:
+            return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return frame
+
     def _encode_frame(self, frame: np.ndarray) -> bytes:
         ok, encoded = cv2.imencode(
             '.jpg',
@@ -398,6 +417,10 @@ class UsbCameraNode(Node):
                 )
                 self.shutdown_event.wait(0.001)
                 continue
+
+            current_rotate = self.rotate
+            if current_rotate != 0:
+                frame = self._rotate_frame(frame, current_rotate)
 
             compressed = None
             should_encode_compressed = (
@@ -498,6 +521,10 @@ class UsbCameraNode(Node):
             response.message = 'No camera frame is available yet'
             response.age_sec = float('inf')
             return response
+
+        current_rotate = self.rotate
+        if current_rotate != 0:
+            latest_frame = self._rotate_frame(latest_frame, current_rotate)
 
         if latest_compressed is None:
             try:

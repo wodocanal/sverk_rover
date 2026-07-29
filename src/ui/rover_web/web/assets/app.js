@@ -1509,6 +1509,7 @@ function setCameraSettingsForm(parameters = {}) {
   $('#camera-setting-use-mjpeg').checked = Boolean(parameters.use_mjpeg ?? true);
   $('#camera-setting-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-setting-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
+  $('#camera-setting-rotate').value = String(parameters.rotate ?? 180);
 }
 
 function renderCameraVisionModels(models = [], selectedModelName = '') {
@@ -1845,6 +1846,7 @@ function cameraSettingsPayloadFromForm() {
     use_mjpeg: $('#camera-setting-use-mjpeg').checked,
     publish_raw: $('#camera-setting-publish-raw').checked,
     publish_compressed: $('#camera-setting-publish-compressed').checked,
+    rotate: Number($('#camera-setting-rotate').value || '180'),
   };
 }
 

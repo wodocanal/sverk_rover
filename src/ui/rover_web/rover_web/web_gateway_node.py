@@ -113,6 +113,7 @@ CAMERA_PARAMETER_NAMES = [
     'publish_compressed',
     'jpeg_quality',
     'reconnect_interval_sec',
+    'rotate',
 ]
 VISION_PARAMETER_NAMES = [
     'enabled',
@@ -557,9 +558,15 @@ class RoverWebGateway(Node):
         self.hackathon_files_root = Path(
             str(self.get_parameter('hackathon_files_root').value)
         ).expanduser().resolve()
-        self.maps_root = Path(
-            str(self.get_parameter('maps_root').value)
-        ).expanduser().resolve()
+        configured_maps_root = str(self.get_parameter('maps_root').value).strip()
+        if not configured_maps_root:
+            persistent_maps_root = os.getenv('ROVER_MAPS_ROOT', '').strip()
+            configured_maps_root = (
+                str(Path(persistent_maps_root).expanduser() / 'current')
+                if persistent_maps_root
+                else default_maps_root(workspace_root)
+            )
+        self.maps_root = Path(configured_maps_root).expanduser().resolve()
         self.seed_plans_directory = Path(
             str(self.get_parameter('seed_plans_directory').value)
         ).expanduser()
@@ -2356,7 +2363,7 @@ class RoverWebGateway(Node):
             value = payload[name]
             if name in {'device', 'image_topic', 'compressed_image_topic', 'frame_id'}:
                 updates.append(Parameter(name, value=str(value)))
-            elif name in {'width', 'height', 'jpeg_quality'}:
+            elif name in {'width', 'height', 'jpeg_quality', 'rotate'}:
                 updates.append(Parameter(name, value=int(value)))
             elif name in {'fps', 'reconnect_interval_sec'}:
                 updates.append(Parameter(name, value=float(value)))
