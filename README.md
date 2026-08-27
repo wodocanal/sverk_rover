@@ -30,6 +30,12 @@ src/system/rover_bringup/config/
 Package-level `config/*.default.example.yaml` files are examples only. For the
 real rover, prefer changing files under `rover_bringup/config`.
 
+For setting up a new physical rover from a cloned image, see:
+
+```text
+docs/rover-image-clone-setup.md
+```
+
 ## Build
 
 From the workspace root on the rover:
@@ -112,8 +118,9 @@ ros2 launch rover_bringup robot.launch.py profile:=navigation use_nav2:=false
 
 ## Systemd Autostart
 
-The rover can run the main bringup as a Linux service. Install it on the rover
-after the workspace has been built:
+The rover can run from Linux services. `rover-bringup` starts the main ROS
+stack without the web UI, and `rover-web` starts the web UI separately. Install
+them on the rover after the workspace has been built:
 
 ```bash
 cd ~/sverk_rover
@@ -124,10 +131,13 @@ The installer creates:
 
 ```text
 /etc/systemd/system/rover-bringup.service
+/etc/systemd/system/rover-web.service
 /etc/default/rover-bringup
+/etc/default/rover-web
 ```
 
-Edit `/etc/default/rover-bringup` to choose the launch profile and overrides:
+Edit `/etc/default/rover-bringup` to choose the main launch profile and
+overrides:
 
 ```bash
 sudo nano /etc/default/rover-bringup
@@ -141,13 +151,31 @@ ROVER_DISCOVERY_MODE=configured
 ROVER_LAUNCH_ARGS="use_camera:=false use_agent:=false"
 ```
 
+Edit `/etc/default/rover-web` to choose web UI settings:
+
+```bash
+sudo nano /etc/default/rover-web
+```
+
+Common settings:
+
+```bash
+ROVER_WEB_BIND_ADDRESS=0.0.0.0
+ROVER_WEB_PORT=8765
+ROVER_WEB_USE_ROSBOARD=true
+```
+
 Control the rover stack with:
 
 ```bash
 sudo systemctl start rover-bringup
+sudo systemctl start rover-web
+sudo systemctl stop rover-web
 sudo systemctl stop rover-bringup
 sudo systemctl restart rover-bringup
+sudo systemctl restart rover-web
 systemctl status rover-bringup
+journalctl -u rover-web -f
 journalctl -u rover-bringup -f
 ```
 
@@ -155,13 +183,16 @@ Enable or disable autostart on boot:
 
 ```bash
 sudo systemctl enable rover-bringup
+sudo systemctl enable rover-web
+sudo systemctl disable rover-web
 sudo systemctl disable rover-bringup
 ```
 
 ## Web UI And Agent
 
-The web UI starts from the `full` profile and listens on port `8765` by default.
-Its config is:
+The web UI is managed by `rover-web.service` and listens on port `8765` by
+default. `rosboard` is also owned by `rover-web.service` by default, so
+browser-facing tools stay out of `rover-bringup`. The web config is:
 
 ```text
 src/system/rover_bringup/config/components/web.yaml

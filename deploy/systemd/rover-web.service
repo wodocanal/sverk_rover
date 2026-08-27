@@ -1,6 +1,6 @@
 [Unit]
-Description=SVERK Rover ROS 2 bringup
-After=network-online.target
+Description=SVERK Rover Web UI
+After=network-online.target rover-bringup.service
 Wants=network-online.target
 
 [Service]
@@ -9,7 +9,8 @@ User=pi
 Group=pi
 WorkingDirectory=/home/pi/sverk_rover
 EnvironmentFile=-/etc/default/rover-bringup
-ExecStart=/bin/bash ./deploy/systemd/start-rover-bringup.sh
+EnvironmentFile=-/etc/default/rover-web
+ExecStart=/bin/bash ./deploy/systemd/start-rover-web.sh
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGINT

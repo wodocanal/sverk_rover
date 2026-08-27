@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_NAME="rover-bringup.service"
+SERVICE_NAMES=(
+  "rover-bringup.service"
+  "rover-web.service"
+)
 
-sudo systemctl disable --now "${SERVICE_NAME}" 2>/dev/null || true
-sudo rm -f "/etc/systemd/system/${SERVICE_NAME}"
+for service_name in "${SERVICE_NAMES[@]}"; do
+  sudo systemctl disable --now "${service_name}" 2>/dev/null || true
+  sudo rm -f "/etc/systemd/system/${service_name}"
+done
 sudo systemctl daemon-reload
 
 cat <<EOF
-Removed ${SERVICE_NAME}.
+Removed rover-bringup.service and rover-web.service.
 
-The environment file was left in place:
+The environment files were left in place:
   /etc/default/rover-bringup
+  /etc/default/rover-web
 
-Remove it manually if it is no longer needed.
+Remove them manually if they are no longer needed.
 EOF

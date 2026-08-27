@@ -4,12 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
-SERVICE_NAME="rover-bringup.service"
-ENV_NAME="rover-bringup"
-SERVICE_SRC="${SCRIPT_DIR}/${SERVICE_NAME}"
-ENV_SRC="${SCRIPT_DIR}/${ENV_NAME}.env"
-SERVICE_DST="/etc/systemd/system/${SERVICE_NAME}"
-ENV_DST="/etc/default/${ENV_NAME}"
+SERVICE_NAMES=(
+  "rover-bringup.service"
+  "rover-web.service"
+)
 RUN_USER="${ROVER_SERVICE_USER:-pi}"
 RUN_GROUP="${ROVER_SERVICE_GROUP:-${RUN_USER}}"
 WORKSPACE="${ROVER_WS:-${REPO_ROOT}}"
@@ -25,39 +23,56 @@ EOF
   exit 1
 fi
 
-tmp_service="$(mktemp)"
-sed \
-  -e "s|^User=.*|User=${RUN_USER}|" \
-  -e "s|^Group=.*|Group=${RUN_GROUP}|" \
-  -e "s|^WorkingDirectory=.*|WorkingDirectory=${WORKSPACE}|" \
-  "${SERVICE_SRC}" > "${tmp_service}"
+for service_name in "${SERVICE_NAMES[@]}"; do
+  service_src="${SCRIPT_DIR}/${service_name}"
+  service_dst="/etc/systemd/system/${service_name}"
 
-sudo install -m 0644 "${tmp_service}" "${SERVICE_DST}"
-rm -f "${tmp_service}"
+  tmp_service="$(mktemp)"
+  sed \
+    -e "s|^User=.*|User=${RUN_USER}|" \
+    -e "s|^Group=.*|Group=${RUN_GROUP}|" \
+    -e "s|^WorkingDirectory=.*|WorkingDirectory=${WORKSPACE}|" \
+    "${service_src}" > "${tmp_service}"
 
-if [[ ! -f "${ENV_DST}" ]]; then
-  tmp_env="$(mktemp)"
-  sed -e "s|^ROVER_WS=.*|ROVER_WS=${WORKSPACE}|" "${ENV_SRC}" > "${tmp_env}"
-  sudo install -m 0640 -o root -g "${RUN_GROUP}" "${tmp_env}" "${ENV_DST}"
-  rm -f "${tmp_env}"
-else
-  echo "Keeping existing ${ENV_DST}"
-fi
+  sudo install -m 0644 "${tmp_service}" "${service_dst}"
+  rm -f "${tmp_service}"
+done
+
+for env_name in rover-bringup rover-web; do
+  env_src="${SCRIPT_DIR}/${env_name}.env"
+  env_dst="/etc/default/${env_name}"
+
+  if [[ ! -f "${env_dst}" ]]; then
+    tmp_env="$(mktemp)"
+    sed -e "s|^ROVER_WS=.*|ROVER_WS=${WORKSPACE}|" "${env_src}" > "${tmp_env}"
+    sudo install -m 0640 -o root -g "${RUN_GROUP}" "${tmp_env}" "${env_dst}"
+    rm -f "${tmp_env}"
+  else
+    echo "Keeping existing ${env_dst}"
+  fi
+done
 
 sudo systemctl daemon-reload
-sudo systemctl enable "${SERVICE_NAME}"
+for service_name in "${SERVICE_NAMES[@]}"; do
+  sudo systemctl enable "${service_name}"
+done
 
 cat <<EOF
-Installed ${SERVICE_NAME}.
+Installed rover-bringup.service and rover-web.service.
 
 Edit launch settings:
-  sudo nano ${ENV_DST}
+  sudo nano /etc/default/rover-bringup
+  sudo nano /etc/default/rover-web
 
 Start/stop/status:
-  sudo systemctl start ${SERVICE_NAME}
-  sudo systemctl stop ${SERVICE_NAME}
-  systemctl status ${SERVICE_NAME}
+  sudo systemctl start rover-bringup
+  sudo systemctl start rover-web
+  sudo systemctl stop rover-web
+  sudo systemctl stop rover-bringup
+  systemctl status rover-bringup
+  systemctl status rover-web
 
 Logs:
-  journalctl -u ${SERVICE_NAME} -f
+  journalctl -u rover-bringup -f
+  journalctl -u rover-web -f
 EOF
