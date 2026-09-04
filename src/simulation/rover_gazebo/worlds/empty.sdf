@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="empty">
+    <physics name="rover_physics" type="ignored">
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <gravity>0 0 -9.81</gravity>
+    <magnetic_field>6e-6 2.3e-5 -4.2e-5</magnetic_field>
+    <atmosphere type="adiabatic"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.2 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="ground">
+        <collision name="collision"><geometry><box><size>12 12 0.1</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>12 12 0.1</size></box></geometry>
+          <material><ambient>0.52 0.54 0.50 1</ambient><diffuse>0.62 0.64 0.60 1</diffuse></material>
+        </visual>
+        <pose>0 0 -0.05 0 0 0</pose>
+      </link>
+    </model>
+
+    <model name="test_wall">
+      <static>true</static>
+      <pose>2 0 0.4 0 0 0</pose>
+      <link name="wall">
+        <collision name="collision"><geometry><box><size>0.15 3.0 0.8</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 3.0 0.8</size></box></geometry>
+          <material><ambient>0.65 0.42 0.26 1</ambient><diffuse>0.72 0.47 0.30 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="test_box">
+      <static>true</static>
+      <pose>-1.2 1.0 0.25 0 0 0</pose>
+      <link name="box">
+        <collision name="collision"><geometry><box><size>0.5 0.5 0.5</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>0.5 0.5 0.5</size></box></geometry>
+          <material><ambient>0.15 0.38 0.52 1</ambient><diffuse>0.18 0.46 0.62 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

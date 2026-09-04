@@ -1,0 +1,17 @@
+profile:
+  name: simulation
+  description: Gazebo sensors and drive with production filtering and localization.
+components:
+  base: true
+  odometry: true
+  description: false
+  localization: true
+  twist_mux: true
+  imu: true
+  lidar: true
+  lidar_filter: true
+  camera: true
+  vision: true
+  led_strip: false
+  octoliner: false
+  waveshare_audio: false

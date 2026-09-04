@@ -2,286 +2,173 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
-from launch.conditions import IfCondition
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+    LogInfo,
+    OpaqueFunction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
-from launch_ros.substitutions import FindPackageShare
+from launch.substitutions import LaunchConfiguration
 
-from rover_bringup.configuration import bringup_config_path
-
-
-def default_ui_config_file() -> str:
-    return bringup_config_path('components', 'ui.yaml')
-
-
-def package_file(package_name: str, *parts: str) -> str:
-    return str(Path(get_package_share_directory(package_name)).joinpath(*parts))
-
-
-def workspace_root() -> str:
-    try:
-        return str(Path(get_package_share_directory('rover_web')).parents[3])
-    except Exception:
-        return str(Path.home() / 'sverk_rover')
+from rover_bringup.configuration import (
+    bringup_config_path,
+    component_enabled,
+    implementation,
+    load_implementations,
+    load_layer_profile,
+    override_bool,
+    read_yaml_file,
+)
 
 
-def default_plans_directory() -> str:
-    return str(Path.home() / '.local' / 'share' / 'sverh-rover-web' / 'plans')
+def _flag(context, profile_config: dict, name: str) -> bool:
+    configured = component_enabled(profile_config, name, False)
+    return override_bool(LaunchConfiguration(f'use_{name}').perform(context), configured)
 
 
-def default_hackathon_files_root() -> str:
-    return str(Path(workspace_root()) / 'hackathon_files')
+def _add_if_set(arguments: dict[str, str], name: str, value) -> None:
+    if value is not None and str(value).strip():
+        arguments[name] = str(value)
 
 
-def load_ui_config(path: str) -> dict:
-    config_path = Path(path).expanduser()
-    if not config_path.is_file():
-        raise FileNotFoundError(f'UI config file not found: {config_path}')
-    with config_path.open('r', encoding='utf-8') as stream:
-        return yaml.safe_load(stream) or {}
-
-
-def config_value(config: dict, keys: tuple[str, ...], default):
-    value = config
-    for key in keys:
-        if not isinstance(value, dict) or key not in value:
-            return to_launch_text(default)
-        value = value[key]
-    return to_launch_text(value)
-
-
-def launch_value(context, name: str, config: dict, keys: tuple[str, ...], default):
-    override = LaunchConfiguration(name).perform(context).strip()
-    if override:
-        return override
-    return config_value(config, keys, default)
-
-
-def launch_value_or_default(
-    context,
-    name: str,
-    config: dict,
-    keys: tuple[str, ...],
-    default,
-):
-    value = launch_value(context, name, config, keys, default).strip()
-    return value if value else to_launch_text(default)
-
-
-def to_launch_text(value) -> str:
-    if isinstance(value, bool):
-        return 'true' if value else 'false'
-    if value is None:
-        return ''
-    return str(value)
-
-
-def add_if_set(arguments: dict, name: str, value: str):
-    if value:
-        arguments[name] = value
-
-
-def launch_setup(context):
-    config_file = LaunchConfiguration('config_file').perform(context).strip()
-    config = load_ui_config(config_file) if config_file else {}
-
-    use_web = launch_value(context, 'use_web', config, ('ui', 'use_web'), True)
-    use_display = launch_value(
-        context, 'use_display', config, ('ui', 'use_display'), True
+def _include(implementations: dict, name: str, arguments: dict[str, str]):
+    selected = implementation(implementations, 'ui', name)
+    source = (
+        Path(get_package_share_directory(selected['package']))
+        / 'launch'
+        / selected['launch']
     )
-    use_rosboard = launch_value(
-        context, 'use_rosboard', config, ('ui', 'use_rosboard'), True
+    launch_arguments = dict(arguments)
+    _add_if_set(launch_arguments, 'variant', selected['variant'])
+    include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(str(source)),
+        launch_arguments=launch_arguments.items(),
+    )
+    return GroupAction(
+        actions=[include],
+        scoped=True,
+        forwarding=False,
+        launch_configurations=launch_arguments,
     )
 
-    web_arguments = {
-        'config_file': launch_value_or_default(
-            context,
-            'web_config_file',
-            config,
-            ('web', 'config_file'),
-            package_file('rover_bringup', 'config', 'components', 'web.yaml'),
-        ),
-        'bind_address': launch_value(
-            context, 'web_bind_address', config, ('web', 'bind_address'), '0.0.0.0'
-        ),
-        'port': launch_value(context, 'web_port', config, ('web', 'port'), 8765),
-        'command_topic': launch_value(
-            context, 'command_topic', config, ('web', 'command_topic'), '/cmd_vel'
-        ),
-        'identity_file': launch_value_or_default(
-            context,
-            'identity_file',
-            config,
-            ('web', 'identity_file'),
-            package_file('rover_bringup', 'config', 'rover_v1.yaml'),
-        ),
-        'terminal_enabled': launch_value(
-            context, 'terminal_enabled', config, ('terminal', 'enabled'), True
-        ),
-        'start_terminal': launch_value(
-            context, 'start_terminal', config, ('terminal', 'start'), True
-        ),
-        'terminal_bind_address': launch_value(
-            context,
-            'terminal_bind_address',
-            config,
-            ('terminal', 'bind_address'),
-            '0.0.0.0',
-        ),
-        'terminal_port': launch_value(
-            context, 'terminal_port', config, ('terminal', 'port'), 7681
-        ),
-        'terminal_path': launch_value(
-            context, 'terminal_path', config, ('terminal', 'path'), '/'
-        ),
-        'rosboard_enabled': use_rosboard,
-        'rosboard_port': launch_value(
-            context, 'rosboard_port', config, ('rosboard', 'port'), 8888
-        ),
-        'rover_config_file': launch_value_or_default(
-            context,
-            'rover_config_file',
-            config,
-            ('web', 'rover_config_file'),
-            package_file('rover_bringup', 'config', 'rover_v1.yaml'),
-        ),
-        'plans_directory': launch_value_or_default(
-            context,
-            'plans_directory',
-            config,
-            ('web', 'plans_directory'),
-            default_plans_directory(),
-        ),
-        'hackathon_files_root': launch_value_or_default(
-            context,
-            'hackathon_files_root',
-            config,
-            ('web', 'hackathon_files_root'),
-            default_hackathon_files_root(),
-        ),
-        'terminal_url': launch_value(
-            context, 'terminal_url', config, ('terminal', 'url'), ''
-        ),
-        'terminal_workspace': launch_value_or_default(
-            context,
-            'terminal_workspace',
-            config,
-            ('terminal', 'workspace'),
-            workspace_root(),
-        ),
-    }
 
-    display_arguments = {
-        'config_file': launch_value_or_default(
-            context,
-            'display_config_file',
-            config,
-            ('display', 'config_file'),
-            package_file('rover_bringup', 'config', 'components', 'display.yaml'),
-        ),
-        'right_panel_mode': launch_value(
-            context,
-            'display_panel_mode',
-            config,
-            ('display', 'panel_mode'),
-            'placeholder',
-        ),
-        'robot_serial': launch_value(
-            context, 'display_robot_serial', config, ('display', 'robot_serial'), '1'
-        ),
-    }
-    add_if_set(
-        display_arguments,
-        'agent_text_topic',
-        launch_value(
-            context,
-            'display_agent_text_topic',
-            config,
-            ('display', 'agent_text_topic'),
-            '',
-        ),
+def _launch_setup(context):
+    profile_name = LaunchConfiguration('profile').perform(context).strip() or 'full'
+    profile = load_layer_profile(
+        'ui',
+        profile_name,
+        LaunchConfiguration('profile_file').perform(context),
     )
-    add_if_set(
-        display_arguments,
-        'battery_topic',
-        launch_value(
-            context,
-            'display_battery_topic',
-            config,
-            ('display', 'battery_topic'),
-            '',
-        ),
+    implementations = load_implementations(
+        LaunchConfiguration('implementations_file').perform(context)
     )
+    topics = dict(read_yaml_file(
+        LaunchConfiguration('topics_config_file').perform(context)
+    ).get('topics', {}))
+    use_web = _flag(context, profile, 'web')
+    use_display = _flag(context, profile, 'display')
+    use_rosboard = _flag(context, profile, 'rosboard')
+    robot_config_file = LaunchConfiguration('rover_config_file').perform(context).strip()
+    if not robot_config_file:
+        robot_config_file = bringup_config_path('rover_v1.yaml')
 
-    return [
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('rover_web'), 'launch', 'web.launch.py'
-            ])),
-            condition=IfCondition(TextSubstitution(text=use_web)),
-            launch_arguments=web_arguments.items(),
-        ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('rosboard'), 'launch', 'rosboard.launch.py'
-            ])),
-            condition=IfCondition(TextSubstitution(text=use_rosboard)),
-            launch_arguments={
-                'port': launch_value(
-                    context, 'rosboard_port', config, ('rosboard', 'port'), 8888
-                ),
-            }.items(),
-        ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution([
-                FindPackageShare('rover_display'), 'launch', 'display.launch.py'
-            ])),
-            condition=IfCondition(TextSubstitution(text=use_display)),
-            launch_arguments=display_arguments.items(),
-        ),
-    ]
+    actions = [LogInfo(msg=f'UI profile={profile_name}')]
+    sim_time = LaunchConfiguration('use_sim_time').perform(context)
+    if use_web:
+        args = {
+            'use_sim_time': sim_time,
+            'rover_config_file': robot_config_file,
+            'identity_file': (
+                LaunchConfiguration('identity_file').perform(context).strip()
+                or robot_config_file
+            ),
+            'command_topic': (
+                LaunchConfiguration('command_topic').perform(context).strip()
+                or topics.get('cmd_vel_teleop', '/cmd_vel_teleop')
+            ),
+            'rosboard_enabled': 'true' if use_rosboard else 'false',
+        }
+        for launch_name, package_name in (
+            ('web_config_file', 'config_file'),
+            ('web_bind_address', 'bind_address'),
+            ('web_port', 'port'),
+            ('plans_directory', 'plans_directory'),
+            ('hackathon_files_root', 'hackathon_files_root'),
+            ('terminal_enabled', 'terminal_enabled'),
+            ('start_terminal', 'start_terminal'),
+            ('terminal_bind_address', 'terminal_bind_address'),
+            ('terminal_port', 'terminal_port'),
+            ('terminal_path', 'terminal_path'),
+            ('terminal_url', 'terminal_url'),
+            ('terminal_workspace', 'terminal_workspace'),
+            ('rosboard_port', 'rosboard_port'),
+        ):
+            _add_if_set(
+                args,
+                package_name,
+                LaunchConfiguration(launch_name).perform(context),
+            )
+        actions.append(_include(implementations, 'web', args))
+
+    if use_rosboard:
+        args = {'use_sim_time': sim_time}
+        _add_if_set(args, 'port', LaunchConfiguration('rosboard_port').perform(context))
+        _add_if_set(args, 'config_file', LaunchConfiguration('rosboard_config_file').perform(context))
+        actions.append(_include(implementations, 'rosboard', args))
+
+    if use_display:
+        args = {'use_sim_time': sim_time}
+        for launch_name, package_name in (
+            ('display_config_file', 'config_file'),
+            ('display_panel_mode', 'right_panel_mode'),
+            ('display_robot_serial', 'robot_serial'),
+            ('display_agent_text_topic', 'agent_text_topic'),
+            ('display_battery_topic', 'battery_topic'),
+        ):
+            _add_if_set(
+                args,
+                package_name,
+                LaunchConfiguration(launch_name).perform(context),
+            )
+        actions.append(_include(implementations, 'display', args))
+    return actions
 
 
 def generate_launch_description():
-    empty_default = ''
-
     return LaunchDescription([
-        DeclareLaunchArgument('config_file', default_value=default_ui_config_file()),
-        DeclareLaunchArgument('use_web', default_value=empty_default),
-        DeclareLaunchArgument('use_display', default_value=empty_default),
-        DeclareLaunchArgument('use_rosboard', default_value=empty_default),
-        DeclareLaunchArgument('web_config_file', default_value=empty_default),
-        DeclareLaunchArgument('web_bind_address', default_value=empty_default),
-        DeclareLaunchArgument('web_port', default_value=empty_default),
-        DeclareLaunchArgument('command_topic', default_value=empty_default),
-        DeclareLaunchArgument('identity_file', default_value=empty_default),
-        DeclareLaunchArgument('rover_config_file', default_value=empty_default),
-        DeclareLaunchArgument('plans_directory', default_value=empty_default),
-        DeclareLaunchArgument('hackathon_files_root', default_value=empty_default),
-        DeclareLaunchArgument('terminal_enabled', default_value=empty_default),
-        DeclareLaunchArgument('start_terminal', default_value=empty_default),
-        DeclareLaunchArgument('terminal_bind_address', default_value=empty_default),
-        DeclareLaunchArgument('terminal_port', default_value=empty_default),
-        DeclareLaunchArgument('terminal_path', default_value=empty_default),
-        DeclareLaunchArgument('terminal_url', default_value=empty_default),
-        DeclareLaunchArgument('terminal_workspace', default_value=empty_default),
-        DeclareLaunchArgument('rosboard_port', default_value=empty_default),
-        DeclareLaunchArgument('display_config_file', default_value=empty_default),
-        DeclareLaunchArgument('display_agent_text_topic', default_value=empty_default),
-        DeclareLaunchArgument('display_battery_topic', default_value=empty_default),
-        DeclareLaunchArgument(
-            'display_panel_mode',
-            default_value=empty_default,
-            description='Touchscreen right panel: placeholder or agent',
-        ),
-        DeclareLaunchArgument(
-            'display_robot_serial',
-            default_value=empty_default,
-            description='Touchscreen rover serial suffix',
-        ),
-        OpaqueFunction(function=launch_setup),
+        DeclareLaunchArgument('profile', default_value='full'),
+        DeclareLaunchArgument('profile_file', default_value=''),
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('implementations_file', default_value=bringup_config_path('implementations.yaml')),
+        DeclareLaunchArgument('topics_config_file', default_value=bringup_config_path('topics.yaml')),
+        DeclareLaunchArgument('use_web', default_value=''),
+        DeclareLaunchArgument('use_display', default_value=''),
+        DeclareLaunchArgument('use_rosboard', default_value=''),
+        DeclareLaunchArgument('web_config_file', default_value=''),
+        DeclareLaunchArgument('web_bind_address', default_value=''),
+        DeclareLaunchArgument('web_port', default_value=''),
+        DeclareLaunchArgument('command_topic', default_value=''),
+        DeclareLaunchArgument('identity_file', default_value=''),
+        DeclareLaunchArgument('rover_config_file', default_value=''),
+        DeclareLaunchArgument('plans_directory', default_value=''),
+        DeclareLaunchArgument('hackathon_files_root', default_value=''),
+        DeclareLaunchArgument('terminal_enabled', default_value=''),
+        DeclareLaunchArgument('start_terminal', default_value=''),
+        DeclareLaunchArgument('terminal_bind_address', default_value=''),
+        DeclareLaunchArgument('terminal_port', default_value=''),
+        DeclareLaunchArgument('terminal_path', default_value=''),
+        DeclareLaunchArgument('terminal_url', default_value=''),
+        DeclareLaunchArgument('terminal_workspace', default_value=''),
+        DeclareLaunchArgument('rosboard_port', default_value=''),
+        DeclareLaunchArgument('rosboard_config_file', default_value=''),
+        DeclareLaunchArgument('display_config_file', default_value=''),
+        DeclareLaunchArgument('display_agent_text_topic', default_value=''),
+        DeclareLaunchArgument('display_battery_topic', default_value=''),
+        DeclareLaunchArgument('display_panel_mode', default_value=''),
+        DeclareLaunchArgument('display_robot_serial', default_value=''),
+        OpaqueFunction(function=_launch_setup),
     ])

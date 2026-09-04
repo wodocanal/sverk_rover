@@ -1,0 +1,32 @@
+name: sverk-rover-dev
+
+services:
+  ros:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: sverk-rover-ros:jazzy
+    init: true
+    shm_size: "512m"
+    working_dir: /workspace
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-77}"
+      ROS_AUTOMATIC_DISCOVERY_RANGE: "${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}"
+      ROVER_WS: /workspace
+      LIBGL_ALWAYS_SOFTWARE: "${LIBGL_ALWAYS_SOFTWARE:-1}"
+      GZ_IP: 127.0.0.1
+    volumes:
+      - .:/workspace
+      - rover_build:/workspace/build
+      - rover_install:/workspace/install
+      - rover_log:/workspace/log
+    ports:
+      - "${ROVER_WEB_PORT:-8765}:8765"
+      - "${ROSBOARD_PORT:-8888}:8888"
+    stdin_open: true
+    tty: true
+
+volumes:
+  rover_build:
+  rover_install:
+  rover_log:

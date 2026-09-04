@@ -1,0 +1,87 @@
+components:
+  base:
+    package: rover_base_driver
+    launch: base.launch.py
+    variant: base
+  odometry:
+    package: rover_wheel_odometry
+    launch: odometry.launch.py
+    variant: odometry
+  description:
+    package: rover_description
+    launch: description.launch.py
+    variant: rover
+  localization:
+    package: rover_wheel_odometry
+    launch: localization.launch.py
+    variant: ekf
+  imu:
+    package: rover_imu
+    launch: imu.launch.py
+    variant: yb_mra02_v1
+  lidar:
+    package: sllidar_ros2
+    launch: lidar.launch.py
+    variant: c1
+  lidar_filter:
+    package: rover_lidar_filter
+    launch: filter.launch.py
+    variant: default
+  camera:
+    package: rover_camera
+    launch: camera.launch.py
+    variant: camera
+  vision:
+    package: rover_vision
+    launch: vision.launch.py
+    variant: vision
+  led_strip:
+    package: rover_led_strip
+    launch: led_strip.launch.py
+    variant: led_strip
+  octoliner:
+    package: rover_octoliner
+    launch: octoliner.launch.py
+    variant: octoliner
+  waveshare_audio:
+    package: rover_waveshare_audio
+    launch: waveshare_audio.launch.py
+    variant: waveshare_audio
+
+ui:
+  web:
+    package: rover_web
+    launch: web.launch.py
+    variant: web
+  display:
+    package: rover_display
+    launch: display.launch.py
+    variant: display
+  rosboard:
+    package: rosboard
+    launch: rosboard.launch.py
+    variant: rosboard
+
+integrations:
+  agent:
+    package: rover_agent_mcp
+    launch: agent_mcp.launch.py
+    variant: agent
+  fleet_bridge:
+    package: fleet_text_bridge_ros2
+    launch: bridge.launch.py
+    variant: bridge
+
+modes:
+  navigation:
+    package: rover_navigation
+    launch: navigation.launch.py
+    variant: nav2
+  mapping:
+    package: rover_navigation
+    launch: slam.launch.py
+    variant: slam_toolbox
+  update_map:
+    package: rover_navigation
+    launch: update_map.launch.py
+    variant: slam_toolbox_localization

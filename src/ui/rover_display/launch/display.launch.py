@@ -5,6 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def add_override(context, overrides: dict, argument_name: str, parameter_name: str):
@@ -15,7 +16,9 @@ def add_override(context, overrides: dict, argument_name: str, parameter_name: s
 
 def launch_setup(context):
     config_file = LaunchConfiguration('config_file').perform(context)
-    overrides = {}
+    overrides = {
+        'use_sim_time': ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool),
+    }
     add_override(context, overrides, 'right_panel_mode', 'right_panel_mode')
     add_override(context, overrides, 'robot_serial', 'robot_serial')
     add_override(context, overrides, 'agent_text_topic', 'agent_text_topic')
@@ -40,10 +43,12 @@ def generate_launch_description():
     default_config = str(
         Path(get_package_share_directory('rover_display'))
         / 'config'
-        / 'default.example.yaml'
+        / 'display.yaml'
     )
     return LaunchDescription([
         DeclareLaunchArgument('config_file', default_value=default_config),
+        DeclareLaunchArgument('variant', default_value='display'),
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('right_panel_mode', default_value=''),
         DeclareLaunchArgument('robot_serial', default_value=''),
         DeclareLaunchArgument('agent_text_topic', default_value=''),

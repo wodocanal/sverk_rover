@@ -1,0 +1,7 @@
+profile:
+  name: full
+  description: Web gateway, touchscreen display and rosboard.
+components:
+  web: true
+  display: true
+  rosboard: true

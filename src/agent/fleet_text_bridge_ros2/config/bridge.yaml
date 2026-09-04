@@ -1,0 +1,13 @@
+fleet_text_bridge:
+  ros__parameters:
+    robot_id: rover-01
+    mqtt_host: 10.63.18.111
+    mqtt_port: 1883
+    mqtt_topic_prefix: fleet/v1/robots
+    mqtt_username: ''
+    mqtt_password_env: FLEET_MQTT_PASSWORD
+    command_topic: /agent/text_command
+    answer_topic: /agent/answer
+    status_topic: /agent/status
+    duplicate_cache_size: 100
+    agent_command_timeout_sec: 300.0

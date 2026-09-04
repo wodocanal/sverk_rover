@@ -1,0 +1,6 @@
+profile:
+  name: full
+  description: All configured server and agent integrations.
+components:
+  agent: true
+  fleet_bridge: true

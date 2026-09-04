@@ -1,5 +1,5 @@
 [Unit]
-Description=SVERK Rover ROS 2 bringup
+Description=SVERK Rover ROS 2 core
 After=network-online.target
 Wants=network-online.target
 

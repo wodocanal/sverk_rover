@@ -1,5 +1,5 @@
 [Unit]
-Description=SVERK Rover Web UI
+Description=SVERK Rover UI
 After=network-online.target rover-bringup.service
 Wants=network-online.target
 

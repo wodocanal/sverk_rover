@@ -1,0 +1,7 @@
+profile:
+  name: web
+  description: Web gateway only.
+components:
+  web: true
+  display: false
+  rosboard: false

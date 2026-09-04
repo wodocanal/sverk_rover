@@ -14,11 +14,12 @@ if [[ -n "${ROVER_WEB_LAUNCH_ARGS:-}" ]]; then
 fi
 
 exec ros2 launch rover_bringup ui.launch.py \
-  use_web:=true \
-  use_display:=false \
+  "profile:=${ROVER_UI_PROFILE:-full}" \
+  "use_web:=${ROVER_WEB_ENABLED:-true}" \
+  "use_display:=${ROVER_WEB_USE_DISPLAY:-true}" \
   "use_rosboard:=${ROVER_WEB_USE_ROSBOARD:-true}" \
   "web_bind_address:=${ROVER_WEB_BIND_ADDRESS:-0.0.0.0}" \
   "web_port:=${ROVER_WEB_PORT:-8765}" \
-  "command_topic:=${ROVER_WEB_COMMAND_TOPIC:-/cmd_vel}" \
+  "command_topic:=${ROVER_WEB_COMMAND_TOPIC:-/cmd_vel_teleop}" \
   "rosboard_port:=${ROVER_WEB_ROSBOARD_PORT:-8888}" \
   "${launch_args[@]}"

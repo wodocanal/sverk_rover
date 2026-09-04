@@ -124,7 +124,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'params_file',
             default_value=str(
-                bringup_share / 'config' / 'navigation' / 'slam_toolbox_params.yaml'
+                navigation_share / 'config' / 'slam_toolbox.yaml'
             ),
         ),
         DeclareLaunchArgument(

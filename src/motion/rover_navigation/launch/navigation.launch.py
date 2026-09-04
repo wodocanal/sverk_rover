@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -15,8 +15,18 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     autostart = LaunchConfiguration('autostart')
-    params_file = LaunchConfiguration('params_file')
-    map_file = LaunchConfiguration('map')
+    bond_timeout = LaunchConfiguration('bond_timeout')
+    default_params = str(pkg_share / 'config' / 'nav2.yaml')
+    default_map = str(pkg_share / 'maps' / 'current' / 'map.yaml')
+    # Included launch arguments share a context with their parent. Fall back
+    # here as well as in DeclareLaunchArgument so an empty parent value cannot
+    # accidentally erase the package default.
+    params_file = PythonExpression([
+        "'", LaunchConfiguration('params_file'), "' or '", default_params, "'",
+    ])
+    map_file = PythonExpression([
+        "'", LaunchConfiguration('map'), "' or '", default_map, "'",
+    ])
     use_rviz = LaunchConfiguration('use_rviz')
     rviz_config = LaunchConfiguration('rviz_config')
 
@@ -36,14 +46,16 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('variant', default_value='nav2'),
         DeclareLaunchArgument('autostart', default_value='true'),
+        DeclareLaunchArgument('bond_timeout', default_value='4.0'),
         DeclareLaunchArgument(
             'params_file',
-            default_value=str(pkg_share / 'config' / 'nav2.default.example.yaml'),
+            default_value=default_params,
         ),
         DeclareLaunchArgument(
             'map',
-            default_value=str(pkg_share / 'maps' / 'current' / 'map.yaml'),
+            default_value=default_map,
         ),
         DeclareLaunchArgument('use_rviz', default_value='false'),
         DeclareLaunchArgument(
@@ -76,6 +88,7 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
                 'autostart': ParameterValue(autostart, value_type=bool),
+                'bond_timeout': ParameterValue(bond_timeout, value_type=float),
                 'node_names': localization_nodes,
             }],
         ),
@@ -132,6 +145,7 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
                 'autostart': ParameterValue(autostart, value_type=bool),
+                'bond_timeout': ParameterValue(bond_timeout, value_type=float),
                 'node_names': navigation_nodes,
             }],
         ),

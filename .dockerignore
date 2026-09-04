@@ -1,0 +1,16 @@
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/build
+**/install
+**/log
+.ros
+.cache
+.config
+.local
+hackathon_files
+*.pdf

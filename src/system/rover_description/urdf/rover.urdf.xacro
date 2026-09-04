@@ -9,6 +9,8 @@
   <xacro:arg name="wheel_width" default="0.037"/>
   <xacro:arg name="wheelbase" default="0.13961"/>
   <xacro:arg name="track_width" default="0.181"/>
+  <xacro:arg name="simulation" default="false"/>
+  <xacro:arg name="right_wheel_axis_y" default="-1"/>
   <xacro:arg name="chassis_length" default="0.2006"/>
   <xacro:arg name="chassis_width" default="0.1990"/>
   <xacro:arg name="chassis_height" default="0.0532"/>
@@ -27,6 +29,12 @@
   <xacro:arg name="lidar_roll" default="0.0"/>
   <xacro:arg name="lidar_pitch" default="0.0"/>
   <xacro:arg name="lidar_yaw" default="0.0"/>
+  <xacro:arg name="camera_x" default="0.105"/>
+  <xacro:arg name="camera_y" default="0.0"/>
+  <xacro:arg name="camera_z" default="0.055"/>
+  <xacro:arg name="camera_roll" default="0.0"/>
+  <xacro:arg name="camera_pitch" default="0.0"/>
+  <xacro:arg name="camera_yaw" default="0.0"/>
 
   <xacro:property name="r" value="$(arg wheel_radius)"/>
   <xacro:property name="ww" value="$(arg wheel_width)"/>
@@ -61,8 +69,14 @@
         <material name="rubber"><color rgba="0.05 0.05 0.05 1"/></material>
       </visual>
       <collision>
-        <origin rpy="1.57079632679 0 0"/>
-        <geometry><cylinder radius="${r}" length="${ww}"/></geometry>
+        <xacro:if value="$(arg simulation)">
+          <!-- The directed friction model needs a point-like contact patch. -->
+          <geometry><sphere radius="${r}"/></geometry>
+        </xacro:if>
+        <xacro:unless value="$(arg simulation)">
+          <origin rpy="1.57079632679 0 0"/>
+          <geometry><cylinder radius="${r}" length="${ww}"/></geometry>
+        </xacro:unless>
       </collision>
       <inertial>
         <mass value="0.15"/>
@@ -78,9 +92,9 @@
   </xacro:macro>
 
   <xacro:wheel name="front_left"  x="${ wb/2}" y="${ tw/2}" axis_y="1"/>
-  <xacro:wheel name="front_right" x="${ wb/2}" y="${-tw/2}" axis_y="-1"/>
+  <xacro:wheel name="front_right" x="${ wb/2}" y="${-tw/2}" axis_y="$(arg right_wheel_axis_y)"/>
   <xacro:wheel name="rear_left"   x="${-wb/2}" y="${ tw/2}" axis_y="1"/>
-  <xacro:wheel name="rear_right"  x="${-wb/2}" y="${-tw/2}" axis_y="-1"/>
+  <xacro:wheel name="rear_right"  x="${-wb/2}" y="${-tw/2}" axis_y="$(arg right_wheel_axis_y)"/>
 
   <link name="imu_link">
     <visual>
@@ -122,5 +136,34 @@
     <child link="lidar_link"/>
     <origin xyz="$(arg lidar_x) $(arg lidar_y) $(arg lidar_z)"
             rpy="$(arg lidar_roll) $(arg lidar_pitch) $(arg lidar_yaw)"/>
+  </joint>
+
+  <link name="camera_link">
+    <visual>
+      <geometry><box size="0.030 0.025 0.025"/></geometry>
+      <material name="camera_black"><color rgba="0.08 0.08 0.09 1"/></material>
+    </visual>
+    <collision>
+      <geometry><box size="0.030 0.025 0.025"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.025"/>
+      <inertia ixx="0.0000026" ixy="0" ixz="0"
+               iyy="0.0000032" iyz="0" izz="0.0000026"/>
+    </inertial>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="$(arg camera_x) $(arg camera_y) $(arg camera_z)"
+            rpy="$(arg camera_roll) $(arg camera_pitch) $(arg camera_yaw)"/>
+  </joint>
+
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_optical_frame"/>
+    <!-- ROS optical frames use z forward, x right and y down. -->
+    <origin xyz="0 0 0" rpy="-1.57079632679 0 -1.57079632679"/>
   </joint>
 </robot>

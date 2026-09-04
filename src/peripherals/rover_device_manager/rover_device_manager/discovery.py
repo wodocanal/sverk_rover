@@ -929,8 +929,14 @@ def save_device_config(
     return path
 
 
-def _required_roles(require_imu: bool, require_lidar: bool) -> list[str]:
-    required = ['motor_controller']
+def _required_roles(
+    require_motor: bool,
+    require_imu: bool,
+    require_lidar: bool,
+) -> list[str]:
+    required = []
+    if require_motor:
+        required.append('motor_controller')
     if require_imu:
         required.append('imu')
     if require_lidar:
@@ -1044,13 +1050,14 @@ def _configured_results(
     config_path: str,
     require_imu: bool,
     require_lidar: bool,
+    require_motor: bool = True,
     imu_baudrates: Sequence[int] = DEFAULT_IMU_BAUDRATES,
     lidar_baudrates: Sequence[int] = DEFAULT_SLLIDAR_BAUDRATES,
     allow_protocol_relocation: bool = True,
 ) -> dict[str, DeviceResult]:
     payload = load_device_config(config_path)
     configured = payload['devices']
-    required = _required_roles(require_imu, require_lidar)
+    required = _required_roles(require_motor, require_imu, require_lidar)
 
     results: dict[str, DeviceResult] = {}
     used: set[str] = set()
@@ -1087,6 +1094,7 @@ def _configured_results(
         )
         return _mark_protocol_relocated(
             _discover_roles(
+                require_motor=require_motor,
                 require_imu=require_imu,
                 require_lidar=require_lidar,
                 imu_baudrates=imu_baudrates,
@@ -1156,6 +1164,7 @@ def prepare_devices(
     lidar_device: Optional[str] = None,
     imu_baudrates: Sequence[int] = DEFAULT_IMU_BAUDRATES,
     lidar_baudrates: Sequence[int] = DEFAULT_SLLIDAR_BAUDRATES,
+    require_motor: bool = True,
 ) -> dict[str, DeviceResult]:
     normalized = mode.strip().lower()
     if any((motor_device, imu_device, lidar_device)):
@@ -1165,6 +1174,7 @@ def prepare_devices(
             config_path,
             require_imu,
             require_lidar,
+            require_motor=require_motor,
             imu_baudrates=imu_baudrates,
             lidar_baudrates=lidar_baudrates,
             allow_protocol_relocation=True,
@@ -1174,6 +1184,7 @@ def prepare_devices(
             config_path,
             require_imu,
             require_lidar,
+            require_motor=require_motor,
             imu_baudrates=imu_baudrates,
             lidar_baudrates=lidar_baudrates,
             allow_protocol_relocation=True,
@@ -1183,6 +1194,7 @@ def prepare_devices(
         except RuntimeError as exc:
             results = _mark_protocol_relocated(
                 _discover_roles(
+                    require_motor=require_motor,
                     require_imu=require_imu,
                     require_lidar=require_lidar,
                     motor_device=motor_device,
@@ -1195,6 +1207,7 @@ def prepare_devices(
             )
     elif normalized == 'full':
         results = _discover_roles(
+            require_motor=require_motor,
             require_imu=require_imu,
             require_lidar=require_lidar,
             motor_device=motor_device,
@@ -1213,6 +1226,7 @@ def prepare_devices(
 
 
 def _discover_roles(
+    require_motor: bool = True,
     require_imu: bool = True,
     require_lidar: bool = False,
     motor_device: Optional[str] = None,
@@ -1262,35 +1276,36 @@ def _discover_roles(
             details = '; '.join(imu_failures) or 'no candidates'
             raise RuntimeError(f'Yahboom/YB-MRA02 IMU not detected. {details}')
 
-    # Check Quad-MD before sending SLLIDAR binary commands to all remaining
-    # ports. This avoids treating a continuous $MAll/$MSPD stream as lidar data.
-    motor_search = [motor_device] if motor_device else candidates
-    motor_failures: list[str] = []
-    for candidate in motor_search:
-        if not candidate:
-            continue
-        resolved = os.path.realpath(candidate)
-        if resolved in used_realpaths:
-            continue
-        ok, reason = probe_motor_controller(candidate)
-        if ok:
-            results['motor_controller'] = DeviceResult(
-                role='motor_controller',
-                device=preferred_stable_path(candidate),
-                resolved_device=resolved,
-                baudrate=115200,
-                confidence='protocol_verified',
-                reason=reason,
-                protocol='quad_md_ascii',
-                profile='quad_md',
-            )
-            used_realpaths.add(resolved)
-            break
-        motor_failures.append(f'{candidate}: {reason}')
+    if require_motor or motor_device:
+        # Check Quad-MD before sending SLLIDAR binary commands to all remaining
+        # ports. This avoids treating its continuous feedback as lidar data.
+        motor_search = [motor_device] if motor_device else candidates
+        motor_failures: list[str] = []
+        for candidate in motor_search:
+            if not candidate:
+                continue
+            resolved = os.path.realpath(candidate)
+            if resolved in used_realpaths:
+                continue
+            ok, reason = probe_motor_controller(candidate)
+            if ok:
+                results['motor_controller'] = DeviceResult(
+                    role='motor_controller',
+                    device=preferred_stable_path(candidate),
+                    resolved_device=resolved,
+                    baudrate=115200,
+                    confidence='protocol_verified',
+                    reason=reason,
+                    protocol='quad_md_ascii',
+                    profile='quad_md',
+                )
+                used_realpaths.add(resolved)
+                break
+            motor_failures.append(f'{candidate}: {reason}')
 
-    if 'motor_controller' not in results:
-        details = '; '.join(motor_failures) or 'no candidates'
-        raise RuntimeError(f'Motor controller not detected. {details}')
+        if require_motor and 'motor_controller' not in results:
+            details = '; '.join(motor_failures) or 'no candidates'
+            raise RuntimeError(f'Motor controller not detected. {details}')
 
     lidar_search = [lidar_device] if lidar_device else candidates
     lidar_failures: list[str] = []

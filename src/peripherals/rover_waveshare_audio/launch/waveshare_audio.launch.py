@@ -11,7 +11,7 @@ def default_config_file() -> str:
     return str(
         Path(get_package_share_directory('rover_waveshare_audio'))
         / 'config'
-        / 'default.example.yaml'
+        / 'waveshare_audio.yaml'
     )
 
 
@@ -27,7 +27,9 @@ def as_bool(value: str) -> bool:
 
 
 def launch_setup(context):
-    overrides = {}
+    overrides = {
+        'use_sim_time': as_bool(LaunchConfiguration('use_sim_time').perform(context)),
+    }
     for name, cast in (
         ('serial_device', str),
         ('baudrate', int),
@@ -70,6 +72,8 @@ def generate_launch_description():
     empty_default = ''
     return LaunchDescription([
         DeclareLaunchArgument('config_file', default_value=default_config_file()),
+        DeclareLaunchArgument('variant', default_value='waveshare_audio'),
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('serial_device', default_value=empty_default),
         DeclareLaunchArgument('baudrate', default_value=empty_default),
         DeclareLaunchArgument('output_topic', default_value=empty_default),

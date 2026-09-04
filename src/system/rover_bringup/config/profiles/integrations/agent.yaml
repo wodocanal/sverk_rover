@@ -1,0 +1,6 @@
+profile:
+  name: agent
+  description: Local MCP/text agent and MQTT fleet bridge.
+components:
+  agent: true
+  fleet_bridge: true

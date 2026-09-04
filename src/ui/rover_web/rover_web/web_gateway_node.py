@@ -465,10 +465,6 @@ class RoverWebGateway(Node):
         super().__init__('web_gateway_node')
 
         share = Path(get_package_share_directory('rover_web'))
-        try:
-            rover_share = Path(get_package_share_directory('rover_bringup'))
-        except Exception:
-            rover_share = share
         home = Path.home()
         try:
             workspace_root = share.parents[3]
@@ -483,7 +479,7 @@ class RoverWebGateway(Node):
         )
         self.declare_parameter(
             'rover_config_file',
-            str(rover_share / 'config' / 'rover_v1.yaml'),
+            str(share / 'config' / 'robot_identity.default.example.yaml'),
         )
         self.declare_parameter('web_root', str(share / 'web'))
         self.declare_parameter(
@@ -604,11 +600,18 @@ class RoverWebGateway(Node):
         voice_config_file = str(self.get_parameter('voice_config_file').value).strip()
         if not voice_config_file:
             try:
-                voice_config_file = str(
-                    Path(get_package_share_directory(self.voice_package))
-                    / 'config'
-                    / 'default.example.yaml'
+                config_dir = (
+                    Path(get_package_share_directory(self.voice_package)) / 'config'
                 )
+                for filename in (
+                    'waveshare_audio.yaml',
+                    'default.yaml',
+                    'default.example.yaml',
+                ):
+                    candidate = config_dir / filename
+                    if candidate.is_file():
+                        voice_config_file = str(candidate)
+                        break
             except Exception:
                 voice_config_file = ''
         self.voice_config_file = Path(voice_config_file).expanduser() if voice_config_file else None

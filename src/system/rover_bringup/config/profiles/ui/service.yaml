@@ -1,0 +1,7 @@
+profile:
+  name: service
+  description: Browser-facing web gateway and rosboard.
+components:
+  web: true
+  display: false
+  rosboard: true

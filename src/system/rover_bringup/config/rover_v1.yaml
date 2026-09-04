@@ -35,6 +35,15 @@ geometry:
   - 0.0
   - 0.0
   - 3.141592653589793
+  # Approximate camera pose until it is measured from the next CAD revision.
+  camera_xyz:
+  - 0.105
+  - 0.0
+  - 0.055
+  camera_rpy:
+  - 0.0
+  - 0.0
+  - 0.0
 
 encoders:
   encoder_lines: 11.0

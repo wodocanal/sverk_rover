@@ -1,39 +1,64 @@
 # Rover Bringup Configuration
 
-This directory is the source of truth for the assembled rover. Package-level
-configs are kept as `*.default.example.yaml` files only so each package can be
-launched and understood in isolation.
+`rover_bringup` now owns composition, not node runtime parameters. Each
+functional package keeps its executable, active parameter files and public
+launch file together. Bringup only selects those package launch files and
+connects them for one assembled rover.
 
 ## Layout
 
-- `rover_v1.yaml`: physical robot identity, geometry, wheel layout and calibration.
-- `profiles/`: which components are enabled for a launch mode.
-- `components/`: runtime parameters for each hardware, discovery or UI component.
-- `components/agent.yaml`: local MCP/LLM agent and MQTT fleet bridge settings.
-- `topics.yaml`: shared topic names and TF frame names.
-- `localization/`: EKF parameter files used by `rover_bringup`.
-- `navigation/`: Nav2 and SLAM parameter files used by `rover_bringup`.
+- `rover_v1.yaml`: identity, geometry and calibration of this physical rover.
+- `topics.yaml`: shared topic and TF frame contract between packages.
+- `implementations.yaml`: package, launch file and hardware/software variant
+  selected for each component.
+- `profiles/core/`: hardware, odometry, localization and command arbitration.
+- `profiles/ui/`: web, touchscreen display and rosboard combinations.
+- `profiles/integrations/`: local agent and fleet/server bridge combinations.
+- `profiles/*.yaml`: backward-compatible whole-rover presets used only by
+  `robot.launch.py`.
+- `core/twist_mux.yaml`: integration policy for the third-party `twist_mux`
+  package, which has no project-local package of its own.
 
-Component configs can use explicit references to already loaded bringup config
-values. For example, `@robot.id` resolves from `rover_v1.yaml`, and
-`@topics.cmd_vel_test` resolves from `topics.yaml`. `@env.NAME` resolves from an
-environment variable and becomes an empty string when unset.
+Node parameters now live with their owners. Important examples are:
 
-## Precedence
+```text
+rover_base_driver/config/base.yaml
+rover_imu/config/yb_mra02_v1.yaml
+sllidar_ros2/config/c1.yaml
+rover_wheel_odometry/config/odometry.yaml
+rover_wheel_odometry/config/localization/*.yaml
+rover_navigation/config/nav2.yaml
+rover_navigation/config/slam_toolbox.yaml
+rover_web/config/web.yaml
+rover_agent_mcp/config/agent.yaml
+fleet_text_bridge_ros2/config/bridge.yaml
+```
 
-Normal launch configuration is resolved in this order:
+## Launch Layers
 
-1. Package node defaults.
-2. Package `config/*.default.example.yaml` when a package is launched standalone.
-3. `rover_bringup/config/components/*.yaml`.
-4. `rover_bringup/config/rover_v1.yaml` for robot-specific geometry and
-   calibration.
-5. Explicit launch arguments, for example `use_lidar:=false`.
+The layers can run and restart independently:
 
-If the same setting appears in multiple places, prefer moving the real rover
-value into this directory and leaving the package config as a generic example.
+```bash
+ros2 launch rover_bringup core.launch.py profile:=full
+ros2 launch rover_bringup ui.launch.py profile:=full
+ros2 launch rover_bringup mode.launch.py mode:=navigation
+ros2 launch rover_bringup integrations.launch.py profile:=full
+```
 
-## Common Launches
+Switch navigation to mapping without restarting hardware or UI:
+
+```bash
+# Stop the current mode process, then start only the replacement mode.
+ros2 launch rover_bringup mode.launch.py mode:=mapping
+```
+
+`mode:=idle`, `navigation`, `mapping` and `update_map` are supported. Nav2/AMCL
+and SLAM are intentionally never included in the same mode process because both
+own the `map -> odom` transform.
+
+## Compatibility Launch
+
+The old single entry point remains available and composes the same four layers:
 
 ```bash
 ros2 launch rover_bringup robot.launch.py profile:=full
@@ -44,12 +69,34 @@ ros2 launch rover_bringup robot.launch.py profile:=navigation
 ros2 launch rover_bringup robot.launch.py profile:=mapping
 ```
 
-The `navigation` profile enables Nav2 through `components.nav2: true`; the
-`mapping` profile enables SLAM Toolbox through `components.slam: true`.
-
-Per-component overrides are still available from the command line:
+Legacy component overrides continue to work:
 
 ```bash
 ros2 launch rover_bringup robot.launch.py profile:=full use_camera:=false
 ros2 launch rover_bringup robot.launch.py profile:=mapping use_slam:=false
 ```
+
+## Precedence
+
+Runtime values are resolved in this order:
+
+1. Node defaults in source code.
+2. The active YAML in the component package.
+3. Assembly-specific geometry, calibration, identity, topics and frames passed
+   by bringup.
+4. Explicit launch arguments.
+
+Package `*.default.example.yaml` files remain examples. Active YAML files are
+the source of truth for node behavior; `rover_v1.yaml` is the source of truth
+only for this rover's identity, geometry and calibration.
+
+## First-Test Boundaries
+
+`rover_interfaces` remains one shared interface package in this version. It can
+be split into narrowly scoped `*_interfaces` packages during the later package
+layout refactor without changing these launch-layer contracts.
+
+`rover_device_manager` is a preflight library/CLI rather than a persistent node,
+so `core.launch.py` calls its discovery API before including serial-driver
+launch files. Its policy still lives in
+`rover_device_manager/config/device_manager.yaml`.

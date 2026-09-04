@@ -9,17 +9,6 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-def default_rover_config_file() -> str:
-    try:
-        return str(
-            Path(get_package_share_directory('rover_bringup'))
-            / 'config'
-            / 'rover_v1.yaml'
-        )
-    except Exception:
-        return ''
-
-
 def default_workspace_root(web_share: Path) -> str:
     try:
         return str(web_share.parents[3])
@@ -86,6 +75,7 @@ def launch_setup(context, web_share_text: str, terminal_shell: str):
         parameters=[
             LaunchConfiguration('config_file'),
             {
+                'use_sim_time': ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool),
                 'bind_address': LaunchConfiguration('bind_address'),
                 'port': ParameterValue(
                     LaunchConfiguration('port'),
@@ -128,18 +118,20 @@ def generate_launch_description():
     actions = [
         DeclareLaunchArgument(
             'config_file',
-            default_value=str(web_share / 'config' / 'default.example.yaml'),
+            default_value=str(web_share / 'config' / 'web.yaml'),
         ),
+        DeclareLaunchArgument('variant', default_value='web'),
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('bind_address', default_value='0.0.0.0'),
         DeclareLaunchArgument('port', default_value='8765'),
         DeclareLaunchArgument('command_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument(
             'identity_file',
-            default_value=default_rover_config_file(),
+            default_value=str(web_share / 'config' / 'robot_identity.default.example.yaml'),
         ),
         DeclareLaunchArgument(
             'rover_config_file',
-            default_value=default_rover_config_file(),
+            default_value=str(web_share / 'config' / 'robot_identity.default.example.yaml'),
         ),
         DeclareLaunchArgument(
             'plans_directory',

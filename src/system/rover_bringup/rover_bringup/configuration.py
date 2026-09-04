@@ -95,6 +95,42 @@ def load_profile(profile: str, profile_file: str = '') -> dict[str, Any]:
     return read_yaml_file(path)
 
 
+def load_layer_profile(
+    layer: str,
+    profile: str,
+    profile_file: str = '',
+) -> dict[str, Any]:
+    path = Path(profile_file).expanduser() if profile_file.strip() else None
+    if path is None:
+        path = Path(bringup_config_path('profiles', layer, f'{profile}.yaml'))
+    return read_yaml_file(path)
+
+
+def load_implementations(path: str = '') -> dict[str, Any]:
+    config_path = path.strip() or bringup_config_path('implementations.yaml')
+    return read_yaml_file(config_path)
+
+
+def implementation(
+    config: dict[str, Any],
+    section: str,
+    name: str,
+) -> dict[str, str]:
+    section_config = config.get(section, {})
+    value = section_config.get(name, {}) if isinstance(section_config, dict) else {}
+    if not isinstance(value, dict):
+        raise ValueError(f'Invalid implementation entry: {section}.{name}')
+
+    package = str(value.get('package', '')).strip()
+    launch_file = str(value.get('launch', '')).strip()
+    variant = str(value.get('variant', '')).strip()
+    if not package or not launch_file:
+        raise ValueError(f'Missing package/launch for implementation: {section}.{name}')
+    if Path(launch_file).name != launch_file:
+        raise ValueError(f'Launch file must be a basename: {launch_file}')
+    return {'package': package, 'launch': launch_file, 'variant': variant}
+
+
 def load_component(components_dir: str, name: str) -> dict[str, Any]:
     return read_yaml_file(Path(components_dir).expanduser() / f'{name}.yaml')
 

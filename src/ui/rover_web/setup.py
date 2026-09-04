@@ -8,7 +8,9 @@ package_name = 'rover_web'
 
 def recursive_data_files(source_dir: str, install_dir: str):
     entries = []
-    for root, _, files in os.walk(source_dir):
+    for root, directories, files in os.walk(source_dir):
+        directories[:] = [name for name in directories if name != '__pycache__']
+        files = [name for name in files if not name.endswith(('.pyc', '.pyo'))]
         if not files:
             continue
         relative = os.path.relpath(root, source_dir)

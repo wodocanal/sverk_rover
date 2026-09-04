@@ -10,6 +10,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     bringup_share = Path(get_package_share_directory('rover_bringup'))
+    navigation_share = Path(get_package_share_directory('rover_navigation'))
     profile = LaunchConfiguration('profile')
     use_base = LaunchConfiguration('use_base')
     use_odometry = LaunchConfiguration('use_odometry')
@@ -94,7 +95,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'params_file',
             default_value=str(
-                bringup_share / 'config' / 'navigation' / 'slam_toolbox_params.yaml'
+                navigation_share / 'config' / 'slam_toolbox.yaml'
             ),
         ),
         robot_launch,

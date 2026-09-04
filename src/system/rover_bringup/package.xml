@@ -32,5 +32,6 @@
   <exec_depend>twist_mux</exec_depend>
   <exec_depend>sllidar_ros2</exec_depend>
   <exec_depend>rover_lidar_filter</exec_depend>
+  <exec_depend>rover_gazebo</exec_depend>
   <export><build_type>ament_python</build_type></export>
 </package>

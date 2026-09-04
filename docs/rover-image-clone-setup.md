@@ -27,6 +27,9 @@ Before changing identity or serial-device setup, stop the running rover stack:
 
 ```bash
 sudo systemctl stop rover-bringup
+sudo systemctl stop rover-web
+sudo systemctl stop rover-mode
+sudo systemctl stop rover-integrations
 ```
 
 If the service is not installed yet, this command can fail harmlessly.
@@ -83,11 +86,12 @@ hostname       Expected Linux/network hostname for humans and UI.
 serial_number  Physical production serial number.
 ```
 
-The agent and server bridge read `robot.id` indirectly through
-`@robot.id` in:
+`integrations.launch.py` reads `robot.id` from the rover manifest and passes the
+same value to both package-owned configurations:
 
 ```text
-src/system/rover_bringup/config/components/agent.yaml
+src/agent/rover_agent_mcp/config/agent.yaml
+src/agent/fleet_text_bridge_ros2/config/bridge.yaml
 ```
 
 Do not give two active rovers the same `robot.id`. If two rovers share an ID,
@@ -127,37 +131,30 @@ laptop to the same `ROS_DOMAIN_ID` as the rover you are inspecting.
 
 ## 5. Check Server And MQTT Settings
 
-Main config:
+Fleet bridge config:
 
 ```text
-src/system/rover_bringup/config/components/agent.yaml
+src/agent/fleet_text_bridge_ros2/config/bridge.yaml
 ```
 
 Usually the server address is shared by all rovers:
 
 ```yaml
 fleet_bridge:
-  mqtt_host: 10.63.18.111
-  mqtt_port: 1883
-  mqtt_topic_prefix: fleet/v1/robots
+  ros__parameters:
+    mqtt_host: 10.63.18.111
+    mqtt_port: 1883
+    mqtt_topic_prefix: fleet/v1/robots
 ```
 
-Usually this must stay as a reference:
-
-```yaml
-fleet_bridge:
-  robot_id: '@robot.id'
-
-text_agent:
-  robot_id: '@robot.id'
-```
-
-Do not hardcode the same `robot_id` in `agent.yaml` for every rover.
+The `robot_id` values in package YAML files are standalone defaults. Normal
+bringup overrides both of them from `rover_v1.yaml`; do not bypass
+`integrations.launch.py` for normal fleet operation.
 
 If the MQTT server uses per-robot credentials, set unique credentials in:
 
 ```bash
-sudo nano /etc/default/rover-bringup
+sudo nano /etc/default/rover-integrations
 ```
 
 Example:
@@ -170,20 +167,22 @@ FLEET_MQTT_PASSWORD=change-me
 If the server uses shared credentials and distinguishes rovers only by
 `robot.id`, these values may be the same for all rovers.
 
-## 6. Configure Launch Profile And Components
+## 6. Configure Launch Layers
 
-In `/etc/default/rover-bringup`, choose the default service launch mode:
+In `/etc/default/rover-bringup`, choose the core hardware profile:
 
 ```bash
-ROVER_PROFILE=full
+ROVER_CORE_PROFILE=full
 ROVER_DISCOVERY_MODE=configured
 ```
 
-`rover-bringup` starts the main ROS stack without the web UI. The web UI is
-started separately by `rover-web.service`, with its own environment file:
+UI, motion mode and server integrations have their own services and environment
+files:
 
 ```bash
 sudo nano /etc/default/rover-web
+sudo nano /etc/default/rover-mode
+sudo nano /etc/default/rover-integrations
 ```
 
 Typical web settings:
@@ -192,6 +191,8 @@ Typical web settings:
 ROVER_WEB_BIND_ADDRESS=0.0.0.0
 ROVER_WEB_PORT=8765
 ROVER_WEB_USE_ROSBOARD=true
+ROVER_MODE=navigation
+ROVER_INTEGRATIONS_PROFILE=full
 ```
 
 Optional component overrides:
@@ -204,19 +205,21 @@ More examples:
 
 ```bash
 ROVER_LAUNCH_ARGS="use_camera:=false"
-ROVER_LAUNCH_ARGS="use_agent:=false use_fleet_bridge:=false"
 ROVER_LAUNCH_ARGS="use_waveshare_audio:=true use_camera:=false"
+ROVER_INTEGRATIONS_LAUNCH_ARGS="use_agent:=false use_fleet_bridge:=true"
 ```
 
 For multiple rovers connected to one server, the normal production profile is
 usually:
 
 ```bash
-ROVER_PROFILE=full
+ROVER_CORE_PROFILE=full
+ROVER_MODE=navigation
+ROVER_INTEGRATIONS_PROFILE=full
 ```
 
-The `full` profile includes local agent and fleet bridge in the current rover
-configuration.
+The integrations profile, not the core profile, controls the local agent and
+fleet bridge.
 
 ## 7. Recreate Physical Device Mapping
 
@@ -265,7 +268,7 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-If only `/etc/default/rover-bringup` or `/etc/default/rover-web` changed,
+If only files under `/etc/default/rover-*` changed,
 rebuilding is not required.
 
 ## 9. Restart Service
@@ -276,6 +279,8 @@ Reload and restart:
 sudo systemctl daemon-reload
 sudo systemctl restart rover-bringup
 sudo systemctl restart rover-web
+sudo systemctl restart rover-mode
+sudo systemctl restart rover-integrations
 ```
 
 Check status:
@@ -283,8 +288,12 @@ Check status:
 ```bash
 systemctl status rover-bringup
 systemctl status rover-web
+systemctl status rover-mode
+systemctl status rover-integrations
 journalctl -u rover-bringup -f
 journalctl -u rover-web -f
+journalctl -u rover-mode -f
+journalctl -u rover-integrations -f
 ```
 
 If the service is not installed yet:
@@ -294,6 +303,8 @@ cd ~/sverk_rover
 deploy/systemd/install.sh
 sudo systemctl start rover-bringup
 sudo systemctl start rover-web
+sudo systemctl start rover-mode
+sudo systemctl start rover-integrations
 ```
 
 ## 10. Verify Local Rover State
@@ -307,7 +318,7 @@ grep -A8 '^robot:' ~/sverk_rover/src/system/rover_bringup/config/rover_v1.yaml
 Check service environment:
 
 ```bash
-grep -E 'ROVER_PROFILE|ROS_DOMAIN_ID|ROVER_LAUNCH_ARGS|FLEET_MQTT' /etc/default/rover-bringup
+grep -E 'ROVER_CORE_PROFILE|ROS_DOMAIN_ID|ROVER_LAUNCH_ARGS|FLEET_MQTT' /etc/default/rover-bringup
 ```
 
 Check ROS graph:
@@ -322,7 +333,7 @@ ros2 node list
 Check agent and fleet bridge logs:
 
 ```bash
-journalctl -u rover-bringup -f | grep -E 'fleet_text_bridge|rover_agent|robot_id|mqtt'
+journalctl -u rover-integrations -f | grep -E 'fleet_text_bridge|rover_agent|robot_id|mqtt'
 ```
 
 Check server UI:
@@ -376,7 +387,7 @@ ROS_DOMAIN_ID
 Check:
 
 ```bash
-journalctl -u rover-bringup -f | grep fleet_text_bridge
+journalctl -u rover-integrations -f | grep fleet_text_bridge
 ```
 
 Common causes:
@@ -462,10 +473,10 @@ Use this checklist after cloning an image:
 [ ] Set robot.serial_number in rover_v1.yaml.
 [ ] Set unique ROS_DOMAIN_ID in /etc/default/rover-bringup.
 [ ] Set MQTT credentials if this rover has unique credentials.
-[ ] Configure ROVER_PROFILE and ROVER_LAUNCH_ARGS.
+[ ] Configure core, UI, mode and integrations environment files.
 [ ] Re-run ros2 run rover_device_manager setup_devices.
 [ ] Rebuild workspace if repository files changed.
-[ ] Restart rover-bringup.
+[ ] Restart all enabled rover services.
 [ ] Confirm unique robot appears online on the server.
 [ ] Confirm commands and answers are routed to this rover only.
 ```

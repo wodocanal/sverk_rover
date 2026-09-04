@@ -1,0 +1,17 @@
+profile:
+  name: mapping
+  description: Core hardware required for map creation.
+components:
+  base: true
+  odometry: true
+  description: true
+  localization: true
+  twist_mux: false
+  imu: true
+  lidar: true
+  lidar_filter: true
+  camera: false
+  vision: false
+  led_strip: false
+  octoliner: false
+  waveshare_audio: false

@@ -15,16 +15,19 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     autostart = LaunchConfiguration('autostart')
+    bond_timeout = LaunchConfiguration('bond_timeout')
     params_file = LaunchConfiguration('params_file')
     use_rviz = LaunchConfiguration('use_rviz')
     rviz_config = LaunchConfiguration('rviz_config')
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('variant', default_value='slam_toolbox'),
         DeclareLaunchArgument('autostart', default_value='true'),
+        DeclareLaunchArgument('bond_timeout', default_value='4.0'),
         DeclareLaunchArgument(
             'params_file',
-            default_value=str(pkg_share / 'config' / 'slam_toolbox.default.example.yaml'),
+            default_value=str(pkg_share / 'config' / 'slam_toolbox.yaml'),
         ),
         DeclareLaunchArgument('use_rviz', default_value='false'),
         DeclareLaunchArgument(
@@ -39,6 +42,7 @@ def generate_launch_description():
             output='screen',
             parameters=[params_file, {
                 'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
+                'use_lifecycle_manager': True,
             }],
         ),
         Node(
@@ -49,6 +53,7 @@ def generate_launch_description():
             parameters=[{
                 'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
                 'autostart': ParameterValue(autostart, value_type=bool),
+                'bond_timeout': ParameterValue(bond_timeout, value_type=float),
                 'node_names': ['slam_toolbox'],
             }],
         ),

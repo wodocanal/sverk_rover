@@ -1,0 +1,17 @@
+profile:
+  name: minimal
+  description: Base, wheel odometry, description and wheel-only EKF.
+components:
+  base: true
+  odometry: true
+  description: true
+  localization: true
+  twist_mux: false
+  imu: false
+  lidar: false
+  lidar_filter: false
+  camera: false
+  vision: false
+  led_strip: false
+  octoliner: false
+  waveshare_audio: false

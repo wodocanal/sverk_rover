@@ -1,0 +1,20 @@
+[Unit]
+Description=SVERK Rover navigation or mapping mode
+After=network-online.target rover-bringup.service
+Requires=rover-bringup.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/sverk_rover
+EnvironmentFile=-/etc/default/rover-bringup
+EnvironmentFile=-/etc/default/rover-mode
+ExecStart=/bin/bash ./deploy/systemd/start-rover-mode.sh
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

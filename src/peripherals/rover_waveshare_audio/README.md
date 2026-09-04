@@ -35,6 +35,7 @@ phrase is not cut off.
 ```text
 rover_waveshare_audio/
 ├── config/default.example.yaml
+├── config/waveshare_audio.yaml
 ├── firmware/
 │   ├── speech-stream-stt/      # recommended firmware for ROS STT/TTS
 │   └── speech-command-test/    # standalone ESP-SR command demo
@@ -53,10 +54,10 @@ rover_waveshare_audio/
 For normal rover operation the authoritative runtime config is:
 
 ```text
-src/system/rover_bringup/config/components/audio.yaml
+src/peripherals/rover_waveshare_audio/config/waveshare_audio.yaml
 ```
 
-The package-level `config/default.example.yaml` is only a standalone example.
+The package-level `config/default.example.yaml` remains a standalone example.
 
 ## Firmware Prerequisites
 
@@ -393,7 +394,7 @@ rover stack.
 
 ## Important Parameters
 
-Configured in `src/system/rover_bringup/config/components/audio.yaml`:
+Configured in `src/peripherals/rover_waveshare_audio/config/waveshare_audio.yaml`:
 
 ```text
 serial_device: /dev/waveshare_audio

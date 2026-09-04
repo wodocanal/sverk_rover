@@ -7,6 +7,8 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 SERVICE_NAMES=(
   "rover-bringup.service"
   "rover-web.service"
+  "rover-mode.service"
+  "rover-integrations.service"
 )
 RUN_USER="${ROVER_SERVICE_USER:-pi}"
 RUN_GROUP="${ROVER_SERVICE_GROUP:-${RUN_USER}}"
@@ -38,7 +40,7 @@ for service_name in "${SERVICE_NAMES[@]}"; do
   rm -f "${tmp_service}"
 done
 
-for env_name in rover-bringup rover-web; do
+for env_name in rover-bringup rover-web rover-mode rover-integrations; do
   env_src="${SCRIPT_DIR}/${env_name}.env"
   env_dst="/etc/default/${env_name}"
 
@@ -58,21 +60,31 @@ for service_name in "${SERVICE_NAMES[@]}"; do
 done
 
 cat <<EOF
-Installed rover-bringup.service and rover-web.service.
+Installed rover-bringup, rover-web, rover-mode and rover-integrations services.
 
 Edit launch settings:
   sudo nano /etc/default/rover-bringup
   sudo nano /etc/default/rover-web
+  sudo nano /etc/default/rover-mode
+  sudo nano /etc/default/rover-integrations
 
 Start/stop/status:
   sudo systemctl start rover-bringup
   sudo systemctl start rover-web
+  sudo systemctl start rover-mode
+  sudo systemctl start rover-integrations
+  sudo systemctl stop rover-integrations
+  sudo systemctl stop rover-mode
   sudo systemctl stop rover-web
   sudo systemctl stop rover-bringup
   systemctl status rover-bringup
   systemctl status rover-web
+  systemctl status rover-mode
+  systemctl status rover-integrations
 
 Logs:
   journalctl -u rover-bringup -f
   journalctl -u rover-web -f
+  journalctl -u rover-mode -f
+  journalctl -u rover-integrations -f
 EOF

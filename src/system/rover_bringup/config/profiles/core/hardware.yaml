@@ -1,0 +1,17 @@
+profile:
+  name: hardware
+  description: All regularly used hardware and perception nodes.
+components:
+  base: true
+  odometry: true
+  description: true
+  localization: true
+  twist_mux: false
+  imu: true
+  lidar: true
+  lidar_filter: true
+  camera: true
+  vision: true
+  led_strip: false
+  octoliner: false
+  waveshare_audio: false

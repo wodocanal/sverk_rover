@@ -24,6 +24,7 @@ desktop.ini
 
 # Python cache artifacts.
 __pycache__/
+.pytest_cache/
 *.pyc
 
 # Local neural network weights.

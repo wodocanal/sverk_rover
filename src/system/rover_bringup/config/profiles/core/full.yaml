@@ -1,0 +1,17 @@
+profile:
+  name: full
+  description: Normal rover hardware with command arbitration.
+components:
+  base: true
+  odometry: true
+  description: true
+  localization: true
+  twist_mux: true
+  imu: true
+  lidar: true
+  lidar_filter: true
+  camera: true
+  vision: false
+  led_strip: true
+  octoliner: false
+  waveshare_audio: false

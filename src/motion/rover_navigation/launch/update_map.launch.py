@@ -101,10 +101,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('variant', default_value='slam_toolbox_localization'),
         DeclareLaunchArgument('autostart', default_value='true'),
         DeclareLaunchArgument(
             'params_file',
-            default_value=str(pkg_share / 'config' / 'slam_toolbox.default.example.yaml'),
+            default_value=str(pkg_share / 'config' / 'slam_toolbox.yaml'),
         ),
         DeclareLaunchArgument(
             'posegraph',
