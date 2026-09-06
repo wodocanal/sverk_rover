@@ -123,9 +123,34 @@ SIM_WORLD=field SIM_MODE=navigation SIM_UI=web make sim-run
 SIM_WORLD=field SIM_MODE=mapping SIM_UI=web make sim-run
 ```
 
-Stop the foreground simulation with `Ctrl+C`. These commands use headless
-Gazebo with software rendering on macOS; the browser is the user interface,
-not a native Gazebo desktop window. All simulation nodes use `/clock`.
+To open the full Gazebo graphical desktop on macOS, build the image once:
+
+```bash
+make sim-gui-setup
+```
+
+Then start any world and mode with `sim-gui` instead of `sim-run`:
+
+```bash
+SIM_WORLD=empty SIM_MODE=idle SIM_UI=web make sim-gui
+SIM_WORLD=field SIM_MODE=navigation SIM_UI=web make sim-gui
+SIM_WORLD=field SIM_MODE=mapping SIM_UI=web make sim-gui
+```
+
+Gazebo runs on a virtual Linux display with Mesa software OpenGL. The launcher
+publishes that display only on local port `5901` and automatically opens the
+built-in macOS Screen Sharing application, so Gazebo appears in a separate
+graphical window. This avoids XQuartz GLX incompatibilities with Gazebo Harmonic
+and requires no host GUI dependency beyond Docker Desktop. Override the window
+size or local port when needed:
+
+```bash
+SIM_GUI_RESOLUTION=1920x1080 SIM_GUI_PORT=5902 make sim-gui
+```
+
+Stop either foreground simulation with `Ctrl+C`. `sim-run` remains the headless
+option for automated tests and lower resource usage. All simulation nodes use
+`/clock`.
 
 `world=field` is generated from the occupied cells in the authoritative ROS map
 `rover_navigation/maps/current/map.yaml`. Regenerate it after replacing or

@@ -1,0 +1,14 @@
+ARG BASE_IMAGE=sverk-rover-ros:jazzy
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Keep desktop dependencies in a small derivative image. Updating the GUI path
+# must not reinstall the full ROS and Nav2 dependency graph.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        openbox \
+        x11-utils \
+        x11vnc \
+        xvfb \
+    && rm -rf /var/lib/apt/lists/*

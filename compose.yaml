@@ -26,6 +26,34 @@ services:
     stdin_open: true
     tty: true
 
+  ros-gui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gui
+      args:
+        BASE_IMAGE: sverk-rover-ros:jazzy
+    image: sverk-rover-ros-gui:jazzy
+    init: true
+    shm_size: "512m"
+    working_dir: /workspace
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-77}"
+      ROS_AUTOMATIC_DISCOVERY_RANGE: "${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}"
+      ROVER_WS: /workspace
+      LIBGL_ALWAYS_SOFTWARE: "${LIBGL_ALWAYS_SOFTWARE:-1}"
+      GZ_IP: 127.0.0.1
+    volumes:
+      - .:/workspace
+      - rover_build:/workspace/build
+      - rover_install:/workspace/install
+      - rover_log:/workspace/log
+    ports:
+      - "${ROVER_WEB_PORT:-8765}:8765"
+      - "${ROSBOARD_PORT:-8888}:8888"
+      - "127.0.0.1:${SIM_GUI_PORT:-5901}:5901"
+    stdin_open: true
+    tty: true
+
 volumes:
   rover_build:
   rover_install:
