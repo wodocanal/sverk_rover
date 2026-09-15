@@ -25,6 +25,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from ament_index_python.packages import get_package_share_directory
+from rover_configuration import config_path, node_parameters
 import cv2
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
@@ -466,7 +467,7 @@ class RoverWebGateway(Node):
 
         share = Path(get_package_share_directory('rover_web'))
         try:
-            rover_share = Path(get_package_share_directory('rover_bringup'))
+            rover_share = Path(get_package_share_directory('rover_description'))
         except Exception:
             rover_share = share
         home = Path.home()
@@ -479,7 +480,7 @@ class RoverWebGateway(Node):
         self.declare_parameter('port', 8765)
         self.declare_parameter(
             'identity_file',
-            str(share / 'config' / 'robot_identity.default.example.yaml'),
+            str(rover_share / 'config' / 'rover_v1.yaml'),
         )
         self.declare_parameter(
             'rover_config_file',
@@ -607,7 +608,7 @@ class RoverWebGateway(Node):
                 voice_config_file = str(
                     Path(get_package_share_directory(self.voice_package))
                     / 'config'
-                    / 'default.example.yaml'
+                    / 'audio.yaml'
                 )
             except Exception:
                 voice_config_file = ''
@@ -673,6 +674,13 @@ class RoverWebGateway(Node):
             read_yaml(self.identity_path, identity_fallback)
         )
         self.rover_config = read_yaml(self.rover_config_path, {})
+        # The web summary still exposes motor calibration, now owned by its driver.
+        motor_config = node_parameters(config_path('rover_base_driver', 'base.yaml'), 'base_driver_node')
+        self.rover_config.setdefault('base_driver', motor_config)
+        self.rover_config.setdefault('encoders', {
+            key: motor_config[key]
+            for key in ('encoder_lines', 'reduction_ratio', 'quadrature_factor')
+        })
 
         self.started_at = time.time()
         self._lock = threading.RLock()

@@ -1,0 +1,31 @@
+wheel_odometry_node:
+  ros__parameters:
+    encoder_topic: /wheel/encoders
+    odometry_topic: /wheel/odometry
+    odom_frame_id: odom
+    base_frame_id: base_link
+    max_sample_gap_sec: 0.5
+    max_plausible_wheel_speed_mps: 1.5
+    pose_covariance_diagonal:
+    - 0.03
+    - 0.08
+    - 999.0
+    - 999.0
+    - 999.0
+    - 0.15
+    twist_covariance_diagonal:
+    - 0.02
+    - 0.06
+    - 999.0
+    - 999.0
+    - 999.0
+    - 0.12
+    x_multiplier: 1.0
+    y_multiplier: 1.0
+    yaw_multiplier: 1.0
+    wheel_radius_m: package://rover_description/config/rover_v1.yaml#geometry.wheel_radius_m
+    wheelbase_m: package://rover_description/config/rover_v1.yaml#geometry.wheelbase_m
+    track_width_m: package://rover_description/config/rover_v1.yaml#geometry.track_width_m
+    encoder_lines: package://rover_base_driver/config/base.yaml#base_driver_node.ros__parameters.encoder_lines
+    reduction_ratio: package://rover_base_driver/config/base.yaml#base_driver_node.ros__parameters.reduction_ratio
+    quadrature_factor: package://rover_base_driver/config/base.yaml#base_driver_node.ros__parameters.quadrature_factor

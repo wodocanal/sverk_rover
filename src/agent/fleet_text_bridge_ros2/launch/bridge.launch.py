@@ -1,29 +1,37 @@
-import os
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-def i(name, default):
-    try: return int(os.getenv(name, str(default)))
-    except ValueError: return default
+from rover_configuration import (
+    config_path, environment_overrides, read_config, resolve_runtime_references,
+)
 
-def f(name, default):
-    try: return float(os.getenv(name, str(default)))
-    except ValueError: return default
+
+def launch_setup(context):
+    config = read_config(LaunchConfiguration('config_file').perform(context))
+    parameters = resolve_runtime_references(config['fleet_bridge'])
+    parameters = environment_overrides(parameters, {
+        'robot_id': ('FLEET_ROBOT_ID', str),
+        'mqtt_host': ('FLEET_MQTT_HOST|FLEET_SERVER_IP', str),
+        'mqtt_port': ('FLEET_MQTT_PORT', int),
+        'mqtt_topic_prefix': ('FLEET_MQTT_TOPIC_PREFIX', str),
+        'mqtt_username': ('FLEET_MQTT_USERNAME', str),
+        'mqtt_password_env': ('FLEET_MQTT_PASSWORD_ENV', str),
+        'command_topic': ('AGENT_TEXT_COMMAND_TOPIC', str),
+        'answer_topic': ('AGENT_ANSWER_TOPIC', str),
+        'status_topic': ('AGENT_STATUS_TOPIC', str),
+        'duplicate_cache_size': ('FLEET_DUPLICATE_CACHE_SIZE', int),
+        'agent_command_timeout_sec': ('FLEET_AGENT_COMMAND_TIMEOUT_SEC', float),
+    })
+    return [Node(
+        package='fleet_text_bridge_ros2', executable='bridge_node',
+        name='fleet_text_bridge', output='screen', parameters=[parameters],
+    )]
+
 
 def generate_launch_description():
-    return LaunchDescription([Node(
-        package='fleet_text_bridge_ros2', executable='bridge_node', name='fleet_text_bridge', output='screen',
-        parameters=[{
-            'robot_id': os.getenv('FLEET_ROBOT_ID', 'rover-01'),
-            'mqtt_host': os.getenv('FLEET_MQTT_HOST', os.getenv('FLEET_SERVER_IP', '127.0.0.1')),
-            'mqtt_port': i('FLEET_MQTT_PORT', 1883),
-            'mqtt_topic_prefix': os.getenv('FLEET_MQTT_TOPIC_PREFIX', 'fleet/v1/robots'),
-            'mqtt_username': os.getenv('FLEET_MQTT_USERNAME', ''),
-            'mqtt_password_env': os.getenv('FLEET_MQTT_PASSWORD_ENV', 'FLEET_MQTT_PASSWORD'),
-            'command_topic': os.getenv('AGENT_TEXT_COMMAND_TOPIC', '/agent/text_command'),
-            'answer_topic': os.getenv('AGENT_ANSWER_TOPIC', '/agent/answer'),
-            'status_topic': os.getenv('AGENT_STATUS_TOPIC', '/agent/status'),
-            'duplicate_cache_size': i('FLEET_DUPLICATE_CACHE_SIZE', 100),
-            'agent_command_timeout_sec': f('FLEET_AGENT_COMMAND_TIMEOUT_SEC', 300.0),
-        }]
-    )])
+    return LaunchDescription([
+        DeclareLaunchArgument('config_file', default_value=config_path('fleet_text_bridge_ros2', 'bridge.yaml')),
+        OpaqueFunction(function=launch_setup),
+    ])

@@ -1,0 +1,23 @@
+mcp_server:
+  mcp_host: 127.0.0.1
+  mcp_port: 8766
+  cmd_vel_topic: package://rover_interfaces/config/topics.yaml#topics.cmd_vel_test
+  led_set_state_service: package://rover_interfaces/config/topics.yaml#topics.led_set_state
+  led_state_topic: package://rover_interfaces/config/topics.yaml#topics.led_state
+  nav2_action_name: /navigate_to_pose
+  odom_topic: package://rover_interfaces/config/topics.yaml#topics.odom
+  amcl_pose_topic: package://rover_interfaces/config/topics.yaml#topics.amcl_pose
+  scan_topic: package://rover_interfaces/config/topics.yaml#topics.scan
+text_agent:
+  robot_id: package://rover_description/config/rover_v1.yaml#robot.id
+  mcp_url: '@mcp.url'
+  text_command_topic: package://rover_interfaces/config/topics.yaml#topics.agent_text_command
+  status_topic: package://rover_interfaces/config/topics.yaml#topics.agent_status
+  answer_topic: package://rover_interfaces/config/topics.yaml#topics.agent_answer
+  prompt_file: package://rover_agent_mcp/config/default_system_prompt.md
+  llm_base_url: https://ai.sverk.io/v1
+  llm_model: qwen35
+  llm_api_key_env: OPENAI_API_KEY
+  native_tool_mode: auto
+  timeout_s: 120.0
+  max_tool_rounds: 8

@@ -30,6 +30,7 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ] + data_files_from_tree('config', os.path.join('share', package_name, 'config')),
     install_requires=['setuptools', 'PyYAML'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='Rover Team', maintainer_email='maintainer@example.com',
     description='Top-level rover hardware and localization bringup.',

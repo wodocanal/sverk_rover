@@ -53,10 +53,11 @@ rover_waveshare_audio/
 For normal rover operation the authoritative runtime config is:
 
 ```text
-src/system/rover_bringup/config/components/audio.yaml
+src/peripherals/rover_waveshare_audio/config/audio.yaml
 ```
 
-The package-level `config/default.example.yaml` is only a standalone example.
+The package-level `config/default.example.yaml` is only a reference example; all launches use
+`config/audio.yaml` by default.
 
 ## Firmware Prerequisites
 
@@ -295,7 +296,7 @@ Service:
 Topic names come from:
 
 ```text
-src/system/rover_bringup/config/topics.yaml
+src/system/rover_interfaces/config/topics.yaml
 ```
 
 The audio component maps them into the node at launch time.
@@ -393,7 +394,7 @@ rover stack.
 
 ## Important Parameters
 
-Configured in `src/system/rover_bringup/config/components/audio.yaml`:
+Configured in `src/peripherals/rover_waveshare_audio/config/audio.yaml`:
 
 ```text
 serial_device: /dev/waveshare_audio

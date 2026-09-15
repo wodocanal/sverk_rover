@@ -63,7 +63,7 @@ hostname
 Edit the main robot config:
 
 ```bash
-nano ~/sverk_rover/src/system/rover_bringup/config/rover_v1.yaml
+nano ~/sverk_rover/src/system/rover_description/config/rover_v1.yaml
 ```
 
 Change at least these fields:
@@ -84,10 +84,11 @@ serial_number  Physical production serial number.
 ```
 
 The agent and server bridge read `robot.id` indirectly through
-`@robot.id` in:
+`package://rover_description/config/rover_v1.yaml#robot.id` in:
 
 ```text
-src/system/rover_bringup/config/components/agent.yaml
+src/agent/rover_agent_mcp/config/agent.yaml
+src/agent/fleet_text_bridge_ros2/config/bridge.yaml
 ```
 
 Do not give two active rovers the same `robot.id`. If two rovers share an ID,
@@ -130,7 +131,7 @@ laptop to the same `ROS_DOMAIN_ID` as the rover you are inspecting.
 Main config:
 
 ```text
-src/system/rover_bringup/config/components/agent.yaml
+src/agent/fleet_text_bridge_ros2/config/bridge.yaml
 ```
 
 Usually the server address is shared by all rovers:
@@ -146,10 +147,10 @@ Usually this must stay as a reference:
 
 ```yaml
 fleet_bridge:
-  robot_id: '@robot.id'
+  robot_id: 'package://rover_description/config/rover_v1.yaml#robot.id'
 
 text_agent:
-  robot_id: '@robot.id'
+  robot_id: 'package://rover_description/config/rover_v1.yaml#robot.id'
 ```
 
 Do not hardcode the same `robot_id` in `agent.yaml` for every rover.
@@ -301,7 +302,7 @@ sudo systemctl start rover-web
 Check identity config:
 
 ```bash
-grep -A8 '^robot:' ~/sverk_rover/src/system/rover_bringup/config/rover_v1.yaml
+grep -A8 '^robot:' ~/sverk_rover/src/system/rover_description/config/rover_v1.yaml
 ```
 
 Check service environment:
@@ -400,7 +401,7 @@ journalctl -u rover-bringup -f | grep -E 'robot_id|Ignored ROS status|Invalid RO
 If logs show a mismatch, fix `robot.id` in:
 
 ```text
-src/system/rover_bringup/config/rover_v1.yaml
+src/system/rover_description/config/rover_v1.yaml
 ```
 
 ### Two rovers react to one ROS command

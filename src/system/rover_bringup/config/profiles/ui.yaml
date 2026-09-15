@@ -1,0 +1,4 @@
+ui:
+  use_web: true
+  use_display: true
+  use_rosboard: true

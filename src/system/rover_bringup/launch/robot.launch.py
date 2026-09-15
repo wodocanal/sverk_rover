@@ -36,6 +36,7 @@ from rover_bringup.configuration import (
     resolve_references,
 )
 from rover_device_manager.discovery import DEFAULT_DEVICE_CONFIG, prepare_devices
+from rover_configuration import config_path
 
 
 def add_if_set(arguments: dict[str, str], key: str, value) -> None:
@@ -66,11 +67,10 @@ def launch_setup(context):
 
     components_dir = (
         LaunchConfiguration('components_config_dir').perform(context).strip()
-        or bringup_config_path('components')
     )
     robot_config_file = (
         LaunchConfiguration('robot_config_file').perform(context).strip()
-        or bringup_config_path('rover_v1.yaml')
+        or config_path('rover_description', 'rover_v1.yaml')
     )
     legacy_config_file = LaunchConfiguration('config_file').perform(context).strip()
     if legacy_config_file:
@@ -78,14 +78,15 @@ def launch_setup(context):
 
     topics_config_file = (
         LaunchConfiguration('topics_config_file').perform(context).strip()
-        or bringup_config_path('topics.yaml')
+        or config_path('rover_interfaces', 'topics.yaml')
     )
     peripherals_config_file = LaunchConfiguration('peripherals_config_file').perform(
         context
     ).strip()
     ui_config_file = (
         LaunchConfiguration('ui_config_file').perform(context).strip()
-        or str(Path(components_dir) / 'ui.yaml')
+        or (str(Path(components_dir) / 'ui.yaml') if components_dir
+            else bringup_config_path('profiles', 'ui.yaml'))
     )
     device_manager_config = component_section(
         components_dir,
@@ -147,7 +148,7 @@ def launch_setup(context):
         False,
     )
 
-    rosboard_port = LaunchConfiguration('rosboard_port').perform(context).strip() or '8888'
+    rosboard_port = LaunchConfiguration('rosboard_port').perform(context).strip()
     display_panel_mode = LaunchConfiguration('display_panel_mode').perform(context).strip()
     display_robot_serial = LaunchConfiguration('display_robot_serial').perform(context).strip()
     motor_override = LaunchConfiguration('motor_device').perform(context).strip() or None
@@ -156,11 +157,11 @@ def launch_setup(context):
     nav2_map_file = LaunchConfiguration('map').perform(context).strip()
     nav2_params_file = (
         LaunchConfiguration('nav2_params_file').perform(context).strip()
-        or bringup_config_path('navigation', 'nav2_params.yaml')
+        or config_path('rover_navigation', 'nav2.yaml')
     )
     slam_params_file = (
         LaunchConfiguration('slam_params_file').perform(context).strip()
-        or bringup_config_path('navigation', 'slam_toolbox_params.yaml')
+        or config_path('rover_navigation', 'slam_toolbox.yaml')
     )
     nav2_start_delay = float(
         LaunchConfiguration('nav2_start_delay').perform(context).strip() or '2.0'
@@ -239,7 +240,7 @@ def launch_setup(context):
         ]
 
     geometry = dict(robot_config['geometry'])
-    encoders = dict(robot_config['encoders'])
+    encoders = dict(robot_config.get('encoders', {}))
     lidar_filter_params = component_section(
         components_dir,
         'lidar_filter',
@@ -260,7 +261,7 @@ def launch_setup(context):
         'use_sim_time': use_sim_time,
     })
     odom_params = deep_merge(
-        dict(base_component.get('wheel_odometry', {})),
+        component_section(components_dir, 'odometry', 'wheel_odometry'),
         dict(robot_config.get('wheel_odometry', {})),
     )
     odom_params.update({
@@ -608,7 +609,7 @@ def launch_setup(context):
                     'duplicate_cache_size': 100,
                     'agent_command_timeout_sec': 300.0,
                 },
-                dict(agent_component.get('fleet_bridge', {})),
+                component_section(components_dir, 'fleet_bridge', 'fleet_bridge'),
             )
             fleet_bridge_params = resolve_references(
                 fleet_bridge_params,
@@ -676,32 +677,33 @@ def generate_launch_description():
         DeclareLaunchArgument('profile_file', default_value=empty_default),
         DeclareLaunchArgument(
             'robot_config_file',
-            default_value=bringup_config_path('rover_v1.yaml'),
+            default_value=config_path('rover_description', 'rover_v1.yaml'),
         ),
         # Deprecated compatibility alias for older commands.
         DeclareLaunchArgument('config_file', default_value=empty_default),
         DeclareLaunchArgument(
             'components_config_dir',
-            default_value=bringup_config_path('components'),
+            default_value=empty_default,
+            description='Deprecated: explicit external directory of legacy component YAMLs',
         ),
         DeclareLaunchArgument(
             'topics_config_file',
-            default_value=bringup_config_path('topics.yaml'),
+            default_value=config_path('rover_interfaces', 'topics.yaml'),
         ),
         # Deprecated compatibility hook for the former monolithic peripheral file.
         DeclareLaunchArgument('peripherals_config_file', default_value=empty_default),
         DeclareLaunchArgument('ui_config_file', default_value=empty_default),
         DeclareLaunchArgument(
             'twist_mux_config_file',
-            default_value=bringup_config_path('components', 'twist_mux.yaml'),
+            default_value=config_path('rover_base_driver', 'twist_mux.yaml'),
         ),
         DeclareLaunchArgument(
             'ekf_with_imu_config_file',
-            default_value=bringup_config_path('localization', 'ekf_with_imu.yaml'),
+            default_value=config_path('rover_wheel_odometry', 'localization/ekf_with_imu.yaml'),
         ),
         DeclareLaunchArgument(
             'ekf_wheel_only_config_file',
-            default_value=bringup_config_path('localization', 'ekf_wheel_only.yaml'),
+            default_value=config_path('rover_wheel_odometry', 'localization/ekf_wheel_only.yaml'),
         ),
         DeclareLaunchArgument('runtime_dir', default_value=empty_default),
         DeclareLaunchArgument(
@@ -753,11 +755,11 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'nav2_params_file',
-            default_value=bringup_config_path('navigation', 'nav2_params.yaml'),
+            default_value=config_path('rover_navigation', 'nav2.yaml'),
         ),
         DeclareLaunchArgument(
             'slam_params_file',
-            default_value=bringup_config_path('navigation', 'slam_toolbox_params.yaml'),
+            default_value=config_path('rover_navigation', 'slam_toolbox.yaml'),
         ),
         DeclareLaunchArgument('nav2_start_delay', default_value='2.0'),
         DeclareLaunchArgument('slam_start_delay', default_value='2.0'),

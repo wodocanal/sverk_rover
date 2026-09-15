@@ -15,20 +15,24 @@ src/
 └── ui/           # web UI, display UI and rosboard
 ```
 
-The main runtime configuration is centralized in:
+Runtime parameters live in the package that owns the component. Bringup only
+selects which components to start:
 
 ```text
 src/system/rover_bringup/config/
-├── components/    # per-component runtime params
-├── localization/  # EKF params used by bringup
-├── navigation/    # Nav2 and SLAM params used by bringup
-├── profiles/      # launch presets: full, agent, hardware, mapping, navigation, minimal
-├── rover_v1.yaml  # robot identity, geometry and calibration
-└── topics.yaml    # shared topics and TF frame names
+└── profiles/      # full, agent, hardware, mapping, navigation, minimal, ui
 ```
 
-Package-level `config/*.default.example.yaml` files are examples only. For the
-real rover, prefer changing files under `rover_bringup/config`.
+For example, camera settings are in `rover_camera/config/camera.yaml`, motor
+settings in `rover_base_driver/config/base.yaml`, and Nav2 settings in
+`rover_navigation/config/nav2.yaml`. Main and standalone launches read the same
+package-owned files. `*.example.yaml` files are documentation, not runtime defaults.
+
+Shared identity/geometry is in `rover_description/config/rover_v1.yaml`; shared
+topic/frame names are in `rover_interfaces/config/topics.yaml`. The utility
+package `rover_configuration` resolves explicit cross-package YAML references;
+it does not contain robot parameters. See the complete ownership table and
+migration instructions in [Configuration Guide](src/system/rover_bringup/config/README.md).
 
 For setting up a new physical rover from a cloned image, see:
 
@@ -195,18 +199,19 @@ default. `rosboard` is also owned by `rover-web.service` by default, so
 browser-facing tools stay out of `rover-bringup`. The web config is:
 
 ```text
-src/system/rover_bringup/config/components/web.yaml
+src/ui/rover_web/config/web.yaml
 ```
 
 The local MCP/LLM agent and MQTT fleet bridge are configured here:
 
 ```text
-src/system/rover_bringup/config/components/agent.yaml
+src/agent/rover_agent_mcp/config/agent.yaml
+src/agent/fleet_text_bridge_ros2/config/bridge.yaml
 ```
 
 The agent MCP server uses port `8766` so it does not conflict with the web UI.
 If the MQTT broker is not running on the rover itself, set `mqtt_host` in
-`components/agent.yaml` to the server address.
+`fleet_text_bridge_ros2/config/bridge.yaml` to the server address.
 
 LLM credentials are still expected through environment variables, for example:
 

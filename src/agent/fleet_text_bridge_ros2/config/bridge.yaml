@@ -1,0 +1,12 @@
+fleet_bridge:
+  robot_id: package://rover_description/config/rover_v1.yaml#robot.id
+  mqtt_host: 10.63.18.111
+  mqtt_port: 1883
+  mqtt_topic_prefix: fleet/v1/robots
+  mqtt_username: '@env.FLEET_MQTT_USERNAME'
+  mqtt_password_env: FLEET_MQTT_PASSWORD
+  command_topic: package://rover_interfaces/config/topics.yaml#topics.agent_text_command
+  answer_topic: package://rover_interfaces/config/topics.yaml#topics.agent_answer
+  status_topic: package://rover_interfaces/config/topics.yaml#topics.agent_status
+  duplicate_cache_size: 100
+  agent_command_timeout_sec: 300.0

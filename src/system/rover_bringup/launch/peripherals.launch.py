@@ -4,10 +4,10 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from rover_configuration import config_path
 
 from rover_bringup.configuration import (
     as_bool,
-    bringup_config_path,
     load_component,
     override_bool,
     read_yaml_file,
@@ -60,11 +60,10 @@ def launch_setup(context):
     legacy_config = read_yaml_file(config_file) if config_file else {}
     components_dir = (
         LaunchConfiguration('components_config_dir').perform(context).strip()
-        or bringup_config_path('components')
     )
     topics_config_file = (
         LaunchConfiguration('topics_config_file').perform(context).strip()
-        or bringup_config_path('topics.yaml')
+        or config_path('rover_interfaces', 'topics.yaml')
     )
     topics_config = read_yaml_file(topics_config_file)
     topics = dict(topics_config.get('topics', {}))
@@ -332,11 +331,11 @@ def generate_launch_description():
         DeclareLaunchArgument('config_file', default_value=empty_default),
         DeclareLaunchArgument(
             'components_config_dir',
-            default_value=bringup_config_path('components'),
+            default_value=empty_default,
         ),
         DeclareLaunchArgument(
             'topics_config_file',
-            default_value=bringup_config_path('topics.yaml'),
+            default_value=config_path('rover_interfaces', 'topics.yaml'),
         ),
         DeclareLaunchArgument('use_lidar', default_value=empty_default),
         DeclareLaunchArgument('use_camera', default_value=empty_default),

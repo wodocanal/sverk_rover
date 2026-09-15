@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import find_packages, setup
 
 package_name = "fleet_text_bridge_ros2"
@@ -9,6 +10,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml", "README.md"]),
+        (f"share/{package_name}/config", glob("config/*.yaml")),
         (f"share/{package_name}/launch", ["launch/bridge.launch.py", "launch/rover_agent_stack.launch.py"]),
     ],
     install_requires=["setuptools", "paho-mqtt>=1.6"],

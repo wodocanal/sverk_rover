@@ -17,14 +17,14 @@ def generate_launch_description():
         Node(
             package='robot_localization', executable='ekf_node',
             name='ekf_filter_node', output='screen',
-            parameters=[str(config_dir / 'ekf_with_imu.default.example.yaml')],
+            parameters=[str(config_dir / 'ekf_with_imu.yaml')],
             remappings=[('odometry/filtered', '/odom')],
             condition=IfCondition(use_imu),
         ),
         Node(
             package='robot_localization', executable='ekf_node',
             name='ekf_filter_node', output='screen',
-            parameters=[str(config_dir / 'ekf_wheel_only.default.example.yaml')],
+            parameters=[str(config_dir / 'ekf_wheel_only.yaml')],
             remappings=[('odometry/filtered', '/odom')],
             condition=UnlessCondition(use_imu),
         ),

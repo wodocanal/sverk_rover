@@ -5,8 +5,26 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
+from rover_configuration import config_path, read_config
+
+
+# This registry contains ownership and schema, never parameter values.
+COMPONENT_CONFIGS = {
+    'base': ('rover_base_driver', 'base.yaml', 'base_driver_node', 'base_driver'),
+    'odometry': ('rover_wheel_odometry', 'odometry.yaml', 'wheel_odometry_node', 'wheel_odometry'),
+    'imu': ('rover_imu', 'imu.yaml', 'yahboom_imu_node', 'imu'),
+    'lidar': ('sllidar_ros2', 'lidar.yaml', 'sllidar_node', 'lidar'),
+    'lidar_filter': ('rover_lidar_filter', 'default.yaml', 'lidar_footprint_filter', 'lidar_filter'),
+    'camera': ('rover_camera', 'camera.yaml', 'usb_camera_node', 'camera'),
+    'vision': ('rover_vision', 'vision.yaml', 'camera_detector_node', 'vision'),
+    'led_strip': ('rover_led_strip', 'led_strip.yaml', 'led_strip_node', 'led_strip'),
+    'octoliner': ('rover_octoliner', 'octoliner.yaml', 'octoliner_node', 'octoliner'),
+    'audio': ('rover_waveshare_audio', 'audio.yaml', 'waveshare_audio_node', 'waveshare_audio'),
+    'device_manager': ('rover_device_manager', 'device_manager.yaml', '', ''),
+    'agent': ('rover_agent_mcp', 'agent.yaml', '', ''),
+    'fleet_bridge': ('fleet_text_bridge_ros2', 'bridge.yaml', '', ''),
+}
 
 
 def bringup_share() -> Path:
@@ -18,9 +36,7 @@ def bringup_config_path(*parts: str) -> str:
 
 
 def read_yaml_file(path: str | Path) -> dict[str, Any]:
-    config_path = Path(path).expanduser()
-    value = yaml.safe_load(config_path.read_text(encoding='utf-8'))
-    return value if isinstance(value, dict) else {}
+    return read_config(path)
 
 
 def deep_merge(*sources: dict[str, Any]) -> dict[str, Any]:
@@ -96,7 +112,20 @@ def load_profile(profile: str, profile_file: str = '') -> dict[str, Any]:
 
 
 def load_component(components_dir: str, name: str) -> dict[str, Any]:
-    return read_yaml_file(Path(components_dir).expanduser() / f'{name}.yaml')
+    # Old external component directories remain an explicit opt-in override.
+    if components_dir.strip():
+        legacy_name = 'base' if name == 'odometry' else name
+        if name == 'fleet_bridge':
+            legacy_name = 'agent'
+        return read_yaml_file(Path(components_dir).expanduser() / f'{legacy_name}.yaml')
+    package, filename, node, section = COMPONENT_CONFIGS[name]
+    config = read_yaml_file(config_path(package, filename))
+    if not node:
+        return config
+    parameters = dict(config[node]['ros__parameters'])
+    if name == 'lidar':
+        parameters.update(config.get('discovery', {}))
+    return {section: parameters}
 
 
 def set_if_missing(target: dict[str, Any], key: str, value: Any) -> None:

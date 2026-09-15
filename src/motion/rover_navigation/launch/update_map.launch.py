@@ -104,7 +104,7 @@ def generate_launch_description():
         DeclareLaunchArgument('autostart', default_value='true'),
         DeclareLaunchArgument(
             'params_file',
-            default_value=str(pkg_share / 'config' / 'slam_toolbox.default.example.yaml'),
+            default_value=str(pkg_share / 'config' / 'slam_toolbox.yaml'),
         ),
         DeclareLaunchArgument(
             'posegraph',

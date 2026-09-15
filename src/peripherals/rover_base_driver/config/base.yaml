@@ -1,0 +1,48 @@
+base_driver_node:
+  ros__parameters:
+    baudrate: 115200
+    cmd_vel_topic: /cmd_vel
+    control_rate_hz: 50.0
+    command_timeout_sec: 0.5
+    feedback_timeout_sec: 0.35
+    max_wheel_speed_mps: 0.35
+    hold_position_on_zero_cmd: true
+    stale_brake_hold_sec: 0.35
+    max_accel_x_mps2: 0.8
+    max_decel_x_mps2: 1.2
+    max_accel_y_mps2: 0.6
+    max_decel_y_mps2: 0.9
+    max_accel_z_radps2: 2.0
+    max_decel_z_radps2: 3.0
+    max_jerk_x_mps3: 4.0
+    max_jerk_y_mps3: 3.0
+    max_jerk_z_radps3: 8.0
+    # Calibrated wiring for the corrected mecanum layout; preserve on updates.
+    motor_command_order:
+    - 3
+    - 1
+    - 2
+    - 0
+    motor_command_signs:
+    - -1
+    - -1
+    - -1
+    - -1
+    # Feedback is normalized to [front_left, front_right, rear_left, rear_right].
+    encoder_feedback_order:
+    - 3
+    - 1
+    - 2
+    - 0
+    encoder_feedback_signs:
+    - -1
+    - -1
+    - -1
+    - -1
+    encoder_lines: 11.0
+    reduction_ratio: 45.0
+    quadrature_factor: 4.0
+    serial_device: /tmp/rover_devices/motor_controller
+    wheel_radius_m: package://rover_description/config/rover_v1.yaml#geometry.wheel_radius_m
+    wheelbase_m: package://rover_description/config/rover_v1.yaml#geometry.wheelbase_m
+    track_width_m: package://rover_description/config/rover_v1.yaml#geometry.track_width_m
