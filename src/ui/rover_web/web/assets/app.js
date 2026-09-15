@@ -3,6 +3,18 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
+const canvasStyles = getComputedStyle(document.documentElement);
+const canvasColor = (name) => canvasStyles.getPropertyValue(`--${name}`).trim();
+const CANVAS_THEME = {
+  background: canvasColor('canvas-bg'),
+  grid: canvasColor('canvas-grid'),
+  axis: canvasColor('canvas-axis'),
+  soft: canvasColor('canvas-soft'),
+  accent: canvasColor('accent'),
+  deep: canvasColor('accent-deep'),
+  danger: canvasColor('danger'),
+};
+
 const STORAGE_KEYS = {
   page: 'rover_web.page',
   compact: 'rover_web.compact',
@@ -418,6 +430,7 @@ function showToast(message, tone = 'ok') {
   toast.className = `toast ${tone}`;
   toast.textContent = message;
   container.append(toast);
+  while (container.children.length > 3) container.firstElementChild.remove();
   window.setTimeout(() => {
     toast.remove();
   }, 3400);
@@ -634,6 +647,9 @@ function bindServoUsage() {
 
 function closeSidebar() {
   $('#sidebar').classList.remove('open');
+  $('#sidebar-backdrop').classList.remove('visible');
+  $('#menu-toggle').setAttribute('aria-expanded', 'false');
+  $('#menu-toggle').setAttribute('aria-label', 'Открыть меню');
 }
 
 function setPage(page) {
@@ -649,6 +665,8 @@ function setPage(page) {
   $$('.nav-item').forEach((button) => {
     const navGroup = button.dataset.navGroup || groupForPage(button.dataset.page);
     button.classList.toggle('active', navGroup === groupForPage(page));
+    if (navGroup === groupForPage(page)) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
   });
   $$('.page').forEach((section) => {
     section.classList.toggle('active', section.id === `page-${page}`);
@@ -723,7 +741,16 @@ function setPage(page) {
   }
 
   closeSidebar();
+  requestAnimationFrame(redrawCanvases);
   sendHeartbeat();
+}
+
+function redrawCanvases() {
+  renderVisualization();
+  drawLidarVisualization();
+  drawLedStripVisualization();
+  drawOctolinerVisualization();
+  renderRoutePreview();
 }
 
 function updateHealthIndicators() {
@@ -735,9 +762,11 @@ function applyIdentity() {
   const identity = state.identity || state.status?.identity || {};
   const system = state.system || state.status?.system || {};
   $('#robot-name').textContent = identity.robot_id || identity.hostname || system.hostname || 'rover';
+  $('#robot-name').title = $('#robot-name').textContent;
   const addresses = safeArray(identity.ip_addresses || system.ip_addresses);
   const addressText = addresses.length ? addresses.join(', ') : `${location.hostname}:${location.port || '80'}`;
   $('#robot-address').textContent = addressText;
+  $('#robot-address').title = addressText;
 }
 
 function renderDetailList(element, rows) {
@@ -1970,7 +1999,7 @@ function drawLidarVisualization(data = state.lidarData) {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#f9fdff';
+  ctx.fillStyle = CANVAS_THEME.background;
   ctx.fillRect(0, 0, width, height);
 
   const hasData = data && safeArray(data.points).length;
@@ -1987,7 +2016,7 @@ function drawLidarVisualization(data = state.lidarData) {
   const centerY = height / 2;
   const scale = (Math.min(width, height) * 0.42) / maxRadius;
 
-  ctx.strokeStyle = '#e0edf3';
+  ctx.strokeStyle = CANVAS_THEME.grid;
   ctx.lineWidth = 1;
   [0.25, 0.5, 0.75, 1.0].forEach((ratio) => {
     ctx.beginPath();
@@ -1995,7 +2024,7 @@ function drawLidarVisualization(data = state.lidarData) {
     ctx.stroke();
   });
 
-  ctx.strokeStyle = '#9fd7ec';
+  ctx.strokeStyle = CANVAS_THEME.axis;
   ctx.beginPath();
   ctx.moveTo(centerX, 0);
   ctx.lineTo(centerX, height);
@@ -2003,7 +2032,7 @@ function drawLidarVisualization(data = state.lidarData) {
   ctx.lineTo(width, centerY);
   ctx.stroke();
 
-  ctx.fillStyle = '#16b8f3';
+  ctx.fillStyle = CANVAS_THEME.accent;
   points.forEach((point) => {
     const x = Number(point[0] || 0);
     const y = Number(point[1] || 0);
@@ -2012,7 +2041,7 @@ function drawLidarVisualization(data = state.lidarData) {
     ctx.fillRect(screenX, screenY, 2, 2);
   });
 
-  drawRoverArrow(ctx, { x: centerX, y: centerY }, 0, '#075f89', 16);
+  drawRoverArrow(ctx, { x: centerX, y: centerY }, 0, CANVAS_THEME.deep, 16);
 }
 
 async function refreshLidarStatus() {
@@ -2320,7 +2349,7 @@ function drawLedStripVisualization(data = state.ledStripData) {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#f9fdff';
+  ctx.fillStyle = CANVAS_THEME.background;
   ctx.fillRect(0, 0, width, height);
 
   const colors = safeArray(data?.preview_colors);
@@ -2336,10 +2365,10 @@ function drawLedStripVisualization(data = state.ledStripData) {
   const usableWidth = width - marginX * 2;
   const usableHeight = Math.max(32, height - marginTop - marginBottom);
   const gapX = Math.max(4, Math.min(14, usableWidth / Math.max(1, columns) * 0.06));
-  const gapY = 14;
+  const gapY = Math.min(14, usableHeight / rows * 0.2);
   const cellWidth = Math.max(8, (usableWidth - gapX * (columns - 1)) / columns);
   const rawCellHeight = (usableHeight - gapY * (rows - 1)) / rows;
-  const cellHeight = Math.max(18, Math.min(54, rawCellHeight));
+  const cellHeight = Math.min(54, rawCellHeight);
   const stripHeight = cellHeight * rows + gapY * (rows - 1);
   const top = marginTop + Math.max(0, (usableHeight - stripHeight) / 2);
 
@@ -2351,20 +2380,20 @@ function drawLedStripVisualization(data = state.ledStripData) {
     const y = top + row * (cellHeight + gapY);
     ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
     ctx.fillRect(x, y, cellWidth, cellHeight);
-    ctx.strokeStyle = 'rgba(7, 95, 137, 0.18)';
+    ctx.strokeStyle = CANVAS_THEME.axis;
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y, cellWidth, cellHeight);
   });
 
-  ctx.fillStyle = '#075f89';
-  ctx.font = '12px "Avenir Next", "Segoe UI", sans-serif';
+  ctx.fillStyle = CANVAS_THEME.deep;
+  ctx.font = '12px Manrope, sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(`${count} LED`, marginX, 24);
+  ctx.fillText(`${count} LED`, marginX, 24, usableWidth / 2 - 8);
   ctx.textAlign = 'right';
   const transport = data?.transport || 'spi';
   const bus = data?.spi_bus == null ? '—' : data.spi_bus;
   const device = data?.spi_device == null ? '—' : data.spi_device;
-  ctx.fillText(`${transport} ${bus}.${device}`, width - marginX, 24);
+  ctx.fillText(`${transport} ${bus}.${device}`, width - marginX, 24, usableWidth / 2 - 8);
 }
 
 function markLedStripControlDirty() {
@@ -2788,22 +2817,24 @@ function drawOctolinerVisualization(data = state.octolinerData) {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#f9fdff';
+  ctx.fillStyle = CANVAS_THEME.background;
   ctx.fillRect(0, 0, width, height);
 
   const values = safeArray(data?.analog_values);
   $('#octoliner-empty').classList.toggle('hidden', values.length === 8);
   if (values.length !== 8) return;
 
-  const marginX = 60;
-  const top = 60;
+  const marginX = Math.min(60, Math.max(16, width * 0.06));
+  const top = 40;
   const bottom = height - 140;
   const usableWidth = width - marginX * 2;
   const usableHeight = bottom - top;
   const barWidth = usableWidth / 8;
+  const gutter = Math.min(8, barWidth * 0.15);
+  const fontSize = Math.min(12, Math.max(9, barWidth * 0.4));
   const pattern = Number(data.pattern || 0);
 
-  ctx.strokeStyle = '#d7e8f0';
+  ctx.strokeStyle = CANVAS_THEME.grid;
   ctx.lineWidth = 1;
   for (let i = 0; i <= 5; i += 1) {
     const y = top + (usableHeight / 5) * i;
@@ -2815,52 +2846,54 @@ function drawOctolinerVisualization(data = state.octolinerData) {
 
   values.forEach((rawValue, index) => {
     const value = Math.max(0, Math.min(1, Number(rawValue || 0)));
-    const x = marginX + index * barWidth + 8;
-    const w = Math.max(18, barWidth - 16);
+    const x = marginX + index * barWidth + gutter;
+    const w = barWidth - gutter * 2;
     const h = usableHeight * value;
     const y = bottom - h;
     const active = Boolean(pattern & (1 << (7 - index)));
-    ctx.fillStyle = active ? '#16b8f3' : '#b8e6f7';
+    ctx.fillStyle = active ? CANVAS_THEME.accent : CANVAS_THEME.soft;
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = active ? '#078ac4' : '#9fd7ec';
+    ctx.strokeStyle = active ? CANVAS_THEME.accent : CANVAS_THEME.axis;
     ctx.strokeRect(x, y, w, h);
-    ctx.fillStyle = '#075f89';
-    ctx.font = '12px "Avenir Next", "Segoe UI", sans-serif';
+    ctx.fillStyle = CANVAS_THEME.deep;
+    ctx.font = `${fontSize}px Manrope, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(`S${index + 1}`, x + w / 2, bottom + 20);
-    ctx.fillText(value.toFixed(2), x + w / 2, y - 8);
+    ctx.fillText(`S${index + 1}`, x + w / 2, bottom + 20, barWidth - 2);
+    ctx.fillText(value.toFixed(2), x + w / 2, y - 8, barWidth - 2);
   });
 
   const guideY = height - 70;
   const guideLeft = marginX;
   const guideRight = width - marginX;
-  ctx.strokeStyle = '#9fd7ec';
+  ctx.strokeStyle = CANVAS_THEME.axis;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(guideLeft, guideY);
   ctx.lineTo(guideRight, guideY);
   ctx.stroke();
 
-  const drawMarker = (position, color, label) => {
+  const drawMarker = (position, color, label, direction) => {
     if (!Number.isFinite(Number(position))) return;
-    const normalized = (Number(position) + 1) / 2;
+    const normalized = Math.max(0, Math.min(1, (Number(position) + 1) / 2));
     const x = guideLeft + normalized * (guideRight - guideLeft);
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.moveTo(x, guideY - 26);
-    ctx.lineTo(x, guideY + 10);
+    ctx.moveTo(x, guideY);
+    ctx.lineTo(x, guideY + direction * 18);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(x, guideY - 32, 6, 0, Math.PI * 2);
+    ctx.arc(x, guideY + direction * 18, 5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.font = '12px "Avenir Next", "Segoe UI", sans-serif';
+    ctx.font = '12px Manrope, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(label, x, guideY - 42);
+    const halfLabel = ctx.measureText(label).width / 2 + 8;
+    const textX = Math.max(halfLabel, Math.min(width - halfLabel, x));
+    ctx.fillText(label, textX, guideY + direction * 34 + 4);
   };
 
-  drawMarker(data.line_position, '#c93644', 'line');
-  drawMarker(data.tracked_line_position, '#075f89', 'tracked');
+  drawMarker(data.line_position, CANVAS_THEME.danger, 'line', -1);
+  drawMarker(data.tracked_line_position, CANVAS_THEME.deep, 'tracked', 1);
 }
 
 async function refreshOctolinerStatus() {
@@ -3329,7 +3362,7 @@ function renderRoutePreview() {
   const height = canvas.clientHeight;
 
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#f9fdff';
+  ctx.fillStyle = CANVAS_THEME.background;
   ctx.fillRect(0, 0, width, height);
 
   const bounds = pathBounds(points);
@@ -3350,14 +3383,14 @@ function renderRoutePreview() {
   drawGrid(ctx, width, height, scale, centerX, centerY);
 
   const origin = toScreen({ x: 0, y: 0 });
-  ctx.strokeStyle = '#c93644';
+  ctx.strokeStyle = CANVAS_THEME.danger;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(origin.x, origin.y, 6, 0, Math.PI * 2);
   ctx.stroke();
 
   if (points.length > 1) {
-    ctx.strokeStyle = '#16b8f3';
+    ctx.strokeStyle = CANVAS_THEME.accent;
     ctx.lineWidth = 3;
     ctx.beginPath();
     points.forEach((point, index) => {
@@ -3373,14 +3406,14 @@ function renderRoutePreview() {
 
   points.forEach((point, index) => {
     const screen = toScreen(point);
-    ctx.fillStyle = index === points.length - 1 ? '#075f89' : '#16b8f3';
+    ctx.fillStyle = index === points.length - 1 ? CANVAS_THEME.deep : CANVAS_THEME.accent;
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, index === points.length - 1 ? 5 : 3, 0, Math.PI * 2);
     ctx.fill();
   });
 
   const finalPose = points[points.length - 1] || { x: 0, y: 0, yaw: 0 };
-  drawRoverArrow(ctx, toScreen(finalPose), finalPose.yaw, '#075f89', 18);
+  drawRoverArrow(ctx, toScreen(finalPose), finalPose.yaw, CANVAS_THEME.deep, 18);
 }
 
 function simulatePlan(plan) {
@@ -3451,7 +3484,7 @@ function drawGrid(ctx, width, height, scale, centerX, centerY) {
   const bottom = centerY - height / (2 * scale);
   const top = centerY + height / (2 * scale);
 
-  ctx.strokeStyle = '#e3edf2';
+  ctx.strokeStyle = CANVAS_THEME.grid;
   ctx.lineWidth = 1;
   for (let x = Math.floor(left / spacingMeters) * spacingMeters; x <= right; x += spacingMeters) {
     const sx = width / 2 + (x - centerX) * scale;
@@ -3468,7 +3501,7 @@ function drawGrid(ctx, width, height, scale, centerX, centerY) {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = '#91cfe7';
+  ctx.strokeStyle = CANVAS_THEME.axis;
   ctx.lineWidth = 1.2;
   const axisX = width / 2 + (0 - centerX) * scale;
   const axisY = height / 2 - (0 - centerY) * scale;
@@ -3628,7 +3661,7 @@ function drawVisualizationMap(ctx, width, height, scale, centerX, centerY) {
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(image, 0, -mapHeight, mapWidth, mapHeight);
   ctx.globalAlpha = 0.75;
-  ctx.strokeStyle = '#075f89';
+  ctx.strokeStyle = CANVAS_THEME.deep;
   ctx.lineWidth = 1.2;
   ctx.strokeRect(0, -mapHeight, mapWidth, mapHeight);
   ctx.restore();
@@ -3642,7 +3675,7 @@ function renderVisualization() {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#f9fdff';
+  ctx.fillStyle = CANVAS_THEME.background;
   ctx.fillRect(0, 0, width, height);
 
   const pose = state.status?.odom;
@@ -3679,7 +3712,7 @@ function renderVisualization() {
   });
 
   if (trail.length > 1) {
-    ctx.strokeStyle = '#16b8f3';
+    ctx.strokeStyle = CANVAS_THEME.accent;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     trail.forEach((point, index) => {
@@ -3690,7 +3723,7 @@ function renderVisualization() {
     ctx.stroke();
   }
 
-  drawRoverArrow(ctx, toScreen(pose), pose.yaw, '#075f89', 18);
+  drawRoverArrow(ctx, toScreen(pose), pose.yaw, CANVAS_THEME.deep, 18);
 }
 
 async function sendHeartbeat() {
@@ -3716,8 +3749,19 @@ function bindNavigation() {
     });
   });
   $('#menu-toggle').addEventListener('click', () => {
-    $('#sidebar').classList.toggle('open');
+    const open = $('#sidebar').classList.toggle('open');
+    $('#sidebar-backdrop').classList.toggle('visible', open);
+    $('#menu-toggle').setAttribute('aria-expanded', String(open));
+    $('#menu-toggle').setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
   });
+  $('#sidebar-backdrop').addEventListener('click', closeSidebar);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && $('#sidebar').classList.contains('open')) {
+      closeSidebar();
+      $('#menu-toggle').focus();
+    }
+  });
+  window.matchMedia('(max-width: 760px)').addEventListener('change', closeSidebar);
 }
 
 function bindSectionTabs() {
@@ -4353,12 +4397,8 @@ async function initialize() {
       refreshIdentityAndConfig();
     }
   }, 12000);
-  window.addEventListener('resize', () => {
-    renderVisualization();
-    drawLidarVisualization();
-    drawOctolinerVisualization();
-    renderRoutePreview();
-  });
+  window.addEventListener('resize', redrawCanvases);
+  document.fonts.ready.then(redrawCanvases);
 }
 
 initialize().catch((error) => {
