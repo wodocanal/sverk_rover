@@ -2,12 +2,17 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { LidarViewport, bindLidarViewport } = require('../web/assets/lidar-view.js');
 
-test('forward is up and left is left', () => {
+test('scan cloud is rotated 180 degrees around the rover marker', () => {
   const view = new LidarViewport();
   view.fit([[2, 0]]);
   assert.equal(view.project([1, 0], 800, 600).x, 400);
-  assert.ok(view.project([1, 0], 800, 600).y < 300);
-  assert.ok(view.project([0, 1], 800, 600).x < 400);
+  assert.ok(view.project([1, 0], 800, 600).y > 300);
+  assert.ok(view.project([0, 1], 800, 600).x > 400);
+  assert.ok(view.project([-1, 0], 800, 600).y < 300);
+  assert.ok(view.project([0, -1], 800, 600).x < 400);
+  view.move(90, -30);
+  assert.deepEqual(view.project([0, 0], 800, 600), { x: 490, y: 270 });
+  assert.deepEqual(view.project([-1, 1], 800, 600), { x: 610, y: 150 });
 });
 
 test('zoom keeps cursor world point anchored and is bounded', () => {

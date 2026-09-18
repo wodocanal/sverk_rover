@@ -27,9 +27,11 @@ Zoom is limited to 25%-3200%. New scans do not reset the chosen view. The initia
 fit uses actual valid returns, not the maximum distance supported by the sensor.
 The distance ruler is in meters.
 
-The scan's +X axis points up and +Y points left; the marker points up. Points
-are shown in the `LaserScan.header.frame_id` coordinate frame, as reported in
-the source details. This is a local scan viewer, not a TF-transformed map view.
+The cloud is rotated 180 degrees in the viewer to match the mounted lidar:
+the scan's -X axis points up and -Y points left; the rover marker still points up.
+This display-only correction applies to both raw and filtered scans and does not
+change ROS messages or TF. The source details report `LaserScan.header.frame_id`.
+This is a local scan viewer, not a TF-transformed map view.
 
 The web LaserScan subscription uses sensor-data QoS (`BEST_EFFORT`, `VOLATILE`),
 which accepts both reliable raw scans and best-effort filtered scans. It does

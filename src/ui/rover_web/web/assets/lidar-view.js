@@ -29,7 +29,8 @@
 
     project(point, width, height) {
       const view = this.transform(width, height);
-      return { x: view.x - point[1] * view.scale, y: view.y - point[0] * view.scale };
+      // Rotate scan returns 180 degrees for the mounted lidar; keep the marker unchanged.
+      return { x: view.x + point[1] * view.scale, y: view.y + point[0] * view.scale };
     }
 
     move(dx, dy) {
