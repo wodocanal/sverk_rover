@@ -1127,6 +1127,57 @@ textarea {
   min-height: 420px;
 }
 
+.lidar-view-toolbar,
+.lidar-view-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lidar-view-toolbar {
+  position: relative;
+  z-index: 2;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.lidar-view-controls button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 7px 12px;
+}
+
+#lidar-zoom {
+  min-width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.lidar-view-help {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+#lidar-canvas {
+  touch-action: none;
+  cursor: grab;
+}
+
+#lidar-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+#lidar-canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
 #lidar-canvas,
 #led-strip-canvas,
 #octoliner-canvas {

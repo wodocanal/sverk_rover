@@ -133,6 +133,9 @@ const state = {
   lidarTimer: null,
   lidarData: null,
   lidarSettings: null,
+  lidarView: new RoverLidarView.LidarViewport(),
+  lidarRequest: null,
+  lidarGeneration: 0,
   selectedLedStripTopic: null,
   selectedLedStripType: null,
   ledStripTimer: null,
@@ -1940,13 +1943,20 @@ function renderLidarTopics() {
     option.value = '';
     option.textContent = 'Нет LaserScan topics';
     select.append(option);
+    stopLidarLoop();
     state.selectedLidarTopic = null;
     state.selectedLidarType = null;
+    state.lidarData = null;
+    state.lidarView.reset();
+    drawLidarVisualization();
     $('#lidar-status').textContent = 'Лидар не найден.';
     return;
   }
 
   if (!topics.some((item) => item.name === state.selectedLidarTopic)) {
+    stopLidarLoop();
+    state.lidarData = null;
+    state.lidarView.reset();
     const preferredTopic = topics.find((item) => item.name === '/scan_filtered') || topics[0];
     state.selectedLidarTopic = preferredTopic.name;
     state.selectedLidarType = LASER_SCAN_TYPE;
@@ -1973,27 +1983,32 @@ function drawLidarVisualization(data = state.lidarData) {
   ctx.fillStyle = '#f9fdff';
   ctx.fillRect(0, 0, width, height);
 
-  const hasData = data && safeArray(data.points).length;
-  $('#lidar-empty').classList.toggle('hidden', Boolean(hasData));
-  if (!hasData) return;
-
-  const points = safeArray(data.points);
-  const maxRadius = Math.max(
-    0.5,
-    Number(data.range_max || 0),
-    ...points.map((point) => Math.hypot(Number(point[0] || 0), Number(point[1] || 0))),
-  );
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const scale = (Math.min(width, height) * 0.42) / maxRadius;
+  const points = safeArray(data?.points).filter((point) => (
+    Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1])
+  ));
+  $('#lidar-empty').classList.toggle('hidden', points.length > 0);
+  $('#lidar-empty').textContent = data?.frame_ready
+    ? 'Скан получен, но в нём нет точек в допустимом диапазоне.'
+    : 'Ожидание данных лидара…';
+  state.lidarView.fit(points);
+  const { x: centerX, y: centerY, scale } = state.lidarView.transform(width, height);
+  $('#lidar-zoom').textContent = `${Math.round(state.lidarView.zoom * 100)}%`;
+  $('#lidar-zoom-in').disabled = state.lidarView.zoom >= 32;
+  $('#lidar-zoom-out').disabled = state.lidarView.zoom <= 0.25;
 
   ctx.strokeStyle = '#e0edf3';
   ctx.lineWidth = 1;
-  [0.25, 0.5, 0.75, 1.0].forEach((ratio) => {
+  const desiredSpacing = 90 / scale;
+  const magnitude = 10 ** Math.floor(Math.log10(desiredSpacing));
+  const spacing = magnitude * (desiredSpacing / magnitude >= 5 ? 5 : desiredSpacing / magnitude >= 2 ? 2 : 1);
+  const nearest = Math.hypot(Math.max(0, -centerX, centerX - width), Math.max(0, -centerY, centerY - height));
+  const farthest = Math.hypot(Math.max(Math.abs(centerX), Math.abs(width - centerX)), Math.max(Math.abs(centerY), Math.abs(height - centerY)));
+  for (let radius = Math.max(spacing, Math.ceil(nearest / scale / spacing) * spacing);
+    radius * scale <= farthest; radius += spacing) {
     ctx.beginPath();
-    ctx.arc(centerX, centerY, maxRadius * scale * ratio, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, radius * scale, 0, Math.PI * 2);
     ctx.stroke();
-  });
+  }
 
   ctx.strokeStyle = '#9fd7ec';
   ctx.beginPath();
@@ -2005,20 +2020,33 @@ function drawLidarVisualization(data = state.lidarData) {
 
   ctx.fillStyle = '#16b8f3';
   points.forEach((point) => {
-    const x = Number(point[0] || 0);
-    const y = Number(point[1] || 0);
-    const screenX = centerX - y * scale;
-    const screenY = centerY - x * scale;
-    ctx.fillRect(screenX, screenY, 2, 2);
+    const screen = state.lidarView.project(point, width, height);
+    ctx.fillRect(screen.x - 1.5, screen.y - 1.5, 3, 3);
   });
 
-  drawRoverArrow(ctx, { x: centerX, y: centerY }, 0, '#075f89', 16);
+  // Other canvases use X-right; the lidar canvas uses X-up, Y-left.
+  drawRoverArrow(ctx, { x: centerX, y: centerY }, Math.PI / 2, '#075f89', 16);
+  const rulerPixels = spacing * scale;
+  ctx.strokeStyle = '#075f89';
+  ctx.beginPath();
+  ctx.moveTo(16, height - 18);
+  ctx.lineTo(16 + rulerPixels, height - 18);
+  ctx.stroke();
+  ctx.fillStyle = '#075f89';
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`${Number(spacing.toPrecision(2))} м`, 16, height - 25);
 }
 
 async function refreshLidarStatus() {
   if (!state.selectedLidarTopic || !state.selectedLidarType) return null;
+  if (state.lidarRequest) return null;
+  const topic = state.selectedLidarTopic;
+  const generation = state.lidarGeneration;
+  const request = new AbortController();
+  state.lidarRequest = request;
   try {
-    const info = await api(`/api/lidar/status?topic=${encodeURIComponent(state.selectedLidarTopic)}&type=${encodeURIComponent(state.selectedLidarType)}`);
+    const info = await api(`/api/lidar/status?topic=${encodeURIComponent(topic)}&type=${encodeURIComponent(state.selectedLidarType)}`, { signal: request.signal });
+    if (generation !== state.lidarGeneration || topic !== state.selectedLidarTopic) return null;
     state.lidarData = info;
     renderDetailList($('#lidar-meta'), [
       { label: 'Topic', value: info.topic || '—' },
@@ -2030,7 +2058,9 @@ async function refreshLidarStatus() {
     ]);
     $('#lidar-status').textContent = info.last_error
       ? `Ошибка: ${info.last_error}`
-      : (info.frame_ready ? 'Скан поступает.' : 'Ожидание первого скана.');
+      : (!info.frame_ready ? 'Ожидание первого скана.'
+        : Number(info.age_sec) > 2 ? 'Данные устарели: новые сканы не поступают.'
+          : info.valid_points === 0 ? 'Скан поступает, все точки вне диапазона или отфильтрованы.' : 'Скан поступает.');
     $('#lidar-points').textContent = `Точек: ${info.valid_points ?? 0}/${info.total_ranges ?? 0}`;
     $('#lidar-range').textContent = `Диапазон: ${formatFloat(info.range_min, 2)}..${formatFloat(info.range_max, 2)} м`;
     $('#lidar-age').textContent = `Возраст: ${info.age_sec == null ? '—' : formatAge(info.age_sec)}`;
@@ -2038,8 +2068,12 @@ async function refreshLidarStatus() {
     drawLidarVisualization(info);
     return info;
   } catch (error) {
-    $('#lidar-status').textContent = String(error.message || error);
+    if (error.name !== 'AbortError' && generation === state.lidarGeneration) {
+      $('#lidar-status').textContent = String(error.message || error);
+    }
     return null;
+  } finally {
+    if (state.lidarRequest === request) state.lidarRequest = null;
   }
 }
 
@@ -2051,6 +2085,9 @@ function startLidarLoop() {
 }
 
 function stopLidarLoop() {
+  state.lidarGeneration += 1;
+  state.lidarRequest?.abort();
+  state.lidarRequest = null;
   if (state.lidarTimer) {
     window.clearInterval(state.lidarTimer);
     state.lidarTimer = null;
@@ -2062,13 +2099,20 @@ async function connectLidar() {
   state.selectedLidarTopic = select.value || null;
   state.selectedLidarType = select.selectedOptions[0]?.dataset.type || null;
   stopLidarLoop();
+  const generation = state.lidarGeneration;
+  if (state.lidarData?.topic !== state.selectedLidarTopic) {
+    state.lidarData = null;
+    state.lidarView.reset();
+    drawLidarVisualization();
+  }
   if (!state.selectedLidarTopic || !state.selectedLidarType) {
     $('#lidar-status').textContent = 'Нет выбранного источника.';
     return;
   }
   $('#lidar-status').textContent = 'Подключение...';
-  const info = await refreshLidarStatus();
-  if (!info) return;
+  await refreshLidarStatus();
+  if (generation !== state.lidarGeneration) return;
+  // Keep retrying after a transient HTTP error, not only after a valid frame.
   startLidarLoop();
 }
 
@@ -3991,15 +4035,24 @@ function bindVisualizationPage() {
 }
 
 function bindLidarPage() {
+  const canvas = $('#lidar-canvas');
+  RoverLidarView.bindLidarViewport(canvas, state.lidarView, () => drawLidarVisualization());
+  const zoom = (factor) => {
+    state.lidarView.zoomAt(factor, canvas.clientWidth / 2, canvas.clientHeight / 2, canvas.clientWidth, canvas.clientHeight);
+    drawLidarVisualization();
+  };
+  $('#lidar-zoom-in').addEventListener('click', () => zoom(1.25));
+  $('#lidar-zoom-out').addEventListener('click', () => zoom(1 / 1.25));
+  $('#lidar-reset-view').addEventListener('click', () => {
+    state.lidarView.reset();
+    drawLidarVisualization();
+  });
   $('#lidar-refresh-topics').addEventListener('click', async () => {
     await Promise.all([refreshRosGraph(), refreshLidarSettings()]);
     renderLidarTopics();
   });
   $('#lidar-connect').addEventListener('click', connectLidar);
-  $('#lidar-topic-select').addEventListener('change', () => {
-    state.selectedLidarTopic = $('#lidar-topic-select').value || null;
-    state.selectedLidarType = $('#lidar-topic-select').selectedOptions[0]?.dataset.type || null;
-  });
+  $('#lidar-topic-select').addEventListener('change', connectLidar);
   $('#lidar-settings-refresh').addEventListener('click', refreshLidarSettings);
   $('#lidar-settings-apply').addEventListener('click', applyLidarSettings);
 }

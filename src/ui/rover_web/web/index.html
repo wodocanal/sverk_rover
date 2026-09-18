@@ -391,10 +391,20 @@ angular.z: 0.00</pre>
             </article>
           </div>
           <article class="panel canvas-panel sensor-canvas-panel">
-            <div class="panel-title-overlay">LaserScan</div>
-            <canvas id="lidar-canvas" width="1000" height="640"></canvas>
+            <div class="lidar-view-toolbar">
+              <strong>LaserScan</strong>
+              <div class="lidar-view-controls" role="group" aria-label="Масштаб лидара">
+                <button class="secondary" id="lidar-zoom-out" aria-label="Уменьшить масштаб">−</button>
+                <output id="lidar-zoom" aria-label="Текущий масштаб">100%</output>
+                <button class="secondary" id="lidar-zoom-in" aria-label="Увеличить масштаб">+</button>
+                <button class="secondary" id="lidar-reset-view">Сбросить вид</button>
+              </div>
+            </div>
+            <canvas id="lidar-canvas" width="1000" height="640" tabindex="0"
+              aria-label="Точки лидара: перетаскивание, масштаб колесом или клавишами плюс и минус"
+              aria-describedby="lidar-view-help"></canvas>
             <div id="lidar-empty" class="canvas-empty">Ожидание данных лидара…</div>
-            <div class="canvas-legend">Вперёд ↑ · влево ← · центр — база ровера</div>
+            <div class="lidar-view-help" id="lidar-view-help">Вперёд ↑ · влево ← · колесо / два пальца: масштаб · перетаскивание: сдвиг</div>
           </article>
         </div>
         <div class="sensor-readout">
@@ -836,6 +846,7 @@ angular.z: 0.00</pre>
   </div>
 
   <div id="toast-container" class="toast-container"></div>
+  <script src="/assets/lidar-view.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>

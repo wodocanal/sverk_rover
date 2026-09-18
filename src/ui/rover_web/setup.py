@@ -44,6 +44,7 @@ setup(
     packages=find_packages(),
     data_files=data_files,
     install_requires=['setuptools'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='Rover Team',
     maintainer_email='maintainer@example.com',

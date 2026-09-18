@@ -919,7 +919,10 @@ class RoverWebGateway(Node):
                 msg_class,
                 topic,
                 callback,
-                10,
+                # LaserScan filters commonly offer BEST_EFFORT. A RELIABLE
+                # subscription cannot receive those publishers; sensor QoS can
+                # receive both BEST_EFFORT and RELIABLE scan streams.
+                qos_profile_sensor_data if type_name == LASER_SCAN_TYPE else 10,
             )
             watch = TopicWatch(
                 topic=topic,
@@ -1931,11 +1934,9 @@ class RoverWebGateway(Node):
                 'frame_id': message.header.frame_id,
             }
 
-        step = max(1, math.ceil(total_ranges / max_points))
         points: list[list[float]] = []
-        valid_points = 0
-        for index in range(0, total_ranges, step):
-            distance = float(ranges[index])
+        for index, raw_distance in enumerate(ranges):
+            distance = float(raw_distance)
             if not math.isfinite(distance):
                 continue
             if distance < float(message.range_min) or distance > float(message.range_max):
@@ -1944,10 +1945,14 @@ class RoverWebGateway(Node):
             x = distance * math.cos(angle)
             y = distance * math.sin(angle)
             points.append([x, y])
-            valid_points += 1
+
+        # Sample only after removing invalid returns so sparse filtered scans
+        # cannot disappear just because their valid rays fall between indices.
+        valid_points = len(points)
+        step = max(1, math.ceil(valid_points / max(1, max_points)))
 
         return {
-            'points': points,
+            'points': points[::step],
             'total_ranges': total_ranges,
             'valid_points': valid_points,
             'range_min': float(message.range_min),

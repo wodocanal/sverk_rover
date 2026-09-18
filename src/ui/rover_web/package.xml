@@ -31,4 +31,5 @@
   <exec_depend>rover_description</exec_depend>
   <exec_depend>rover_base_driver</exec_depend>
   <exec_depend>rosboard</exec_depend>
+  <test_depend>python3-pytest</test_depend>
 </package>
