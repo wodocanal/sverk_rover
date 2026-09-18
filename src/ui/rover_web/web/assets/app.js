@@ -124,6 +124,8 @@ const state = {
   selectedCameraType: null,
   cameraTimer: null,
   cameraUrl: null,
+  cameraRequest: null,
+  cameraGeneration: 0,
   cameraSettings: null,
   cameraVisionSettings: null,
   cameraSettingsLastRefresh: 0,
@@ -1894,20 +1896,57 @@ function startCameraLoop() {
   if (!state.selectedCameraTopic || !state.selectedCameraType) {
     return;
   }
-  state.cameraUrl = `/api/camera/stream?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}&t=${Date.now()}`;
-  $('#camera-frame').src = state.cameraUrl;
-  $('#camera-empty').classList.add('hidden');
-  state.cameraTimer = window.setInterval(() => {
-    refreshCameraStatus();
-  }, 500);
+  const generation = state.cameraGeneration;
+  const url = `/api/camera/frame?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}`;
+  const nextFrame = async () => {
+    if (generation !== state.cameraGeneration) return;
+    if (document.hidden) {
+      state.cameraTimer = window.setTimeout(nextFrame, 250);
+      return;
+    }
+    const controller = new AbortController();
+    state.cameraRequest = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 1500);
+    let frameUrl = null;
+    try {
+      const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) throw new Error(`Camera HTTP ${response.status}`);
+      frameUrl = URL.createObjectURL(await response.blob());
+      const decoded = new Image();
+      decoded.src = frameUrl;
+      await decoded.decode();
+      if (generation !== state.cameraGeneration || controller.signal.aborted) return;
+      const previous = state.cameraUrl;
+      $('#camera-frame').src = frameUrl;
+      state.cameraUrl = frameUrl;
+      frameUrl = null;
+      if (previous) URL.revokeObjectURL(previous);
+      $('#camera-empty').classList.add('hidden');
+    } catch (error) {
+      if (generation === state.cameraGeneration) $('#camera-empty').classList.remove('hidden');
+    } finally {
+      window.clearTimeout(timeout);
+      if (frameUrl) URL.revokeObjectURL(frameUrl);
+      if (generation === state.cameraGeneration) {
+        state.cameraRequest = null;
+        // Request only after decoding the preceding frame: never queue video.
+        state.cameraTimer = window.setTimeout(nextFrame, 33);
+      }
+    }
+  };
+  state.cameraTimer = window.setTimeout(nextFrame, 0);
 }
 
 function stopCameraLoop() {
+  state.cameraGeneration += 1;
+  state.cameraRequest?.abort();
+  state.cameraRequest = null;
   if (state.cameraTimer) {
-    window.clearInterval(state.cameraTimer);
+    window.clearTimeout(state.cameraTimer);
     state.cameraTimer = null;
   }
   $('#camera-frame').src = '';
+  if (state.cameraUrl) URL.revokeObjectURL(state.cameraUrl);
   state.cameraUrl = null;
 }
 

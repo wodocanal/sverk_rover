@@ -9,6 +9,25 @@ ros2 launch rover_web web.launch.py
 On the rover, `rover-web.service` owns the web UI independently of
 `rover-bringup.service`.
 
+## Live Camera
+
+The web camera view requests the latest snapshot from `/api/camera/frame`.
+Only one request is in flight; the next starts after image decoding. Slow clients
+skip intermediate frames instead of replaying a buffered MJPEG stream. Requests
+time out after 1.5 seconds, hidden tabs pause fetching, and changing the source
+aborts pending requests. Frames not updated for 2 seconds are rejected.
+The legacy `/api/camera/stream` endpoint remains available for other clients;
+it does not provide this browser-side backpressure protection.
+
+Image subscriptions and the USB camera publishers use best-effort QoS with
+depth 1. JPEG encoding runs outside the USB capture thread, so slow compression
+does not stop reading new frames. This prioritizes freshness over frame rate;
+network transfer, exposure, decoding and compression still add latency.
+
+After updating the source, build `rover_camera` and `rover_web`, restart
+`rover-bringup` and `rover-web`, and reload the browser. Stop robot motion before
+restarting bringup. Verify latency with a moving object or a visible stopwatch.
+
 ## LiDAR Viewer
 
 Open **Peripherals -> LiDAR** and select a `sensor_msgs/msg/LaserScan` topic.

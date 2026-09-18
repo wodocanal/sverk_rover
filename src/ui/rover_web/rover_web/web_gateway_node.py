@@ -35,7 +35,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.parameter_client import AsyncParameterClient
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.set_message import set_message_fields
 from rosidl_runtime_py.utilities import get_message, get_service
@@ -1024,7 +1024,7 @@ class RoverWebGateway(Node):
                     Image,
                     topic,
                     callback,
-                    qos_profile_sensor_data,
+                    QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
                 )
 
             elif type_name == 'sensor_msgs/msg/CompressedImage':
@@ -1048,7 +1048,7 @@ class RoverWebGateway(Node):
                     CompressedImage,
                     topic,
                     callback,
-                    qos_profile_sensor_data,
+                    QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
                 )
 
             else:
@@ -2804,9 +2804,12 @@ class RoverWebGateway(Node):
         topic = normalize_topic_name(topic_name)
         resolved_type, _ = self._resolve_topic_type(topic, type_name)
         watch = self._ensure_image_watch(topic, resolved_type)
-        if watch.frame_bytes is None:
-            raise RuntimeError(f'No frame received yet from {topic}')
-        return watch.frame_bytes, watch.content_type
+        with self._lock:
+            if watch.frame_bytes is None:
+                raise RuntimeError(f'No frame received yet from {topic}')
+            if time.monotonic() - watch.last_updated_monotonic > 2.0:
+                raise RuntimeError(f'Camera frames are stale on {topic}')
+            return watch.frame_bytes, watch.content_type
 
     def camera_stream(
         self,

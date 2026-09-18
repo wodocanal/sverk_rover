@@ -11,7 +11,7 @@ from rcl_interfaces.msg import SetParametersResult
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rover_interfaces.srv import GetFrame
 from sensor_msgs.msg import CompressedImage, Image
 
@@ -153,13 +153,13 @@ class UsbCameraNode(Node):
             self.raw_publisher = self.create_publisher(
                 Image,
                 self.image_topic,
-                qos_profile_sensor_data,
+                QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
             )
         if self.publish_compressed:
             self.compressed_publisher = self.create_publisher(
                 CompressedImage,
                 self.compressed_image_topic,
-                qos_profile_sensor_data,
+                QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
             )
 
     def _configure_timer(self) -> None:
@@ -422,21 +422,9 @@ class UsbCameraNode(Node):
             if current_rotate != 0:
                 frame = self._rotate_frame(frame, current_rotate)
 
-            compressed = None
-            should_encode_compressed = (
-                self.publish_compressed
-                and self.compressed_publisher is not None
-                and self.compressed_publisher.get_subscription_count() > 0
-            )
-            if should_encode_compressed:
-                try:
-                    compressed = self._encode_frame(frame)
-                except Exception as exc:
-                    self._warn_throttled(f'JPEG encode failed: {exc}')
-
             with self.frame_lock:
                 self.latest_frame = frame
-                self.latest_compressed = compressed
+                self.latest_compressed = None
                 self.latest_frame_seq += 1
                 self.latest_header_stamp = self.get_clock().now().to_msg()
                 self.latest_width = int(frame.shape[1])
@@ -465,12 +453,22 @@ class UsbCameraNode(Node):
             if should_publish_raw and sequence != self.last_published_seq_raw:
                 raw_frame = None if self.latest_frame is None else self.latest_frame.copy()
 
-            compressed_frame = None
+            frame_to_encode = None
             if (
                 self.publish_compressed
+                and self.compressed_publisher is not None
+                and self.compressed_publisher.get_subscription_count() > 0
                 and sequence != self.last_published_seq_compressed
             ):
-                compressed_frame = self.latest_compressed
+                frame_to_encode = self.latest_frame
+
+        # Encoding must not stop capture from draining the camera's input queue.
+        compressed_frame = None
+        if frame_to_encode is not None:
+            try:
+                compressed_frame = self._encode_frame(frame_to_encode)
+            except Exception as exc:
+                self._warn_throttled(f'JPEG encode failed: {exc}')
 
         if raw_frame is not None and self.raw_publisher is not None:
             message = Image()
@@ -521,10 +519,6 @@ class UsbCameraNode(Node):
             response.message = 'No camera frame is available yet'
             response.age_sec = float('inf')
             return response
-
-        current_rotate = self.rotate
-        if current_rotate != 0:
-            latest_frame = self._rotate_frame(latest_frame, current_rotate)
 
         if latest_compressed is None:
             try:
