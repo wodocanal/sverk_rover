@@ -109,7 +109,14 @@ ros2 launch rover_bringup robot.launch.py profile:=mapping
 
 The `full` profile currently enables the base driver, wheel odometry, robot
 description, EKF localization, IMU, lidar, LED strip, web UI, display UI,
-rosboard, `twist_mux`, local agent and MQTT fleet bridge.
+rosboard, `twist_mux`, local agent and MQTT fleet bridge. It deliberately does
+not start SLAM Toolbox or Nav2: these stacks are started on demand from
+**Movement -> Visualization** in the web interface. Mapping starts only after
+**Start map recording** is pressed. Navigation requires a valid map, an initial
+pose and a goal before **Start navigation** becomes available.
+
+See [Web mapping and navigation](docs/web-navigation.md) for the operator guide,
+service update instructions and integration tests.
 
 Any component can be overridden from the command line:
 

@@ -39,6 +39,7 @@ def generate_launch_description():
             output='screen',
             parameters=[params_file, {
                 'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
+                'use_lifecycle_manager': True,
             }],
         ),
         Node(

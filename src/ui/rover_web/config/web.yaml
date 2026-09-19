@@ -30,6 +30,14 @@ web_gateway_node:
     plans_directory: ~/.local/share/sverh-rover-web/plans
     hackathon_files_root: ~/sverk_rover/hackathon_files
     maps_root: ~/sverk_rover/src/motion/rover_navigation/maps/current
+    navigation_package: rover_navigation
+    mapping_launch_file: slam.launch.py
+    navigation_launch_file: navigation.launch.py
+    navigation_scan_topic: /scan_filtered
+    planned_path_topic: /plan
+    navigation_map_frame: map
+    localized_pose_topic: /amcl_pose
+    map_save_timeout_sec: 30.0
     terminal_enabled: true
     terminal_url: ''
     terminal_port: 7681

@@ -77,6 +77,11 @@ class PackageLaunchTests(unittest.TestCase):
                 nodes = expand('rover_bringup', 'robot.launch.py', {'profile': profile})
                 self.assertTrue(nodes)
 
+    def test_full_profile_leaves_mapping_and_navigation_to_web(self):
+        profile = read_config(config_path('rover_bringup', 'profiles/full.yaml'))
+        self.assertFalse(profile['components']['nav2'])
+        self.assertFalse(profile['components']['slam'])
+
     def test_main_and_standalone_use_same_calibration(self):
         main = expand('rover_bringup', 'robot.launch.py', {'profile': 'full'})
         for package, filename, name in (

@@ -1409,7 +1409,7 @@ textarea {
 }
 
 .visualization-controls label:not(.check-label) {
-  min-width: 160px;
+  min-width: 190px;
   margin: 0;
 }
 
@@ -1420,6 +1420,81 @@ textarea {
 
 #viz-map-select {
   min-width: 190px;
+}
+
+.visualization-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 410px);
+  align-items: start;
+  gap: 18px;
+}
+
+.visualization-sidebar {
+  display: grid;
+  gap: 18px;
+}
+
+.navigation-control-card h2,
+.navigation-log-card h2 {
+  margin-bottom: 0;
+}
+
+.navigation-control-card h3 {
+  margin: 16px 0 7px;
+  color: var(--accent-deep);
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+}
+
+.navigation-checkbox {
+  min-height: 40px;
+  margin: 5px 0 !important;
+  align-self: end;
+}
+
+.navigation-pose-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.navigation-pose-grid label {
+  min-width: 0;
+  margin: 0;
+}
+
+.navigation-pose-grid input {
+  min-width: 0;
+}
+
+.compact-actions {
+  margin: 8px 0 0;
+}
+
+.navigation-primary-actions {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.navigation-primary-actions button {
+  flex: 1 1 145px;
+}
+
+.navigation-log-card .log-box {
+  height: 190px;
+  min-height: 150px;
+  margin-bottom: 0;
+  font-size: 0.77rem;
+}
+
+.visualization-panel.pick-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(22, 184, 243, 0.18), var(--shadow);
+}
+
+.visualization-panel.pick-active #odom-canvas {
+  cursor: crosshair;
 }
 
 .terminal-frame {
@@ -1622,8 +1697,17 @@ textarea {
   .camera-grid,
   .led-strip-workspace,
   .sensor-layout,
+  .visualization-workspace,
   .ros-detail-layout {
     grid-template-columns: 1fr;
+  }
+
+  .visualization-sidebar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .navigation-log-card {
+    grid-column: 1 / -1;
   }
 
   .list-panel {
@@ -1721,6 +1805,15 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .visualization-sidebar,
+  .navigation-pose-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .navigation-log-card {
+    grid-column: auto;
+  }
+
   .route-file-actions label {
     grid-column: auto;
   }
@@ -1756,5 +1849,10 @@ textarea {
 
   .button-row {
     flex-direction: column;
+  }
+
+  .navigation-primary-actions button {
+    flex: 0 0 auto;
+    min-height: 44px;
   }
 }

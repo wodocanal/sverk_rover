@@ -6,6 +6,7 @@ from __future__ import annotations
 from array import array
 from collections import deque
 from dataclasses import dataclass
+from functools import wraps
 import json
 import math
 import mimetypes
@@ -28,10 +29,13 @@ from ament_index_python.packages import get_package_share_directory
 from rover_configuration import config_path, node_parameters
 import cv2
 from diagnostic_msgs.msg import DiagnosticArray
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
+from lifecycle_msgs.srv import GetState
+from nav2_msgs.action import NavigateToPose
+from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavigationPath
 import numpy as np
 import rclpy
+from rclpy.action import ActionClient
 from rover_base_driver.drive_types import (
     DEFAULT_DRIVE_TYPE_FILE,
     DIFFERENTIAL,
@@ -43,7 +47,8 @@ from rover_base_driver.drive_types import (
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.parameter_client import AsyncParameterClient
-from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from tf2_ros import Buffer, TransformListener
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.set_message import set_message_fields
 from rosidl_runtime_py.utilities import get_message, get_service
@@ -67,6 +72,7 @@ DETECTIONS_TYPE = 'std_msgs/msg/String'
 LED_STRIP_STATE_TYPE = 'rover_interfaces/msg/LedStripState'
 OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading'
 PLAN_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
+MAP_LABEL_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 V4L2_FMT_RE = re.compile(r"\[\d+\]: '([^']+)' \((.+)\)")
 V4L2_SIZE_RE = re.compile(r'Size:\s+Discrete\s+(\d+)x(\d+)')
 V4L2_INTERVAL_RE = re.compile(r'Interval:\s+Discrete\s+([0-9.]+)s\s+\(([0-9.]+)\s+fps\)')
@@ -87,6 +93,14 @@ MAP_IMAGE_EXTENSIONS = {
     '.tif',
     '.tiff',
 }
+
+
+def navigation_operation(method):
+    @wraps(method)
+    def serialized(self, *args, **kwargs):
+        with self._navigation_control_lock:
+            return method(self, *args, **kwargs)
+    return serialized
 
 
 def default_maps_root(workspace_root: Path) -> str:
@@ -510,6 +524,14 @@ class RoverWebGateway(Node):
             str(workspace_root / 'hackathon_files'),
         )
         self.declare_parameter('maps_root', default_maps_root(workspace_root))
+        self.declare_parameter('navigation_package', 'rover_navigation')
+        self.declare_parameter('mapping_launch_file', 'slam.launch.py')
+        self.declare_parameter('navigation_launch_file', 'navigation.launch.py')
+        self.declare_parameter('navigation_scan_topic', '/scan_filtered')
+        self.declare_parameter('planned_path_topic', '/plan')
+        self.declare_parameter('navigation_map_frame', 'map')
+        self.declare_parameter('localized_pose_topic', '/amcl_pose')
+        self.declare_parameter('map_save_timeout_sec', 30.0)
         self.declare_parameter(
             'seed_plans_directory',
             str(share / 'plans'),
@@ -583,6 +605,30 @@ class RoverWebGateway(Node):
                 else default_maps_root(workspace_root)
             )
         self.maps_root = Path(configured_maps_root).expanduser().resolve()
+        self.navigation_package = str(
+            self.get_parameter('navigation_package').value
+        ).strip() or 'rover_navigation'
+        self.mapping_launch_file = str(
+            self.get_parameter('mapping_launch_file').value
+        ).strip() or 'slam.launch.py'
+        self.navigation_launch_file = str(
+            self.get_parameter('navigation_launch_file').value
+        ).strip() or 'navigation.launch.py'
+        self.navigation_scan_topic = str(
+            self.get_parameter('navigation_scan_topic').value
+        ).strip() or '/scan_filtered'
+        self.planned_path_topic = str(
+            self.get_parameter('planned_path_topic').value
+        ).strip() or '/plan'
+        self.navigation_map_frame = str(
+            self.get_parameter('navigation_map_frame').value
+        ).strip() or 'map'
+        self.localized_pose_topic = str(
+            self.get_parameter('localized_pose_topic').value
+        ).strip() or '/amcl_pose'
+        self.map_save_timeout_sec = max(
+            5.0, float(self.get_parameter('map_save_timeout_sec').value)
+        )
         self.seed_plans_directory = Path(
             str(self.get_parameter('seed_plans_directory').value)
         ).expanduser()
@@ -710,6 +756,7 @@ class RoverWebGateway(Node):
 
         self.started_at = time.time()
         self._lock = threading.RLock()
+        self._navigation_control_lock = threading.RLock()
         self._topic_watches: dict[tuple[str, str], TopicWatch] = {}
         self._image_watches: dict[tuple[str, str], ImageWatch] = {}
         self._publisher_cache: dict[tuple[str, str], PublisherHandle] = {}
@@ -737,6 +784,33 @@ class RoverWebGateway(Node):
         self._motion_command: list[str] = []
         self._motion_log: deque[str] = deque(maxlen=500)
         self._motion_return_code: int | None = None
+        self._navigation_process: subprocess.Popen[str] | None = None
+        self._navigation_generation = 0
+        self._navigation_mode: str | None = None
+        self._navigation_phase = 'idle'
+        self._navigation_started_at: float | None = None
+        self._navigation_return_code: int | None = None
+        self._navigation_command: list[str] = []
+        self._navigation_log: deque[str] = deque(maxlen=500)
+        self._navigation_map = ''
+        self._navigation_initial_pose: dict[str, float] | None = None
+        self._navigation_goal: dict[str, float] | None = None
+        self._navigation_goal_state = 'idle'
+        self._navigation_goal_message = ''
+        self._navigation_goal_handle: Any = None
+        self._planned_path: list[dict[str, float]] = []
+        self._planned_path_frame = ''
+        self._planned_path_at = 0.0
+        self._localized_pose: dict[str, float] | None = None
+        self._localized_pose_at = 0.0
+        self._live_map = None
+        self._live_map_png = None
+        self._live_map_revision = 0
+        self._map_save_process: subprocess.Popen[str] | None = None
+        self._map_save_state = 'idle'
+        self._map_save_label = ''
+        self._map_save_return_code: int | None = None
+        self._map_save_log: deque[str] = deque(maxlen=300)
         self._voice_process: subprocess.Popen[str] | None = None
         self._voice_started_at: float | None = None
         self._voice_return_code: int | None = None
@@ -758,6 +832,22 @@ class RoverWebGateway(Node):
         self._cached_ip_addresses: list[str] = []
 
         self.drive_publisher = self.create_publisher(Twist, self.command_topic, 10)
+        self.initial_pose_publisher = self.create_publisher(
+            PoseWithCovarianceStamped,
+            '/initialpose',
+            10,
+        )
+        self.navigation_action_client = ActionClient(
+            self,
+            NavigateToPose,
+            '/navigate_to_pose',
+        )
+        self.navigation_tf = Buffer()
+        self.navigation_tf_listener = TransformListener(self.navigation_tf, self)
+        self.create_subscription(
+            OccupancyGrid, '/map', self._live_map_callback,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+        )
         self.create_subscription(Odometry, self.odom_topic, self._odom_callback, 20)
         self.create_subscription(
             Odometry,
@@ -775,6 +865,18 @@ class RoverWebGateway(Node):
             DiagnosticArray,
             self.diagnostics_topic,
             self._diagnostics_callback,
+            10,
+        )
+        self.create_subscription(
+            NavigationPath,
+            self.planned_path_topic,
+            self._planned_path_callback,
+            10,
+        )
+        self.create_subscription(
+            PoseWithCovarianceStamped,
+            self.localized_pose_topic,
+            self._localized_pose_callback,
             10,
         )
         self.create_subscription(String, self.voice_text_topic, self._voice_text_callback, 10)
@@ -829,6 +931,65 @@ class RoverWebGateway(Node):
         with self._lock:
             self._wheel_odom = message
             self._touch_snapshot('wheel_odometry')
+
+    def _planned_path_callback(self, message: NavigationPath) -> None:
+        points = [
+            {
+                'x': float(pose.pose.position.x),
+                'y': float(pose.pose.position.y),
+            }
+            for pose in message.poses[:5000]
+        ]
+        with self._lock:
+            self._planned_path = points
+            self._planned_path_frame = message.header.frame_id
+            self._planned_path_at = time.monotonic()
+
+    def _live_map_callback(self, message: OccupancyGrid) -> None:
+        width, height = message.info.width, message.info.height
+        if not width or not height or width * height != len(message.data):
+            return
+        cells = np.asarray(message.data, dtype=np.int16).reshape(height, width)
+        pixels = np.where(cells < 0, 205, 255 - np.clip(cells, 0, 100) * 2.55).astype(np.uint8)
+        ok, encoded = cv2.imencode('.png', np.flipud(pixels))
+        if not ok:
+            return
+        origin = message.info.origin
+        q = origin.orientation
+        yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+        with self._lock:
+            self._live_map_revision += 1
+            self._live_map_png = encoded.tobytes()
+            self._live_map = {
+                'path': '__live__', 'name': 'Текущая карта SLAM',
+                'image_url': f'/api/mapping/image?revision={self._live_map_revision}',
+                'revision': self._live_map_revision, 'frame_id': message.header.frame_id,
+                'resolution': message.info.resolution,
+                'origin': [origin.position.x, origin.position.y, yaw],
+                'width_m': width * message.info.resolution,
+                'height_m': height * message.info.resolution,
+            }
+
+    def live_map_image(self) -> bytes:
+        with self._lock:
+            if self._live_map_png is None:
+                raise FileNotFoundError('No map has been received yet')
+            return self._live_map_png
+
+    def _localized_pose_callback(self, message: PoseWithCovarianceStamped) -> None:
+        orientation = message.pose.pose.orientation
+        yaw = math.atan2(
+            2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
+            1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z),
+        )
+        with self._lock:
+            self._localized_pose = {
+                'x': float(message.pose.pose.position.x),
+                'y': float(message.pose.pose.position.y),
+                'yaw': float(yaw),
+                'frame_id': message.header.frame_id,
+            }
+            self._localized_pose_at = time.monotonic()
 
     def _imu_callback(self, message: Imu) -> None:
         with self._lock:
@@ -1183,6 +1344,38 @@ class RoverWebGateway(Node):
                         'voice',
                         'Voice processing node finished',
                         {'return_code': return_code},
+                    )
+
+            navigation_process = self._navigation_process
+            if navigation_process is not None:
+                return_code = navigation_process.poll()
+                if return_code is not None:
+                    previous_mode = self._navigation_mode
+                    self._navigation_return_code = return_code
+                    self._navigation_process = None
+                    self._navigation_generation += 1
+                    self._navigation_mode = None
+                    self._navigation_phase = 'idle' if return_code == 0 else 'error'
+                    self._navigation_goal_handle = None
+                    if self._navigation_goal_state in {'queued', 'sending', 'active'}:
+                        self._navigation_goal_state = 'interrupted'
+                    self.record_activity(
+                        'navigation',
+                        f'{previous_mode or "Navigation"} process finished',
+                        {'return_code': return_code},
+                    )
+
+            map_save_process = self._map_save_process
+            if map_save_process is not None:
+                return_code = map_save_process.poll()
+                if return_code is not None:
+                    self._map_save_return_code = return_code
+                    self._map_save_state = 'saved' if return_code == 0 else 'error'
+                    self._map_save_process = None
+                    self.record_activity(
+                        'mapping',
+                        'Map save finished',
+                        {'label': self._map_save_label, 'return_code': return_code},
                     )
 
     def record_activity(
@@ -1665,6 +1858,7 @@ class RoverWebGateway(Node):
             motion = self.motion_status_payload_locked()
 
         highest_level = max((entry['level'] for entry in diagnostics), default=-1)
+        navigation = self.navigation_status_payload()
         return {
             'ok': True,
             'server_time': time.time(),
@@ -1683,6 +1877,7 @@ class RoverWebGateway(Node):
             'connected_clients': len(clients),
             'drive_clients': sum(1 for item in clients if item.get('page') == 'drive'),
             'motion': motion,
+            'navigation': navigation,
         }
 
     def activity_payload(self, limit: int) -> list[dict[str, Any]]:
@@ -3221,6 +3416,542 @@ class RoverWebGateway(Node):
         with self._lock:
             return self.motion_status_payload_locked()
 
+    def _navigation_prerequisites(self) -> dict[str, Any]:
+        try:
+            available = {name for name, _types in self.get_topic_names_and_types()}
+        except Exception:
+            available = set()
+        required = [self.navigation_scan_topic, self.odom_topic, '/tf', '/tf_static']
+        missing = [name for name in required if name not in available or self.count_publishers(name) == 0]
+        return {
+            'required_topics': required,
+            'missing_topics': missing,
+            'ready': not missing,
+        }
+
+    @staticmethod
+    def _navigation_pose(value: Any, label: str) -> dict[str, float]:
+        if not isinstance(value, dict):
+            raise ValueError(f'{label} must be an object with x, y and yaw')
+        try:
+            pose = {
+                'x': float(value['x']),
+                'y': float(value['y']),
+                'yaw': float(value.get('yaw', 0.0)),
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f'{label} must contain numeric x, y and yaw') from exc
+        if not all(math.isfinite(component) for component in pose.values()):
+            raise ValueError(f'{label} contains a non-finite value')
+        return pose
+
+    def _assert_navigation_topics(self, operation: str) -> None:
+        prerequisites = self._navigation_prerequisites()
+        if prerequisites['missing_topics']:
+            missing = ', '.join(prerequisites['missing_topics'])
+            raise RuntimeError(f'Cannot start {operation}: missing ROS topics: {missing}')
+
+    def _assert_navigation_runtime_idle(self) -> None:
+        with self._lock:
+            process = self._navigation_process
+            if process is not None and process.poll() is None:
+                raise RuntimeError(
+                    f'{self._navigation_mode or "navigation"} is already running'
+                )
+        if self._node_is_visible('/slam_toolbox') or self._node_is_visible('/bt_navigator'):
+            raise RuntimeError(
+                'SLAM or Nav2 is already running outside the web interface. '
+                'Stop that launch before starting a web-managed mode.'
+            )
+
+    def _start_navigation_process(
+        self,
+        mode: str,
+        command: list[str],
+        *,
+        map_path: str = '',
+    ) -> dict[str, Any]:
+        environment = os.environ.copy()
+        environment.setdefault('ROS_AUTOMATIC_DISCOVERY_RANGE', 'LOCALHOST')
+        environment.setdefault('PYTHONUNBUFFERED', '1')
+        process = subprocess.Popen(
+            command,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+        with self._lock:
+            self._navigation_generation += 1
+            self._navigation_process = process
+            self._navigation_mode = mode
+            self._navigation_phase = 'starting'
+            self._navigation_started_at = time.time()
+            self._navigation_return_code = None
+            self._navigation_command = list(command)
+            self._navigation_log.clear()
+            self._navigation_map = map_path
+            self._navigation_initial_pose = None
+            self._navigation_goal = None
+            self._localized_pose = None
+            self._localized_pose_at = 0.0
+            self._live_map = None
+            self._live_map_png = None
+            self._planned_path = []
+            self._planned_path_frame = ''
+            self._planned_path_at = 0.0
+            self._navigation_goal_handle = None
+            self._navigation_goal_state = 'idle'
+            self._navigation_goal_message = ''
+        threading.Thread(
+            target=self._read_navigation_output,
+            args=(process, self._navigation_log),
+            name=f'rover-{mode}-output',
+            daemon=True,
+        ).start()
+        self.record_activity(
+            'navigation',
+            f'{mode} process started',
+            {'command': command, 'map': map_path},
+        )
+        return self.navigation_status_payload()
+
+    def _read_navigation_output(
+        self,
+        process: subprocess.Popen[str],
+        target: deque[str],
+    ) -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            with self._lock:
+                target.append(line.rstrip('\r\n'))
+
+    @navigation_operation
+    def start_mapping(self) -> dict[str, Any]:
+        self._assert_navigation_runtime_idle()
+        self._assert_navigation_topics('mapping')
+        command = [
+            shutil.which('ros2') or 'ros2',
+            'launch',
+            self.navigation_package,
+            self.mapping_launch_file,
+            'use_rviz:=false',
+        ]
+        self._start_navigation_process('mapping', command)
+        with self._lock:
+            self._map_save_state = 'idle'
+            self._map_save_return_code = None
+            self._map_save_log.clear()
+        return self.navigation_status_payload()
+
+    @navigation_operation
+    def save_mapping(self, request: dict[str, Any]) -> dict[str, Any]:
+        label = str(request.get('label', 'map')).strip() or 'map'
+        if len(label) > 48 or not MAP_LABEL_RE.fullmatch(label):
+            raise ValueError(
+                'Map label may contain only Latin letters, digits, _ and -'
+            )
+        occupancy_only = bool(request.get('occupancy_only', False))
+        with self._lock:
+            navigation_process = self._navigation_process
+            if (
+                self._navigation_mode != 'mapping'
+                or navigation_process is None
+                or navigation_process.poll() is not None
+            ):
+                raise RuntimeError('Mapping must be running before the map can be saved')
+            if self._map_save_process is not None and self._map_save_process.poll() is None:
+                raise RuntimeError('A map save is already running')
+
+        command = [
+            shutil.which('ros2') or 'ros2',
+            'run',
+            self.navigation_package,
+            'rover_map',
+            'save',
+            '--timeout',
+            str(self.map_save_timeout_sec),
+        ]
+        if occupancy_only:
+            command.append('--occupancy-only')
+        command.extend(['--', label])
+        environment = os.environ.copy()
+        environment.setdefault('ROS_AUTOMATIC_DISCOVERY_RANGE', 'LOCALHOST')
+        environment.setdefault('PYTHONUNBUFFERED', '1')
+        if self.maps_root.name != 'current':
+            raise ValueError('Web maps_root must point to a maps/current directory for saving')
+        environment['ROVER_MAPS_ROOT'] = str(self.maps_root.parent)
+        process = subprocess.Popen(
+            command,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+        with self._lock:
+            self._map_save_process = process
+            self._map_save_state = 'saving'
+            self._map_save_label = label
+            self._map_save_return_code = None
+            self._map_save_log.clear()
+        threading.Thread(
+            target=self._read_navigation_output,
+            args=(process, self._map_save_log),
+            name='rover-map-save-output',
+            daemon=True,
+        ).start()
+        self.record_activity('mapping', 'Map save started', {'label': label})
+        return self.navigation_status_payload()
+
+    @navigation_operation
+    def start_navigation(self, request: dict[str, Any]) -> dict[str, Any]:
+        self._assert_navigation_runtime_idle()
+        self._assert_navigation_topics('navigation')
+        map_name = str(request.get('map', '')).strip()
+        map_yaml = self._resolve_map_yaml(map_name)
+        self._map_metadata_payload(map_yaml)
+        initial_pose = self._navigation_pose(request.get('initial_pose'), 'initial_pose')
+        goal = self._navigation_pose(request.get('goal'), 'goal')
+        command = [
+            shutil.which('ros2') or 'ros2',
+            'launch',
+            self.navigation_package,
+            self.navigation_launch_file,
+            f'map:={map_yaml}',
+            'use_rviz:=false',
+        ]
+        self._start_navigation_process(
+            'navigation',
+            command,
+            map_path=map_name,
+        )
+        with self._lock:
+            self._navigation_initial_pose = initial_pose
+            self._navigation_goal = goal
+            self._navigation_goal_state = 'queued'
+            self._navigation_goal_message = 'Waiting for Nav2 to become ready'
+            generation = self._navigation_generation
+        threading.Thread(
+            target=self._initialize_navigation,
+            args=(initial_pose, goal, generation),
+            name='rover-navigation-startup',
+            daemon=True,
+        ).start()
+        return self.navigation_status_payload()
+
+    def _lifecycle_active(self, name: str) -> bool:
+        handle = self._ensure_service_client(f'{name}/get_state', 'lifecycle_msgs/srv/GetState')
+        if not handle.client.service_is_ready():
+            return False
+        try:
+            response = self._wait_for_future(
+                handle.client.call_async(GetState.Request()),
+                timeout_sec=1.0, label=f'{name} lifecycle',
+            )
+            return response.current_state.id == 3
+        except Exception:
+            return False
+
+    def _initialize_navigation(
+        self,
+        initial_pose: dict[str, float],
+        goal: dict[str, float],
+        generation: int,
+    ) -> None:
+        deadline = time.monotonic() + 60.0
+        pose_sent_at = 0.0
+        while time.monotonic() < deadline:
+            with self._lock:
+                process = self._navigation_process
+                active = (
+                    self._navigation_mode == 'navigation'
+                    and self._navigation_generation == generation
+                )
+            if not active or process is None or process.poll() is not None:
+                return
+            if self._lifecycle_active('/amcl'):
+                if pose_sent_at == 0.0:
+                    self._publish_initial_pose(initial_pose)
+                    pose_sent_at = time.monotonic()
+                with self._lock:
+                    localized = self._localized_pose_at >= pose_sent_at
+                if (localized and self.navigation_action_client.server_is_ready()
+                        and all(self._lifecycle_active(name) for name in (
+                            '/bt_navigator', '/controller_server', '/planner_server',
+                        ))):
+                    break
+            time.sleep(0.25)
+        else:
+            with self._lock:
+                if self._navigation_generation != generation:
+                    return
+                self._navigation_phase = 'error'
+                self._navigation_goal_state = 'error'
+                self._navigation_goal_message = 'Nav2 or localization was not ready within 60 seconds. Check scan and TF.'
+            return
+        with self._lock:
+            if self._navigation_generation != generation:
+                return
+            self._navigation_phase = 'running'
+        self._send_navigation_goal_worker(goal, generation)
+
+    def _pose_stamped(self, pose: dict[str, float]) -> PoseStamped:
+        message = PoseStamped()
+        message.header.frame_id = self.navigation_map_frame
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.pose.position.x = pose['x']
+        message.pose.position.y = pose['y']
+        message.pose.orientation.z = math.sin(pose['yaw'] / 2.0)
+        message.pose.orientation.w = math.cos(pose['yaw'] / 2.0)
+        return message
+
+    def _publish_initial_pose(self, pose: dict[str, float]) -> None:
+        message = PoseWithCovarianceStamped()
+        message.header.frame_id = self.navigation_map_frame
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.pose.pose = self._pose_stamped(pose).pose
+        message.pose.covariance[0] = 0.25
+        message.pose.covariance[7] = 0.25
+        message.pose.covariance[35] = 0.0685
+        self.initial_pose_publisher.publish(message)
+
+    @navigation_operation
+    def send_navigation_goal(self, request: dict[str, Any]) -> dict[str, Any]:
+        goal = self._navigation_pose(request.get('goal'), 'goal')
+        with self._lock:
+            process = self._navigation_process
+            if (
+                self._navigation_mode != 'navigation'
+                or process is None
+                or process.poll() is not None
+                or self._navigation_phase != 'running'
+            ):
+                raise RuntimeError('Navigation must be running before sending a goal')
+            if self._navigation_goal_state in {'queued', 'sending', 'active', 'canceling'}:
+                raise RuntimeError('Cancel the active navigation goal first')
+            self._navigation_generation += 1
+            self._navigation_goal = goal
+            self._navigation_goal_state = 'queued'
+            self._navigation_goal_message = 'Goal queued'
+            generation = self._navigation_generation
+        threading.Thread(
+            target=self._send_navigation_goal_worker,
+            args=(goal, generation),
+            name='rover-navigation-goal',
+            daemon=True,
+        ).start()
+        return self.navigation_status_payload()
+
+    def _send_navigation_goal_worker(
+        self,
+        goal: dict[str, float],
+        generation: int,
+    ) -> None:
+        future = None
+        try:
+            with self._lock:
+                if self._navigation_generation != generation:
+                    return
+                self._navigation_goal_state = 'sending'
+                self._navigation_goal_message = 'Sending goal to Nav2'
+            goal_message = NavigateToPose.Goal()
+            goal_message.pose = self._pose_stamped(goal)
+            future = self.navigation_action_client.send_goal_async(goal_message)
+            goal_handle = self._wait_for_future(
+                future,
+                timeout_sec=10.0,
+                label='NavigateToPose goal acceptance',
+            )
+            if goal_handle is None or not goal_handle.accepted:
+                with self._lock:
+                    if self._navigation_generation != generation:
+                        return
+                    self._navigation_goal_state = 'rejected'
+                    self._navigation_goal_message = 'Nav2 rejected the goal'
+                return
+            with self._lock:
+                if self._navigation_generation != generation:
+                    goal_handle.cancel_goal_async()
+                    return
+                self._navigation_goal_handle = goal_handle
+                self._navigation_goal_state = 'active'
+                self._navigation_goal_message = 'Rover is moving to the goal'
+            goal_handle.get_result_async().add_done_callback(
+                lambda future: self._navigation_goal_result(future, generation)
+            )
+        except Exception as exc:
+            if future is not None:
+                def cancel_late_goal(completed):
+                    try:
+                        handle = completed.result()
+                        if handle is not None and handle.accepted:
+                            handle.cancel_goal_async()
+                    except Exception:
+                        pass
+                future.add_done_callback(cancel_late_goal)
+            with self._lock:
+                if self._navigation_generation != generation:
+                    return
+                self._navigation_goal_state = 'error'
+                self._navigation_goal_message = str(exc)
+
+    def _navigation_goal_result(self, future: Any, generation: int) -> None:
+        labels = {
+            4: ('succeeded', 'Goal reached'),
+            5: ('canceled', 'Goal canceled'),
+            6: ('aborted', 'Nav2 aborted the goal'),
+        }
+        try:
+            wrapped_result = future.result()
+            state, message = labels.get(
+                int(wrapped_result.status),
+                ('finished', f'Goal finished with status {wrapped_result.status}'),
+            )
+        except Exception as exc:
+            state, message = 'error', str(exc)
+        with self._lock:
+            if self._navigation_generation != generation:
+                return
+            self._navigation_goal_handle = None
+            self._navigation_goal_state = state
+            self._navigation_goal_message = message
+        self.record_activity('navigation', message, {'goal': self._navigation_goal})
+
+    @navigation_operation
+    def cancel_navigation_goal(self) -> dict[str, Any]:
+        with self._lock:
+            goal_handle = self._navigation_goal_handle
+            if goal_handle is None:
+                if self._navigation_goal_state in {'queued', 'sending'}:
+                    return self.stop_navigation_runtime()
+                raise RuntimeError('There is no active navigation goal')
+            self._navigation_goal_state = 'canceling'
+            self._navigation_goal_message = 'Canceling goal'
+        goal_handle.cancel_goal_async()
+        self.request_stop('navigation', {'reason': 'navigation goal canceled'})
+        return self.navigation_status_payload()
+
+    @navigation_operation
+    def stop_navigation_runtime(self) -> dict[str, Any]:
+        with self._lock:
+            process = self._navigation_process
+            save_process = self._map_save_process
+            mode = self._navigation_mode
+            goal_handle = self._navigation_goal_handle
+            self._navigation_generation += 1
+            if process is not None and process.poll() is None:
+                self._navigation_phase = 'stopping'
+        if goal_handle is not None:
+            try:
+                goal_handle.cancel_goal_async()
+            except Exception:
+                pass
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            threading.Thread(
+                target=self._ensure_navigation_stopped,
+                args=(process,),
+                name='rover-navigation-stop',
+                daemon=True,
+            ).start()
+        if save_process is not None and save_process.poll() is None:
+            try:
+                os.killpg(save_process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+        self.request_stop('navigation', {'reason': f'{mode or "navigation"} stopped'})
+        return self.navigation_status_payload()
+
+    @staticmethod
+    def _ensure_navigation_stopped(process: subprocess.Popen[str]) -> None:
+        try:
+            process.wait(timeout=8.0)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=3.0)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def navigation_status_payload(self) -> dict[str, Any]:
+        prerequisites = self._navigation_prerequisites()
+        map_pose = None
+        try:
+            transform = self.navigation_tf.lookup_transform(
+                self.navigation_map_frame, 'base_link', rclpy.time.Time(),
+            )
+            stamp_age = (self.get_clock().now().nanoseconds
+                         - rclpy.time.Time.from_msg(transform.header.stamp).nanoseconds) / 1e9
+            if abs(stamp_age) < 3.0:
+                q = transform.transform.rotation
+                map_pose = {
+                    'x': transform.transform.translation.x,
+                    'y': transform.transform.translation.y,
+                    'yaw': math.atan2(2 * (q.w*q.z + q.x*q.y), 1 - 2 * (q.y*q.y + q.z*q.z)),
+                    'frame_id': self.navigation_map_frame,
+                }
+        except Exception:
+            pass
+        with self._lock:
+            process = self._navigation_process
+            running = process is not None and process.poll() is None
+            mode = self._navigation_mode
+            phase = self._navigation_phase
+            if running and phase == 'starting' and mode == 'mapping':
+                if self._live_map is not None:
+                    phase = 'running'
+                    self._navigation_phase = phase
+            save_process = self._map_save_process
+            save_running = save_process is not None and save_process.poll() is None
+            return {
+                'running': running,
+                'mode': mode,
+                'phase': phase,
+                'pid': process.pid if running and process is not None else None,
+                'started_at': self._navigation_started_at,
+                'return_code': self._navigation_return_code,
+                'command': list(self._navigation_command),
+                'map': self._navigation_map,
+                'map_frame': self.navigation_map_frame,
+                'initial_pose': dict(self._navigation_initial_pose)
+                if self._navigation_initial_pose else None,
+                'goal': dict(self._navigation_goal) if self._navigation_goal else None,
+                'goal_state': self._navigation_goal_state,
+                'goal_message': self._navigation_goal_message,
+                'planned_path': list(self._planned_path),
+                'planned_path_frame': self._planned_path_frame,
+                'planned_path_age_sec': age_seconds(self._planned_path_at),
+                'live_map': self._live_map if mode == 'mapping' else None,
+                'map_pose': map_pose,
+                'localized_pose': dict(self._localized_pose)
+                if self._localized_pose else None,
+                'localized_pose_age_sec': age_seconds(self._localized_pose_at),
+                'log': list(self._navigation_log)[-120:],
+                'prerequisites': prerequisites,
+                'external': {
+                    'slam': self._node_is_visible('/slam_toolbox') and (not running or mode != 'mapping'),
+                    'navigation': self._node_is_visible('/bt_navigator') and (not running or mode != 'navigation'),
+                },
+                'map_save': {
+                    'running': save_running,
+                    'state': self._map_save_state,
+                    'label': self._map_save_label,
+                    'return_code': self._map_save_return_code,
+                    'log': list(self._map_save_log)[-80:],
+                },
+            }
+
     def _resolve_hackathon_file(self, relative_path: str) -> Path:
         requested = relative_path.strip().replace('\\', '/').lstrip('/')
         if not requested:
@@ -3432,6 +4163,9 @@ class RoverWebGateway(Node):
                     if path == '/api/maps':
                         self._send_json(gateway.maps_payload(), HTTPStatus.OK)
                         return
+                    if path == '/api/mapping/image':
+                        self._send_bytes(gateway.live_map_image(), 'image/png', HTTPStatus.OK)
+                        return
                     if path == '/api/maps/image':
                         map_path = self._required_query(query, 'map')
                         image_bytes, content_type = gateway.map_image(map_path)
@@ -3452,6 +4186,9 @@ class RoverWebGateway(Node):
                         return
                     if path == '/api/motion/status':
                         self._send_json(gateway.motion_status_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/navigation/status':
+                        self._send_json(gateway.navigation_status_payload(), HTTPStatus.OK)
                         return
                     if path == '/api/voice/status':
                         self._send_json(gateway.voice_status_payload(), HTTPStatus.OK)
@@ -3598,6 +4335,7 @@ class RoverWebGateway(Node):
                         self._send_json({'ok': True}, HTTPStatus.OK)
                         return
                     if parsed.path == '/api/stop':
+                        gateway.stop_navigation_runtime()
                         details = (
                             payload.get('details', {})
                             if isinstance(payload.get('details', {}), dict)
@@ -3709,6 +4447,42 @@ class RoverWebGateway(Node):
                     if parsed.path == '/api/motion/stop':
                         self._send_json(
                             {'ok': True, 'motion': gateway.stop_motion()},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/mapping/start':
+                        self._send_json(
+                            {'ok': True, 'navigation': gateway.start_mapping()},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/mapping/save':
+                        self._send_json(
+                            {'ok': True, 'navigation': gateway.save_mapping(payload)},
+                            HTTPStatus.ACCEPTED,
+                        )
+                        return
+                    if parsed.path == '/api/navigation/start':
+                        self._send_json(
+                            {'ok': True, 'navigation': gateway.start_navigation(payload)},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/navigation/goal':
+                        self._send_json(
+                            {'ok': True, 'navigation': gateway.send_navigation_goal(payload)},
+                            HTTPStatus.ACCEPTED,
+                        )
+                        return
+                    if parsed.path == '/api/navigation/cancel':
+                        self._send_json(
+                            {'ok': True, 'navigation': gateway.cancel_navigation_goal()},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/navigation/stop':
+                        self._send_json(
+                            {'ok': True, 'navigation': gateway.stop_navigation_runtime()},
                             HTTPStatus.OK,
                         )
                         return
@@ -3861,6 +4635,10 @@ class RoverWebGateway(Node):
             pass
         try:
             self.stop_voice_processing()
+        except Exception:
+            pass
+        try:
+            self.stop_navigation_runtime()
         except Exception:
             pass
         try:

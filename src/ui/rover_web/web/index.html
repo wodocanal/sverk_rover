@@ -366,12 +366,76 @@ angular.z: 0.00</pre>
           <span id="viz-yaw">Курс: —</span>
           <span id="viz-points">Точек: 0</span>
           <span id="viz-map-info">Карта: —</span>
+          <span id="viz-navigation-state">SLAM / Nav2: выключены</span>
         </div>
-        <article class="panel canvas-panel visualization-panel">
-          <canvas id="odom-canvas" width="1100" height="680"></canvas>
-          <div id="viz-empty" class="canvas-empty">Ожидание данных /odom…</div>
-          <div class="canvas-legend">X вперёд · Y влево · след ограничен 1500 точками</div>
-        </article>
+        <div class="visualization-workspace">
+          <article class="panel canvas-panel visualization-panel">
+            <canvas id="odom-canvas" width="1100" height="680"></canvas>
+            <div id="viz-empty" class="canvas-empty">Ожидание данных /odom…</div>
+            <div class="canvas-legend" id="viz-canvas-hint">X вперёд · Y влево · голубой — ровер · оранжевый — план</div>
+          </article>
+
+          <aside class="visualization-sidebar">
+            <article class="panel navigation-control-card">
+              <div class="panel-heading-row">
+                <h2>Запись карты</h2>
+                <span class="status-pill unknown" id="mapping-state">ВЫКЛ</span>
+              </div>
+              <div class="form-grid compact-grid">
+                <label>Название карты
+                  <input id="mapping-label" type="text" value="map" maxlength="48" pattern="[A-Za-z0-9_-]+">
+                </label>
+                <label class="check-label navigation-checkbox">
+                  <input id="mapping-occupancy-only" type="checkbox"> Только occupancy map
+                </label>
+              </div>
+              <p class="status-note" id="mapping-prerequisites">Проверка входных данных SLAM…</p>
+              <div class="button-row">
+                <button id="mapping-start">Начать запись карты</button>
+                <button class="secondary" id="mapping-save" disabled>Сохранить карту</button>
+                <button class="danger-secondary" id="mapping-stop" disabled>Остановить</button>
+              </div>
+            </article>
+
+            <article class="panel navigation-control-card">
+              <div class="panel-heading-row">
+                <h2>Навигация</h2>
+                <span class="status-pill unknown" id="navigation-state">ВЫКЛ</span>
+              </div>
+              <p class="status-note" id="navigation-prerequisites">Выберите карту, начальную позицию и цель.</p>
+              <h3>Начальная позиция</h3>
+              <div class="navigation-pose-grid">
+                <label>X, м <input id="nav-initial-x" type="number" step="0.01" placeholder="—"></label>
+                <label>Y, м <input id="nav-initial-y" type="number" step="0.01" placeholder="—"></label>
+                <label>Курс, ° <input id="nav-initial-yaw" type="number" step="1" value="0"></label>
+              </div>
+              <div class="button-row compact-actions">
+                <button class="secondary" id="nav-initial-current">Взять текущую</button>
+                <button class="secondary" id="nav-pick-initial">Указать на карте</button>
+              </div>
+              <h3>Цель</h3>
+              <div class="navigation-pose-grid">
+                <label>X, м <input id="nav-goal-x" type="number" step="0.01" placeholder="—"></label>
+                <label>Y, м <input id="nav-goal-y" type="number" step="0.01" placeholder="—"></label>
+                <label>Курс, ° <input id="nav-goal-yaw" type="number" step="1" value="0"></label>
+              </div>
+              <div class="button-row compact-actions">
+                <button class="secondary" id="nav-pick-goal">Указать на карте</button>
+              </div>
+              <div class="button-row navigation-primary-actions">
+                <button id="navigation-start" disabled>Запустить навигацию</button>
+                <button class="secondary" id="navigation-send-goal" disabled>Отправить новую цель</button>
+                <button class="danger-secondary" id="navigation-cancel" disabled>Отменить цель</button>
+                <button class="danger-secondary" id="navigation-stop" disabled>Остановить Nav2</button>
+              </div>
+            </article>
+
+            <article class="panel navigation-log-card">
+              <h2>SLAM / Nav2</h2>
+              <pre class="log-box" id="navigation-log">Процессы не запущены.</pre>
+            </article>
+          </aside>
+        </div>
       </section>
 
       <section class="page" id="page-lidar">

@@ -106,7 +106,8 @@ def find_source_package() -> Path:
 
 def map_paths() -> tuple[Path, Path, Path, Path]:
     source_package = find_source_package()
-    maps_root = source_package / 'maps'
+    configured_root = os.environ.get('ROVER_MAPS_ROOT', '').strip()
+    maps_root = Path(configured_root).expanduser().resolve() if configured_root else source_package / 'maps'
     current = maps_root / 'current'
     archive = maps_root / 'archive'
     return source_package, maps_root, current, archive
@@ -333,7 +334,10 @@ def save_map(label: str, occupancy_only: bool, timeout: float) -> None:
         archived_path = _archive_current(current, archive)
         staging.rename(current)
 
-        synced, sync_message = sync_installed_current(current)
+        if maps_root == _source_package / 'maps':
+            synced, sync_message = sync_installed_current(current)
+        else:
+            synced, sync_message = True, 'external ROVER_MAPS_ROOT; installed maps unchanged'
 
         print('\nКарта успешно сохранена.')
         print(f'Текущая карта: {current / "map.yaml"}')

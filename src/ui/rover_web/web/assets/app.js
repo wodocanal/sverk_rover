@@ -176,6 +176,12 @@ const state = {
     mapImage: null,
     mapImagePath: '',
     mapImageLoading: false,
+    navigation: null,
+    pickMode: null,
+    transform: null,
+    lastMapSaveState: 'idle',
+    syncedRuntime: null,
+    mapImageFailedKey: '',
   },
   apiHealthy: false,
   rosHealthy: false,
@@ -1169,6 +1175,7 @@ async function refreshStatus() {
     appendUniqueTrailPoint(payload.odom);
     renderOverview();
     renderDiagnostics();
+    renderNavigationRuntime(payload.navigation);
     renderVisualization();
     renderMotionStatus(payload.motion);
     updateHealthIndicators();
@@ -3658,6 +3665,11 @@ function currentVisualizationMap() {
   ) || null;
 }
 
+function displayedVisualizationMap() {
+  return state.viz.navigation?.mode === 'mapping'
+    ? state.viz.navigation.live_map : currentVisualizationMap();
+}
+
 function renderVisualizationMapSelector() {
   const select = $('#viz-map-select');
   const visibleToggle = $('#viz-map-visible');
@@ -3696,28 +3708,33 @@ function renderVisualizationMapSelector() {
 
 function loadVisualizationMapImage(map) {
   if (!map || !map.image_url) return;
+  const imageKey = `${map.path}:${map.revision || 0}`;
+  if (state.viz.mapImageFailedKey === imageKey) return;
   if (
     state.viz.mapImage
-    && state.viz.mapImagePath === map.path
+    && state.viz.mapImagePath === imageKey
     && state.viz.mapImage.complete
   ) {
     return;
   }
-  if (state.viz.mapImageLoading && state.viz.mapImagePath === map.path) {
+  if (state.viz.mapImageLoading) {
     return;
   }
 
   state.viz.mapImageLoading = true;
-  state.viz.mapImagePath = map.path;
+  state.viz.mapImagePath = imageKey;
   const image = new Image();
   image.onload = () => {
+    if (state.viz.mapImagePath !== imageKey) return;
     state.viz.mapImage = image;
     state.viz.mapImageLoading = false;
     renderVisualization();
   };
   image.onerror = () => {
+    if (state.viz.mapImagePath !== imageKey) return;
     state.viz.mapImage = null;
     state.viz.mapImageLoading = false;
+    state.viz.mapImageFailedKey = imageKey;
     $('#viz-map-info').textContent = `Карта: не удалось загрузить ${map.name}`;
     renderVisualization();
   };
@@ -3725,6 +3742,7 @@ function loadVisualizationMapImage(map) {
 }
 
 async function refreshVisualizationMaps() {
+  state.viz.mapImageFailedKey = '';
   try {
     const payload = await api('/api/maps');
     state.viz.maps = safeArray(payload.maps);
@@ -3734,6 +3752,7 @@ async function refreshVisualizationMaps() {
     if (state.viz.mapVisible && map) {
       loadVisualizationMapImage(map);
     }
+    renderNavigationRuntime(state.viz.navigation);
     renderVisualization();
     return payload;
   } catch (error) {
@@ -3744,9 +3763,174 @@ async function refreshVisualizationMaps() {
   }
 }
 
-function drawVisualizationMap(ctx, width, height, scale, centerX, centerY) {
+function readNavigationPose(prefix) {
+  const values = ['x', 'y', 'yaw'].map((field) => {
+    const input = $(`#${prefix}-${field}`);
+    const raw = input?.value?.trim() || '';
+    return raw === '' ? Number.NaN : Number(raw);
+  });
+  if (!values.every(Number.isFinite)) return null;
+  return {
+    x: values[0],
+    y: values[1],
+    yaw: values[2] * Math.PI / 180,
+  };
+}
+
+function writeNavigationPose(prefix, pose) {
+  if (!pose) return;
+  $(`#${prefix}-x`).value = Number(pose.x).toFixed(2);
+  $(`#${prefix}-y`).value = Number(pose.y).toFixed(2);
+  $(`#${prefix}-yaw`).value = (Number(pose.yaw || 0) * 180 / Math.PI).toFixed(1);
+  renderNavigationRuntime(state.viz.navigation);
+  renderVisualization();
+}
+
+function setVisualizationPickMode(mode) {
+  state.viz.pickMode = state.viz.pickMode === mode ? null : mode;
+  const active = Boolean(state.viz.pickMode);
+  if (active && currentVisualizationMap()) {
+    state.viz.mapVisible = true;
+    $('#viz-map-visible').checked = true;
+    $('#viz-follow').checked = false;
+    renderVisualization();
+  }
+  $('.visualization-panel').classList.toggle('pick-active', active);
+  $('#nav-pick-initial').classList.toggle('active', state.viz.pickMode === 'initial');
+  $('#nav-pick-goal').classList.toggle('active', state.viz.pickMode === 'goal');
+  $('#viz-canvas-hint').textContent = active
+    ? `Нажмите на карту, чтобы задать ${state.viz.pickMode === 'initial' ? 'начальную позицию' : 'цель'}`
+    : 'X вперёд · Y влево · голубой — ровер · оранжевый — план';
+}
+
+function navigationRuntimeLabel(runtime) {
+  if (!runtime?.running) {
+    return runtime?.phase === 'error' ? 'ошибка запуска' : 'выключены';
+  }
+  if (runtime.mode === 'mapping') {
+    return runtime.phase === 'starting' ? 'SLAM запускается' : 'идёт запись карты';
+  }
+  if (runtime.mode === 'navigation') {
+    return runtime.phase === 'starting' ? 'Nav2 запускается' : 'Nav2 работает';
+  }
+  return runtime.phase || 'работает';
+}
+
+function renderNavigationRuntime(runtime) {
+  state.viz.navigation = runtime || null;
+  const running = Boolean(runtime?.running);
+  const mapping = running && runtime.mode === 'mapping';
+  const navigating = running && runtime.mode === 'navigation';
+  if (navigating && state.viz.syncedRuntime !== runtime.started_at) {
+    state.viz.syncedRuntime = runtime.started_at;
+    state.viz.selectedMap = runtime.map;
+    $('#viz-map-select').value = runtime.map;
+    state.viz.mapVisible = true;
+    $('#viz-map-visible').checked = true;
+    for (const [prefix, pose] of [['nav-initial', runtime.initial_pose], ['nav-goal', runtime.goal]]) {
+      if (!pose) continue;
+      $(`#${prefix}-x`).value = pose.x;
+      $(`#${prefix}-y`).value = pose.y;
+      $(`#${prefix}-yaw`).value = (pose.yaw * 180 / Math.PI).toFixed(1);
+    }
+  }
+  const external = Boolean(runtime?.external?.slam || runtime?.external?.navigation);
+  const prerequisites = runtime?.prerequisites || {};
+  const missingTopics = safeArray(prerequisites.missing_topics);
   const map = currentVisualizationMap();
-  if (!state.viz.mapVisible || !map) {
+  const initialPose = readNavigationPose('nav-initial');
+  const goal = readNavigationPose('nav-goal');
+  const save = runtime?.map_save || {};
+  const goalBusy = ['queued', 'sending', 'active', 'canceling'].includes(runtime?.goal_state);
+
+  const stateLabel = navigationRuntimeLabel(runtime);
+  $('#viz-navigation-state').textContent = `SLAM / Nav2: ${stateLabel}`;
+  setToneClass(
+    $('#mapping-state'),
+    mapping ? 'ok' : (runtime?.phase === 'error' ? 'error' : 'unknown'),
+    mapping ? (save.running ? 'СОХРАНЕНИЕ' : 'ЗАПИСЬ') : 'ВЫКЛ',
+  );
+  setToneClass(
+    $('#navigation-state'),
+    navigating ? (runtime.phase === 'running' ? 'ok' : 'warn') : (runtime?.phase === 'error' ? 'error' : 'unknown'),
+    navigating ? (runtime.phase === 'running' ? 'РАБОТАЕТ' : 'ЗАПУСК') : 'ВЫКЛ',
+  );
+
+  const prerequisiteText = missingTopics.length
+    ? `Не хватает: ${missingTopics.join(', ')}`
+    : 'Лидар, одометрия и TF доступны.';
+  $('#mapping-prerequisites').textContent = external
+    ? 'SLAM или Nav2 уже запущен другим launch-файлом.'
+    : prerequisiteText;
+
+  const navigationDetails = [];
+  navigationDetails.push(map ? `Карта: ${map.name}` : 'Карта не выбрана');
+  navigationDetails.push(initialPose ? 'начальная позиция задана' : 'задайте начальную позицию');
+  navigationDetails.push(goal ? 'цель задана' : 'задайте цель');
+  if (runtime?.goal_message) navigationDetails.push(runtime.goal_message);
+  if (missingTopics.length) navigationDetails.push(`нет ${missingTopics.join(', ')}`);
+  if (external) navigationDetails.push('стек запущен вне веб-интерфейса');
+  $('#navigation-prerequisites').textContent = navigationDetails.join(' · ');
+
+  $('#mapping-start').disabled = running || external || !prerequisites.ready;
+  $('#mapping-save').disabled = !mapping || Boolean(save.running);
+  $('#mapping-stop').disabled = !mapping;
+  $('#mapping-label').disabled = Boolean(save.running);
+  $('#mapping-occupancy-only').disabled = Boolean(save.running);
+
+  const navigationInputsLocked = navigating && runtime.phase !== 'running';
+  $('#viz-map-select').disabled = navigating || !safeArray(state.viz.maps).some((item) => item.valid);
+  $('#navigation-start').disabled = running || external || !prerequisites.ready || !map || !initialPose || !goal;
+  $('#navigation-send-goal').disabled = !navigating || runtime.phase !== 'running' || !goal || goalBusy;
+  $('#navigation-cancel').disabled = !navigating || !goalBusy;
+  $('#navigation-stop').disabled = !navigating;
+  $('#nav-initial-current').disabled = running || !runtime?.map_pose;
+  $('#nav-pick-initial').disabled = running;
+  $('#nav-pick-goal').disabled = navigationInputsLocked;
+  ['nav-initial-x', 'nav-initial-y', 'nav-initial-yaw'].forEach((id) => {
+    $(`#${id}`).disabled = running;
+  });
+
+  const lines = [];
+  if (runtime?.command?.length) lines.push(`$ ${runtime.command.join(' ')}`, '');
+  lines.push(...safeArray(runtime?.log));
+  if (save.log?.length) lines.push('', '[Сохранение карты]', ...save.log);
+  if (!lines.length) lines.push('Процессы не запущены.');
+  $('#navigation-log').textContent = lines.join('\n');
+
+  if (state.viz.lastMapSaveState !== 'saved' && save.state === 'saved') {
+    state.viz.mapImage = null;
+    state.viz.mapImagePath = '';
+    state.viz.mapImageLoading = false;
+    showToast(`Карта «${save.label || 'map'}» сохранена`);
+    refreshVisualizationMaps();
+  }
+  if (state.viz.lastMapSaveState !== 'error' && save.state === 'error') {
+    showToast('Не удалось сохранить карту. Подробности есть в журнале.', 'error');
+  }
+  state.viz.lastMapSaveState = save.state || 'idle';
+}
+
+async function navigationRequest(path, payload, successMessage) {
+  try {
+    const response = await api(path, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+    renderNavigationRuntime(response.navigation);
+    renderVisualization();
+    if (successMessage) showToast(successMessage);
+    return response;
+  } catch (error) {
+    showToast(String(error.message || error), 'error');
+    return null;
+  }
+}
+
+function drawVisualizationMap(ctx, width, height, scale, centerX, centerY) {
+  const map = displayedVisualizationMap();
+  const live = state.viz.navigation?.mode === 'mapping';
+  if ((!state.viz.mapVisible && !live) || !map) {
     $('#viz-map-info').textContent = state.viz.mapVisible
       ? 'Карта: нет выбранной карты'
       : 'Карта: скрыта';
@@ -3754,7 +3938,7 @@ function drawVisualizationMap(ctx, width, height, scale, centerX, centerY) {
   }
 
   loadVisualizationMapImage(map);
-  const image = state.viz.mapImagePath === map.path ? state.viz.mapImage : null;
+  const image = state.viz.mapImage;
   const cellCm = Number(map.resolution || 0) * 100;
   $('#viz-map-info').textContent = image?.complete
     ? `Карта: ${map.name}, клетка ${formatFloat(cellCm, 1)} см`
@@ -3800,9 +3984,11 @@ function renderVisualization() {
   ctx.fillStyle = '#f9fdff';
   ctx.fillRect(0, 0, width, height);
 
-  const pose = state.status?.odom;
+  const runtime = state.viz.navigation;
+  const pose = runtime?.running ? runtime.map_pose : (state.viz.mapVisible ? null : state.status?.odom);
   const trail = state.viz.trail;
-  $('#viz-empty').classList.toggle('hidden', Boolean(pose));
+  const navigationPlan = safeArray(runtime?.planned_path);
+  $('#viz-empty').classList.toggle('hidden', Boolean(pose || displayedVisualizationMap()));
   $('#viz-position').textContent = pose
     ? `Позиция: x=${formatFloat(pose.x, 2)} м, y=${formatFloat(pose.y, 2)} м`
     : 'Позиция: —';
@@ -3818,22 +4004,32 @@ function renderVisualization() {
 
   let centerX = pose?.x ?? 0;
   let centerY = pose?.y ?? 0;
-  if (!follow && trail.length) {
-    const bounds = pathBounds(trail);
+  const map = displayedVisualizationMap();
+  if (map && (!follow || !pose)) {
+    const yaw = map.origin[2] || 0;
+    centerX = map.origin[0] + (map.width_m * Math.cos(yaw) - map.height_m * Math.sin(yaw)) / 2;
+    centerY = map.origin[1] + (map.width_m * Math.sin(yaw) + map.height_m * Math.cos(yaw)) / 2;
+  }
+  const overviewPath = runtime?.mode === 'navigation' && navigationPlan.length
+    ? navigationPlan
+    : trail;
+  if (!follow && overviewPath.length && !map) {
+    const bounds = pathBounds(overviewPath);
     centerX = (bounds.minX + bounds.maxX) / 2;
     centerY = (bounds.minY + bounds.maxY) / 2;
   }
 
+  state.viz.transform = { centerX, centerY, scale, width, height };
+
   drawVisualizationMap(ctx, width, height, scale, centerX, centerY);
   drawGrid(ctx, width, height, scale, centerX, centerY);
-  if (!pose) return;
 
   const toScreen = (point) => ({
     x: width / 2 + (point.x - centerX) * scale,
     y: height / 2 - (point.y - centerY) * scale,
   });
 
-  if (trail.length > 1) {
+  if (trail.length > 1 && !runtime?.running && !state.viz.mapVisible) {
     ctx.strokeStyle = '#16b8f3';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
@@ -3845,7 +4041,42 @@ function renderVisualization() {
     ctx.stroke();
   }
 
-  drawRoverArrow(ctx, toScreen(pose), pose.yaw, '#075f89', 18);
+  const plannedPath = navigationPlan;
+  if (plannedPath.length > 1 && runtime?.running && runtime.planned_path_frame === (runtime.map_frame || 'map')) {
+    ctx.strokeStyle = '#f28b21';
+    ctx.lineWidth = 4;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    plannedPath.forEach((point, index) => {
+      const screen = toScreen(point);
+      if (index === 0) ctx.moveTo(screen.x, screen.y);
+      else ctx.lineTo(screen.x, screen.y);
+    });
+    ctx.stroke();
+  }
+
+  const initialPose = readNavigationPose('nav-initial');
+  const goal = readNavigationPose('nav-goal');
+  if (initialPose) {
+    const screen = toScreen(initialPose);
+    ctx.fillStyle = '#178f59';
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (goal) {
+    const screen = toScreen(goal);
+    ctx.fillStyle = '#c93644';
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    drawRoverArrow(ctx, screen, goal.yaw, '#c93644', 14);
+  }
+
+  if (pose) {
+    drawRoverArrow(ctx, toScreen(pose), pose.yaw, '#075f89', 18);
+  }
 }
 
 async function sendHeartbeat() {
@@ -4135,16 +4366,95 @@ function bindVisualizationPage() {
     localStorage.setItem(STORAGE_KEYS.vizMapSelected, state.viz.selectedMap);
     state.viz.mapImage = null;
     state.viz.mapImagePath = '';
+    state.viz.mapImageLoading = false;
+    state.viz.mapImageFailedKey = '';
     const map = currentVisualizationMap();
     if (state.viz.mapVisible && map) {
       loadVisualizationMapImage(map);
     }
+    renderNavigationRuntime(state.viz.navigation);
     renderVisualization();
   });
   $('#viz-map-refresh').addEventListener('click', refreshVisualizationMaps);
   $('#viz-clear').addEventListener('click', () => {
     state.viz.trail = [];
     renderVisualization();
+  });
+
+  ['nav-initial-x', 'nav-initial-y', 'nav-initial-yaw', 'nav-goal-x', 'nav-goal-y', 'nav-goal-yaw']
+    .forEach((id) => {
+      $(`#${id}`).addEventListener('input', () => {
+        renderNavigationRuntime(state.viz.navigation);
+        renderVisualization();
+      });
+    });
+
+  $('#nav-initial-current').addEventListener('click', () => {
+    const pose = state.viz.navigation?.map_pose;
+    if (!pose) {
+      showToast('Позиция в системе карты пока неизвестна. Укажите её на карте.', 'error');
+      return;
+    }
+    writeNavigationPose('nav-initial', pose);
+  });
+  $('#nav-pick-initial').addEventListener('click', () => setVisualizationPickMode('initial'));
+  $('#nav-pick-goal').addEventListener('click', () => setVisualizationPickMode('goal'));
+  $('#odom-canvas').addEventListener('click', (event) => {
+    if (!state.viz.pickMode || !state.viz.transform) return;
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = event.clientX - rect.left;
+    const canvasY = event.clientY - rect.top;
+    const transform = state.viz.transform;
+    const pose = {
+      x: transform.centerX + (canvasX - transform.width / 2) / transform.scale,
+      y: transform.centerY - (canvasY - transform.height / 2) / transform.scale,
+      yaw: 0,
+    };
+    writeNavigationPose(
+      state.viz.pickMode === 'initial' ? 'nav-initial' : 'nav-goal',
+      pose,
+    );
+    setVisualizationPickMode(null);
+  });
+
+  $('#mapping-start').addEventListener('click', () => {
+    navigationRequest('/api/mapping/start', {}, 'Запись карты запускается');
+  });
+  $('#mapping-save').addEventListener('click', () => {
+    navigationRequest('/api/mapping/save', {
+      label: $('#mapping-label').value.trim() || 'map',
+      occupancy_only: $('#mapping-occupancy-only').checked,
+    }, 'Сохранение карты запущено');
+  });
+  $('#mapping-stop').addEventListener('click', () => {
+    navigationRequest('/api/navigation/stop', {}, 'Запись карты остановлена');
+  });
+  $('#navigation-start').addEventListener('click', () => {
+    const initialPose = readNavigationPose('nav-initial');
+    const goal = readNavigationPose('nav-goal');
+    if (!state.viz.selectedMap || !initialPose || !goal) {
+      showToast('Выберите карту, начальную позицию и цель.', 'error');
+      return;
+    }
+    state.viz.mapVisible = true;
+    $('#viz-map-visible').checked = true;
+    localStorage.setItem(STORAGE_KEYS.vizMapVisible, 'true');
+    navigationRequest('/api/navigation/start', {
+      map: state.viz.selectedMap,
+      initial_pose: initialPose,
+      goal,
+    }, 'Nav2 запускается; цель будет отправлена после готовности');
+  });
+  $('#navigation-send-goal').addEventListener('click', () => {
+    const goal = readNavigationPose('nav-goal');
+    if (goal) navigationRequest('/api/navigation/goal', { goal }, 'Новая цель отправляется');
+  });
+  $('#navigation-cancel').addEventListener('click', () => {
+    navigationRequest('/api/navigation/cancel', {}, 'Отмена цели отправлена');
+  });
+  $('#navigation-stop').addEventListener('click', () => {
+    navigationRequest('/api/navigation/stop', {}, 'Nav2 останавливается');
   });
 }
 
@@ -4503,6 +4813,7 @@ async function initialize() {
   setRosTab(state.rosTab);
   renderNodeDetails();
   renderSettings();
+  renderNavigationRuntime(state.status?.navigation);
   renderVisualization();
   drawLidarVisualization();
   renderLedStripStaticPresets();

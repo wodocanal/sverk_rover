@@ -102,9 +102,11 @@ ros2 launch fleet_text_bridge_ros2 bridge.launch.py
 ```
 
 Do not run a standalone hardware launch alongside bringup if both would own the
-same device. Nav2/SLAM profiles and existing launch entry points are unchanged.
-This change moves configuration ownership; it does not introduce simulation or
-replace the systemd launch topology.
+same device. The `full` profile leaves Nav2 and SLAM disabled so the web UI can
+start exactly one of them on demand from **Movement -> Visualization**. The
+dedicated `navigation` and `mapping` profiles and standalone launch entry points
+remain available for diagnostics; do not run them together with a web-managed
+navigation mode.
 
 ## Updating An Existing Rover
 
