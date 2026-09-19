@@ -2,9 +2,9 @@
 
 В эту папку складываются модели и их manifest-файлы для `rover_vision`.
 
-Поддерживаемый базовый сценарий сейчас:
-- `OpenCV DNN`
-- `ONNX`
+Поддерживаемые варианты:
+- `OpenCV DNN` для TensorFlow SSD
+- `Ultralytics YOLO` checkpoint в формате `.pt`
 - форматы манифестов `yolov5` и `yolov8`
 - задача `detection`
 
@@ -35,14 +35,16 @@ labels_file: coco.names
 Если `labels_file` не указан, интерфейс всё равно заработает, но классы будут
 показаны как `class_0`, `class_1` и так далее.
 
-В рабочем дереве уже добавлен пример реальной tiny-модели:
-- `yolov5n.onnx`
-- `yolov5n.yaml`
-- `coco80.names`
+В рабочем дереве уже добавлены `best.pt` и `best.yaml` — дообученная модель
+ровера. Файл весов имеет SHA-256
+`e609e19448bf5c6f3678012fa7611b8030bd0b8fcc0343ef134a72d9aca47ef9`.
 
-Если на роботе стоит старый `OpenCV DNN`, рекомендуется установить `onnxruntime`,
-тогда `rover_vision` сможет использовать его как более совместимый backend для ONNX:
+`.pt` не выполняется OpenCV напрямую. Для него нужен пакет `ultralytics` в том
+же Python-окружении, из которого запускается `camera_detector_node`. Полный
+список зависимостей лежит в `requirements.txt` пакета `rover_vision`.
+Установка зависит от архитектуры Raspberry Pi и версии PyTorch, поэтому перед
+запуском проверь импорт в окружении ROS: `python3 -c 'from ultralytics import YOLO'`.
 
-```bash
-python3 -m pip install onnxruntime
-```
+Файлы ONNX в этой папке оставлены как материалы для будущего backend-а; текущая
+нода не позволяет выбрать их, чтобы не создавать впечатление, что их вывод
+проверен на ровере.

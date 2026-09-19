@@ -782,6 +782,42 @@ textarea {
   margin-top: 10px;
 }
 
+.vision-detections {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.vision-detections-heading,
+.vision-detection-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: baseline;
+  padding: 9px 11px;
+}
+
+.vision-detections-heading {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.vision-detections-list {
+  color: var(--muted);
+  min-height: 40px;
+}
+
+.vision-detection-row {
+  border-top: 1px solid var(--line);
+  color: var(--text);
+}
+
+.vision-detection-row small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
 .camera-preview-panel {
   align-self: start;
 }

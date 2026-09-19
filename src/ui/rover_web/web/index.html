@@ -180,11 +180,12 @@ ROS State — ноды, топики и сервисы
             <article class="panel camera-settings-panel">
               <div class="panel-heading-row camera-vision-toggle-row">
                 <h2>Обработка нейросетью</h2>
-                <label class="check-label"><input id="camera-vision-enabled" type="checkbox"> Использовать обработку</label>
+                <button id="camera-vision-toggle" type="button">Включить обработку</button>
               </div>
+              <div class="status-note" id="camera-vision-status">Проверяю состояние ноды обработки.</div>
               <div id="camera-vision-body" class="camera-vision-body hidden">
                 <div class="form-grid compact-grid">
-                  <label>Модель (фиксированная)
+                  <label>Модель
                     <select id="camera-vision-model"></select>
                   </label>
                   <label>Input topic<input id="camera-vision-input-topic" value="/image_raw"></label>
@@ -208,7 +209,10 @@ ROS State — ноды, топики и сервисы
                   <button class="secondary" id="camera-vision-open-processed">Показать обработанный поток</button>
                 </div>
               </div>
-              <div class="status-note hidden" id="camera-vision-status">Ожидание параметров обработки.</div>
+              <div class="vision-detections" id="camera-vision-detections">
+                <div class="vision-detections-heading"><strong>Детекции</strong><span id="camera-vision-detections-meta">Нет сообщений</span></div>
+                <div id="camera-vision-detections-list" class="vision-detections-list">Нода ещё не опубликовала результат.</div>
+              </div>
               <pre class="message-box hidden" id="camera-vision-details">—</pre>
             </article>
           </div>

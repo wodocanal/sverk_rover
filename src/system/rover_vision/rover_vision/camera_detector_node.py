@@ -17,7 +17,11 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import String
 
-from rover_vision.model_registry import resolve_models_directory
+from rover_vision.model_registry import (
+    ModelManifest,
+    discover_model_manifests,
+    resolve_models_directory,
+)
 
 
 FIXED_MODEL_ID = 'ssd_mobilenet_v1_coco_2017_11_17'
@@ -117,7 +121,8 @@ class CameraDetectorNode(Node):
         self._detections_publisher = None
         self._timer = None
 
-        self._detector: cv2.dnn_DetectionModel | None = None
+        self._detector: Any = None
+        self._model_manifest: ModelManifest | None = None
         self._labels: list[str] = []
         self._models_directory = resolve_models_directory('models')
         self._last_error = ''
@@ -139,7 +144,7 @@ class CameraDetectorNode(Node):
 
     def _load_parameters(self) -> None:
         self.enabled = bool(self.get_parameter('enabled').value)
-        self.model_name = FIXED_MODEL_ID
+        self.model_name = str(self.get_parameter('model_name').value).strip()
         self.models_directory_text = str(
             self.get_parameter('models_directory').value
         ).strip() or 'models'
@@ -219,7 +224,7 @@ class CameraDetectorNode(Node):
     ) -> SetParametersResult:
         candidate = {
             'enabled': self.enabled,
-            'model_name': FIXED_MODEL_ID,
+            'model_name': self.model_name,
             'models_directory': self.models_directory_text,
             'input_topic': self.input_topic,
             'processed_image_topic': self.processed_image_topic,
@@ -238,16 +243,22 @@ class CameraDetectorNode(Node):
             'jpeg_quality': self.jpeg_quality,
         }
         try:
+            changing_pipeline = any(
+                parameter.name != 'enabled'
+                and parameter.name in candidate
+                and parameter.value != candidate[parameter.name]
+                for parameter in parameters
+            )
+            if self.enabled and changing_pipeline:
+                raise ValueError(
+                    'Stop the vision pipeline before changing its parameters'
+                )
             for parameter in parameters:
                 if parameter.name in candidate:
                     candidate[parameter.name] = parameter.value
 
             self.enabled = bool(candidate['enabled'])
-            if str(candidate['model_name']).strip() != FIXED_MODEL_ID:
-                raise ValueError(
-                    f'Only the fixed model {FIXED_MODEL_ID} is supported right now'
-                )
-            self.model_name = FIXED_MODEL_ID
+            self.model_name = str(candidate['model_name']).strip()
             self.models_directory_text = str(candidate['models_directory']).strip() or 'models'
             self.input_topic = str(candidate['input_topic']).strip()
             self.processed_image_topic = str(candidate['processed_image_topic']).strip()
@@ -303,7 +314,36 @@ class CameraDetectorNode(Node):
         labels_path = self._models_directory / FIXED_MODEL_LABELS
         return str(weights_path), str(config_path), str(labels_path)
 
-    def _load_detector(self) -> tuple[cv2.dnn_DetectionModel, list[str]]:
+    def _selected_manifest(self) -> ModelManifest:
+        manifests = {
+            manifest.identifier: manifest
+            for manifest in discover_model_manifests(self._models_directory)
+        }
+        manifest = manifests.get(self.model_name)
+        if manifest is None:
+            raise RuntimeError(f'Model manifest not found: {self.model_name}')
+        if not manifest.valid:
+            raise RuntimeError(
+                f'Model {manifest.identifier} is invalid: {manifest.error or "unknown error"}'
+            )
+        return manifest
+
+    def _load_detector(self) -> tuple[Any, list[str], ModelManifest]:
+        manifest = self._selected_manifest()
+        if manifest.model_format == 'ultralytics_pt':
+            try:
+                from ultralytics import YOLO
+            except ImportError as exc:
+                raise RuntimeError(
+                    'Ultralytics is required for .pt YOLO models. '
+                    'Install the rover_vision Python dependencies first.'
+                ) from exc
+            return YOLO(str(manifest.model_path)), manifest.labels, manifest
+
+        if manifest.model_format != 'opencv_ssd_tf':
+            raise RuntimeError(
+                f'Model format {manifest.model_format} is not supported by this runtime'
+            )
         weights_path, config_path, labels_path = self._resolve_model_paths()
         missing = [
             path
@@ -321,7 +361,7 @@ class CameraDetectorNode(Node):
         detector.setInputScale(1.0 / 127.5)
         detector.setInputMean((127.5, 127.5, 127.5))
         detector.setInputSwapRB(True)
-        return detector, load_labels_file(labels_path)
+        return detector, load_labels_file(labels_path), manifest
 
     def _log_status(self, level: str, message: str) -> None:
         status = (level, message)
@@ -340,6 +380,7 @@ class CameraDetectorNode(Node):
         with self._config_lock:
             self._destroy_io()
             self._detector = None
+            self._model_manifest = None
             self._labels = []
             self._active = False
             self._last_error = ''
@@ -350,9 +391,9 @@ class CameraDetectorNode(Node):
                 return
 
             try:
-                self._detector, self._labels = self._load_detector()
+                self._detector, self._labels, self._model_manifest = self._load_detector()
             except Exception as exc:
-                self._last_error = f'Could not load model {FIXED_MODEL_DISPLAY_NAME}: {exc}'
+                self._last_error = f'Could not load model {self.model_name}: {exc}'
                 self._log_status('error', self._last_error)
                 return
 
@@ -384,7 +425,7 @@ class CameraDetectorNode(Node):
             self._log_status(
                 'info',
                 'Camera detector enabled: '
-                f'{FIXED_MODEL_DISPLAY_NAME} -> {self.processed_image_topic}, '
+                f'{self._model_manifest.display_name} -> {self.processed_image_topic}, '
                 f'{self.detections_topic} via opencv_dnn',
             )
 
@@ -403,24 +444,8 @@ class CameraDetectorNode(Node):
             self._frames_received += 1
 
     def _should_process_now(self) -> bool:
-        if not self._active or self._detector is None:
-            return False
-        if (
-            self._raw_publisher is not None
-            and self._raw_publisher.get_subscription_count() > 0
-        ):
-            return True
-        if (
-            self._compressed_publisher is not None
-            and self._compressed_publisher.get_subscription_count() > 0
-        ):
-            return True
-        if (
-            self._detections_publisher is not None
-            and self._detections_publisher.get_subscription_count() > 0
-        ):
-            return True
-        return False
+        # A running vision node is an active sensor: do not wait for web clients.
+        return self._active and self._detector is not None
 
     def _process_latest_frame(self) -> None:
         if not self._should_process_now():
@@ -452,6 +477,9 @@ class CameraDetectorNode(Node):
 
     def _run_detection(self, frame: np.ndarray) -> tuple[np.ndarray, list[Detection]]:
         assert self._detector is not None
+
+        if self._model_manifest and self._model_manifest.model_format == 'ultralytics_pt':
+            return self._run_ultralytics_detection(frame)
 
         class_ids, confidences, boxes = self._detector.detect(
             frame,
@@ -487,6 +515,45 @@ class CameraDetectorNode(Node):
 
         annotated = self._annotate_detections(frame, detections)
         return annotated, detections
+
+    def _run_ultralytics_detection(
+        self,
+        frame: np.ndarray,
+    ) -> tuple[np.ndarray, list[Detection]]:
+        results = self._detector.predict(
+            source=frame,
+            conf=float(self.confidence_threshold),
+            iou=float(self.nms_threshold),
+            verbose=False,
+        )
+        if not results:
+            return frame.copy(), []
+        result = results[0]
+        names = getattr(result, 'names', {}) or getattr(self._detector, 'names', {})
+        boxes = getattr(result, 'boxes', None)
+        if boxes is None:
+            return frame.copy(), []
+
+        detections: list[Detection] = []
+        frame_height, frame_width = frame.shape[:2]
+        for xyxy, score, class_id in zip(
+            boxes.xyxy.cpu().tolist(), boxes.conf.cpu().tolist(), boxes.cls.cpu().tolist()
+        ):
+            x1, y1, x2, y2 = [int(round(value)) for value in xyxy]
+            x1 = clamp_int(x1, 0, max(0, frame_width - 1))
+            y1 = clamp_int(y1, 0, max(0, frame_height - 1))
+            x2 = clamp_int(x2, x1 + 1, frame_width)
+            y2 = clamp_int(y2, y1 + 1, frame_height)
+            class_index = int(class_id)
+            label = names.get(class_index, f'class_{class_index}') if isinstance(names, dict) \
+                else names[class_index] if class_index < len(names) else f'class_{class_index}'
+            detections.append(Detection(
+                class_id=class_index,
+                label=str(label),
+                confidence=float(score),
+                x=x1, y=y1, width=x2 - x1, height=y2 - y1,
+            ))
+        return self._annotate_detections(frame, detections), detections
 
     def _label_for_class(self, class_id: int) -> str:
         if 1 <= class_id <= len(self._labels):
@@ -570,8 +637,8 @@ class CameraDetectorNode(Node):
             },
             'frame_id': self.frame_id,
             'model': {
-                'id': FIXED_MODEL_ID,
-                'name': FIXED_MODEL_DISPLAY_NAME,
+                'id': self.model_name,
+                'name': self._model_manifest.display_name if self._model_manifest else self.model_name,
             },
             'image': {
                 'width': width,

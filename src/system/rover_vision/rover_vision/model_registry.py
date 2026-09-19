@@ -12,7 +12,7 @@ except ImportError:
     get_package_share_directory = None
 
 
-SUPPORTED_MODEL_FORMATS = {'yolov5', 'yolov8', 'opencv_ssd_tf'}
+SUPPORTED_MODEL_FORMATS = {'opencv_ssd_tf', 'ultralytics_pt'}
 
 
 @dataclass(slots=True)

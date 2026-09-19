@@ -2313,6 +2313,35 @@ class RoverWebGateway(Node):
             },
         }
 
+    def vision_detections(self) -> dict[str, Any]:
+        parameters = self._vision_parameter_values()
+        topic = normalize_topic_name(str(parameters.get('detections_topic') or '/detections'))
+        watch = self._ensure_topic_watch(topic, 'std_msgs/msg/String')
+        with self._lock:
+            raw_message = watch.raw_message
+            message_count = watch.message_count
+            age_sec = age_seconds(watch.last_updated_monotonic)
+            last_error = watch.last_error
+        payload: dict[str, Any] | None = None
+        parse_error = None
+        if raw_message is not None:
+            try:
+                candidate = json.loads(str(raw_message.data))
+                if isinstance(candidate, dict):
+                    payload = candidate
+                else:
+                    parse_error = 'Detection payload is not a JSON object'
+            except (TypeError, ValueError, AttributeError) as exc:
+                parse_error = f'{type(exc).__name__}: {exc}'
+        return {
+            'ok': True,
+            'topic': topic,
+            'message_count': message_count,
+            'age_sec': age_sec,
+            'last_error': last_error or parse_error,
+            'result': payload,
+        }
+
     def lidar_settings(self) -> dict[str, Any]:
         parameters = self._lidar_parameter_values()
         return {
@@ -2425,6 +2454,14 @@ class RoverWebGateway(Node):
     def update_vision_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError('Vision settings payload must be an object')
+
+        current = self._vision_parameter_values()
+        changing_pipeline = any(
+            name != 'enabled' and name in payload and payload[name] != current.get(name)
+            for name in VISION_RUNTIME_PARAMETER_NAMES
+        )
+        if bool(current.get('enabled')) and changing_pipeline:
+            raise ValueError('Disable vision processing before changing its parameters')
 
         updates: list[Parameter] = []
         for name in VISION_RUNTIME_PARAMETER_NAMES:
@@ -3316,6 +3353,9 @@ class RoverWebGateway(Node):
                         return
                     if path == '/api/vision/settings':
                         self._send_json(gateway.vision_settings(), HTTPStatus.OK)
+                        return
+                    if path == '/api/vision/detections':
+                        self._send_json(gateway.vision_detections(), HTTPStatus.OK)
                         return
                     if path == '/api/lidar/settings':
                         self._send_json(gateway.lidar_settings(), HTTPStatus.OK)
