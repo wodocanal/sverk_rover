@@ -14,7 +14,6 @@ const STORAGE_KEYS = {
   rosTab: 'rover_web.ros_tab',
   movementPage: 'rover_web.movement_page',
   peripheralsPage: 'rover_web.peripherals_page',
-  servicePage: 'rover_web.service_page',
   hackathonFile: 'rover_web.hackathon_file',
   ledStaticPresets: 'rover_web.led_static_presets',
   servoEnabled: 'rover_web.servo_enabled',
@@ -34,8 +33,8 @@ const PAGE_GROUPS = {
   actuators: 'peripherals',
   hackathon: 'hackathon',
   terminal: 'terminal',
-  diagnostics: 'service',
-  settings: 'service',
+  diagnostics: 'diagnostics',
+  settings: 'settings',
 };
 
 const GROUP_DEFAULT_PAGES = {
@@ -45,13 +44,13 @@ const GROUP_DEFAULT_PAGES = {
   peripherals: 'camera',
   hackathon: 'hackathon',
   terminal: 'terminal',
-  service: 'diagnostics',
+  diagnostics: 'diagnostics',
+  settings: 'settings',
 };
 
 const GROUP_PAGE_STORAGE = {
   movement: STORAGE_KEYS.movementPage,
   peripherals: STORAGE_KEYS.peripheralsPage,
-  service: STORAGE_KEYS.servicePage,
 };
 
 const ROUTE_STEP_LABELS = {

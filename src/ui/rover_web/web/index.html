@@ -31,7 +31,8 @@
         <button class="nav-item" data-page="camera" data-nav-group="peripherals">Периферия</button>
         <button class="nav-item" data-page="hackathon" data-nav-group="hackathon">Хакатон</button>
         <button class="nav-item" id="nav-terminal" data-page="terminal" data-nav-group="terminal">Терминал</button>
-        <button class="nav-item" data-page="diagnostics" data-nav-group="service">Сервис</button>
+        <button class="nav-item" data-page="diagnostics" data-nav-group="diagnostics">Диагностика</button>
+        <button class="nav-item" data-page="settings" data-nav-group="settings">Настройки</button>
       </nav>
       <div class="sidebar-footer">
         <div class="connection-row"><span>Web gateway</span><span id="api-dot" class="dot unknown"></span></div>
@@ -57,7 +58,8 @@
 ROS State — ноды, топики и сервисы
 Движение — teleop, маршруты и визуализация
 Периферия — камеры и остальные устройства
-Сервис — диагностика и настройки</pre>
+Диагностика — состояние систем, устройств и журнал действий
+Настройки — конфигурация интерфейса и компонентов</pre>
           </article>
         </div>
       </section>
@@ -650,9 +652,7 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-diagnostics">
-        <div class="section-tabs section-tabs-toolbar" data-tab-group="service">
-          <button class="section-tab active" data-page="diagnostics">Диагностика</button>
-          <button class="section-tab" data-page="settings">Настройки</button>
+        <div class="section-tabs section-tabs-toolbar">
           <div class="section-tabs-actions">
             <button class="secondary" id="diagnostics-refresh">Обновить</button>
           </div>
@@ -706,10 +706,6 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-settings">
-        <div class="section-tabs" data-tab-group="service">
-          <button class="section-tab" data-page="diagnostics">Диагностика</button>
-          <button class="section-tab active" data-page="settings">Настройки</button>
-        </div>
         <div class="two-column">
           <article class="panel"><h2>Идентичность</h2><pre id="identity-json" class="message-box">—</pre></article>
           <article class="panel">
