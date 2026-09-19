@@ -155,6 +155,7 @@ const state = {
   octolinerTimer: null,
   octolinerData: null,
   octolinerSettings: null,
+  driveType: 'mecanum',
   driveKeys: new Set(),
   driveTimer: null,
   route: {
@@ -3033,6 +3034,71 @@ function refreshDriveConfigFromConfig(config) {
   $('#drive-topic-label').textContent = config.command_topic || '/cmd_vel';
 }
 
+function normalizeDriveType(value) {
+  return value === 'differential' ? 'differential' : 'mecanum';
+}
+
+function renderDriveType(payload) {
+  const driveType = normalizeDriveType(
+    typeof payload === 'string' ? payload : payload?.drive_type,
+  );
+  state.driveType = driveType;
+  $('#drive-type-setting').value = driveType;
+  const differential = driveType === 'differential';
+  $$('.strafe-control').forEach((element) => element.classList.toggle('hidden', differential));
+  $('#lateral-speed-control').classList.toggle('hidden', differential);
+  $('#keypad').classList.toggle('differential', differential);
+  if (differential) {
+    state.driveKeys.delete('KeyA');
+    state.driveKeys.delete('KeyD');
+  }
+  syncDriveKeyHighlights();
+  updateDrivePreview(computeDriveCommand());
+  $('#drive-help').textContent = differential
+    ? 'Обычные колёса: Q/E — разворот, W/S — движение вперёд/назад. Боковое движение отключено.'
+    : 'Mecanum: Q/E — разворот, W/S — вперёд/назад, A/D — движение вбок.';
+
+  if (typeof payload === 'object' && payload) {
+    const activeNodes = Object.keys(payload.nodes || {}).length;
+    const syncText = payload.synchronized === false
+      ? ' Внимание: запущенные ноды пока используют разные режимы.'
+      : '';
+    $('#drive-type-status').textContent = differential
+      ? `Обычные колёса. Боковой Twist блокируется. Активных нод: ${activeNodes}.${syncText}`
+      : `Mecanum. Доступно движение по X и Y. Активных нод: ${activeNodes}.${syncText}`;
+  }
+}
+
+async function refreshDriveSettings() {
+  try {
+    const payload = await api('/api/drive/settings');
+    renderDriveType(payload);
+    return payload;
+  } catch (error) {
+    $('#drive-type-status').textContent = String(error.message || error);
+    return null;
+  }
+}
+
+async function applyDriveSettings() {
+  const button = $('#drive-type-apply');
+  button.disabled = true;
+  try {
+    await stopDrive();
+    const payload = await api('/api/drive/settings', {
+      method: 'POST',
+      body: JSON.stringify({ drive_type: $('#drive-type-setting').value }),
+    });
+    renderDriveType(payload);
+    showToast('Тип привода применён и сохранён');
+  } catch (error) {
+    showToast(String(error.message || error), 'error');
+    await refreshDriveSettings();
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function refreshDriveConfig() {
   try {
     const payload = await api('/api/drive');
@@ -3069,8 +3135,9 @@ function computeDriveCommand() {
 
   const forward = state.driveKeys.has('KeyW') ? 1 : 0;
   const backward = state.driveKeys.has('KeyS') ? 1 : 0;
-  const left = state.driveKeys.has('KeyA') ? 1 : 0;
-  const right = state.driveKeys.has('KeyD') ? 1 : 0;
+  const lateralEnabled = state.driveType === 'mecanum';
+  const left = lateralEnabled && state.driveKeys.has('KeyA') ? 1 : 0;
+  const right = lateralEnabled && state.driveKeys.has('KeyD') ? 1 : 0;
   const rotateLeft = state.driveKeys.has('KeyQ') ? 1 : 0;
   const rotateRight = state.driveKeys.has('KeyE') ? 1 : 0;
 
@@ -3942,7 +4009,10 @@ function bindDrivePage() {
       stopDrive();
       return;
     }
-    if (!['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(event.code)) return;
+    const allowedKeys = state.driveType === 'differential'
+      ? ['KeyW', 'KeyS', 'KeyQ', 'KeyE']
+      : ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'];
+    if (!allowedKeys.includes(event.code)) return;
     event.preventDefault();
     state.driveKeys.add(event.code);
     syncDriveKeyHighlights();
@@ -4343,6 +4413,8 @@ function bindDiagnosticsPage() {
 function bindSettingsPage() {
   bindCompactMode();
   bindServoUsage();
+  $('#drive-type-apply').addEventListener('click', applyDriveSettings);
+  $('#drive-type-refresh').addEventListener('click', refreshDriveSettings);
 }
 
 function refreshPeriodicData() {
@@ -4412,6 +4484,7 @@ async function initialize() {
     refreshLedStripSettings(),
     refreshOctolinerSettings(),
     refreshDriveConfig(),
+    refreshDriveSettings(),
     refreshVisualizationMaps(),
     refreshPlanList(),
     refreshHackathonFiles(),

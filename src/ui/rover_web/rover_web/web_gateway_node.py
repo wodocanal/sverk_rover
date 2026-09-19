@@ -32,6 +32,14 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
+from rover_base_driver.drive_types import (
+    DEFAULT_DRIVE_TYPE_FILE,
+    DIFFERENTIAL,
+    MECANUM,
+    normalize_drive_type,
+    read_drive_type,
+    write_drive_type,
+)
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.parameter_client import AsyncParameterClient
@@ -228,6 +236,7 @@ OCTOLINER_RUNTIME_PARAMETER_NAMES = {
     'sensitivity',
     'auto_optimize_on_start',
 }
+DRIVE_PARAMETER_NAMES = ['drive_type']
 
 
 def current_ipv4_addresses() -> list[str]:
@@ -506,6 +515,9 @@ class RoverWebGateway(Node):
             str(share / 'plans'),
         )
         self.declare_parameter('command_topic', '/cmd_vel')
+        self.declare_parameter('base_driver_node_name', '/base_driver_node')
+        self.declare_parameter('wheel_odometry_node_name', '/wheel_odometry_node')
+        self.declare_parameter('drive_type_file', DEFAULT_DRIVE_TYPE_FILE)
         self.declare_parameter('camera_node_name', '/usb_camera_node')
         self.declare_parameter('vision_node_name', '/camera_detector_node')
         self.declare_parameter('lidar_node_name', '/sllidar_node')
@@ -575,6 +587,13 @@ class RoverWebGateway(Node):
             str(self.get_parameter('seed_plans_directory').value)
         ).expanduser()
         self.command_topic = str(self.get_parameter('command_topic').value)
+        self.base_driver_node_name = str(
+            self.get_parameter('base_driver_node_name').value
+        )
+        self.wheel_odometry_node_name = str(
+            self.get_parameter('wheel_odometry_node_name').value
+        )
+        self.drive_type_file = str(self.get_parameter('drive_type_file').value)
         self.camera_node_name = str(
             self.get_parameter('camera_node_name').value
         ).strip() or '/usb_camera_node'
@@ -684,6 +703,10 @@ class RoverWebGateway(Node):
             key: motor_config[key]
             for key in ('encoder_lines', 'reduction_ratio', 'quadrature_factor')
         })
+        self.drive_type = read_drive_type(
+            self.drive_type_file,
+            motor_config.get('drive_type', MECANUM),
+        )
 
         self.started_at = time.time()
         self._lock = threading.RLock()
@@ -2406,6 +2429,111 @@ class RoverWebGateway(Node):
             },
         }
 
+    def _optional_node_parameters(
+        self,
+        node_name: str,
+        names: list[str],
+    ) -> dict[str, Any] | None:
+        client = self._ensure_parameter_client(node_name)
+        if not client.wait_for_services(timeout_sec=0.35):
+            return None
+        response = self._wait_for_future(
+            client.get_parameters(names),
+            timeout_sec=1.5,
+            label=f'{node_name} parameters',
+        )
+        return {
+            name: parameter_value_to_python(value)
+            for name, value in zip(names, response.values)
+        }
+
+    def drive_settings(self) -> dict[str, Any]:
+        persisted = read_drive_type(self.drive_type_file, self.drive_type)
+        nodes: dict[str, dict[str, Any]] = {}
+        for role, node_name in (
+            ('base_driver', self.base_driver_node_name),
+            ('wheel_odometry', self.wheel_odometry_node_name),
+        ):
+            parameters = self._optional_node_parameters(
+                node_name,
+                DRIVE_PARAMETER_NAMES,
+            )
+            if parameters is not None:
+                nodes[role] = {
+                    'node_name': node_name,
+                    'drive_type': normalize_drive_type(parameters['drive_type']),
+                }
+
+        effective = persisted
+        if 'base_driver' in nodes:
+            effective = nodes['base_driver']['drive_type']
+        elif 'wheel_odometry' in nodes:
+            effective = nodes['wheel_odometry']['drive_type']
+        self.drive_type = effective
+        values = {persisted, *(item['drive_type'] for item in nodes.values())}
+        return {
+            'ok': True,
+            'drive_type': effective,
+            'supported_drive_types': [MECANUM, DIFFERENTIAL],
+            'persisted_drive_type': persisted,
+            'drive_type_file': str(Path(self.drive_type_file).expanduser()),
+            'nodes': nodes,
+            'synchronized': len(values) == 1,
+        }
+
+    def _set_node_drive_type(self, node_name: str, drive_type: str) -> bool:
+        client = self._ensure_parameter_client(node_name)
+        if not client.wait_for_services(timeout_sec=0.35):
+            return False
+        response = self._wait_for_future(
+            client.set_parameters([Parameter('drive_type', value=drive_type)]),
+            timeout_sec=2.0,
+            label=f'{node_name} drive type update',
+        )
+        failures = [
+            result.reason.strip() or 'parameter update rejected'
+            for result in response.results
+            if not result.successful
+        ]
+        if failures:
+            raise RuntimeError(f'{node_name}: {"; ".join(failures)}')
+        return True
+
+    def update_drive_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError('Drive settings payload must be an object')
+        drive_type = normalize_drive_type(payload.get('drive_type', ''))
+        previous = self.drive_type
+        self.stop_drive()
+
+        updated_nodes: list[str] = []
+        try:
+            for node_name in (
+                self.base_driver_node_name,
+                self.wheel_odometry_node_name,
+            ):
+                if self._set_node_drive_type(node_name, drive_type):
+                    updated_nodes.append(node_name)
+            write_drive_type(self.drive_type_file, drive_type)
+        except Exception:
+            for node_name in updated_nodes:
+                try:
+                    self._set_node_drive_type(node_name, previous)
+                except Exception:
+                    pass
+            raise
+
+        self.drive_type = drive_type
+        self.record_activity(
+            'drive',
+            'Drive type updated',
+            {
+                'drive_type': drive_type,
+                'updated_nodes': updated_nodes,
+            },
+        )
+        return self.drive_settings()
+
     def update_camera_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError('Camera settings payload must be an object')
@@ -2878,6 +3006,7 @@ class RoverWebGateway(Node):
             timestamp = self._latest_drive_monotonic
         return {
             'ok': True,
+            'drive_type': self.drive_type,
             'command_topic': self.command_topic,
             'timeout_sec': self.drive_command_timeout_sec,
             'defaults': {
@@ -2902,7 +3031,11 @@ class RoverWebGateway(Node):
     def set_drive_command(self, linear_x: float, linear_y: float, angular_z: float) -> dict[str, Any]:
         command = Twist()
         command.linear.x = clamp(float(linear_x), self.max_linear_speed)
-        command.linear.y = clamp(float(linear_y), self.max_lateral_speed)
+        command.linear.y = (
+            0.0
+            if self.drive_type == DIFFERENTIAL
+            else clamp(float(linear_y), self.max_lateral_speed)
+        )
         command.angular.z = clamp(float(angular_z), self.max_angular_speed)
         with self._lock:
             self._latest_drive_command = command
@@ -3419,6 +3552,9 @@ class RoverWebGateway(Node):
                     if path == '/api/drive':
                         self._send_json(gateway.drive_payload(), HTTPStatus.OK)
                         return
+                    if path == '/api/drive/settings':
+                        self._send_json(gateway.drive_settings(), HTTPStatus.OK)
+                        return
                     if path.startswith('/hackathon-files/'):
                         relative_path = unquote(path.removeprefix('/hackathon-files/'))
                         payload, content_type = gateway.hackathon_file(relative_path)
@@ -3504,6 +3640,12 @@ class RoverWebGateway(Node):
                                 float(payload.get('linear_y', 0.0)),
                                 float(payload.get('angular_z', 0.0)),
                             ),
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/drive/settings':
+                        self._send_json(
+                            gateway.update_drive_settings(payload),
                             HTTPStatus.OK,
                         )
                         return

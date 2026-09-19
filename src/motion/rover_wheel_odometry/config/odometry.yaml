@@ -4,6 +4,8 @@ wheel_odometry_node:
     odometry_topic: /wheel/odometry
     odom_frame_id: odom
     base_frame_id: base_link
+    drive_type: mecanum
+    drive_type_file: ~/.config/sverk-rover/drive_type
     max_sample_gap_sec: 0.5
     max_plausible_wheel_speed_mps: 1.5
     pose_covariance_diagonal:

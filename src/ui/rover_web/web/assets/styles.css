@@ -960,6 +960,26 @@ textarea {
   box-shadow: 0 0 20px rgba(22, 184, 243, 0.24) !important;
 }
 
+.keypad.differential button[data-key="KeyS"] {
+  grid-column: 2;
+}
+
+.drive-type-settings {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.drive-type-settings h3 {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.drive-type-settings .inline-form > label {
+  max-width: 320px;
+}
+
 .command-preview {
   margin-top: 18px;
   color: var(--muted);

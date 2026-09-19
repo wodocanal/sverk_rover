@@ -272,6 +272,11 @@ def launch_setup(context):
         'wheel_radius_m': geometry['wheel_radius_m'],
         'wheelbase_m': geometry['wheelbase_m'],
         'track_width_m': geometry['track_width_m'],
+        'drive_type': base_params.get('drive_type', 'mecanum'),
+        'drive_type_file': base_params.get(
+            'drive_type_file',
+            '~/.config/sverk-rover/drive_type',
+        ),
         **encoders,
         'use_sim_time': use_sim_time,
     })

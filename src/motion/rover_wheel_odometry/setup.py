@@ -31,9 +31,10 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ] + data_files_from_tree('config', os.path.join('share', package_name, 'config')),
     install_requires=['setuptools'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='Rover Team', maintainer_email='maintainer@example.com',
-    description='Four-wheel mecanum odometry from accumulated encoder counts.',
+    description='Four-wheel mecanum and differential odometry from accumulated encoder counts.',
     license='Apache-2.0',
     entry_points={'console_scripts': [
         'wheel_odometry_node = rover_wheel_odometry.wheel_odometry_node:main',

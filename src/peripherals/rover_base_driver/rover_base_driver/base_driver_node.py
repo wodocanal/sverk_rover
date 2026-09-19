@@ -6,13 +6,21 @@ from typing import Optional
 
 import rclpy
 from geometry_msgs.msg import Twist
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, Float64MultiArray
 
 from rover_interfaces.msg import WheelCommand, WheelEncoders
 
-from .kinematics import inverse_mecanum, scale_wheels
+from .drive_types import (
+    DEFAULT_DRIVE_TYPE_FILE,
+    DIFFERENTIAL,
+    normalize_drive_type,
+    read_drive_type,
+)
+from .kinematics import inverse_kinematics, scale_wheels
 from .quad_md_protocol import QuadMdProtocol
 
 
@@ -30,6 +38,8 @@ class BaseDriverNode(Node):
         self.declare_parameter('serial_device', '/tmp/rover_devices/motor_controller')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
+        self.declare_parameter('drive_type', 'mecanum')
+        self.declare_parameter('drive_type_file', DEFAULT_DRIVE_TYPE_FILE)
         self.declare_parameter('wheelbase_m', 0.135)
         self.declare_parameter('track_width_m', 0.195)
         self.declare_parameter('wheel_radius_m', 0.03)
@@ -57,6 +67,18 @@ class BaseDriverNode(Node):
         self.declare_parameter('max_jerk_z_radps3', 2.00)
 
         self.device = str(self.get_parameter('serial_device').value)
+        self.drive_type_file = str(self.get_parameter('drive_type_file').value)
+        configured_drive_type = normalize_drive_type(
+            self.get_parameter('drive_type').value
+        )
+        self.drive_type = read_drive_type(
+            self.drive_type_file,
+            configured_drive_type,
+        )
+        if self.drive_type != configured_drive_type:
+            self.set_parameters([
+                Parameter('drive_type', value=self.drive_type),
+            ])
         self.wheelbase = float(self.get_parameter('wheelbase_m').value)
         self.track_width = float(self.get_parameter('track_width_m').value)
         self.wheel_radius = float(self.get_parameter('wheel_radius_m').value)
@@ -130,17 +152,42 @@ class BaseDriverNode(Node):
         )
         self.battery_pub = self.create_publisher(Float32, '/battery_voltage', 10)
 
+        self.add_on_set_parameters_callback(self._parameters_changed)
         self.timer = self.create_timer(1.0 / self.rate, self._loop)
         self.get_logger().info(
-            f'Base driver connected to {self.device}; built-in board speed PID is active'
+            f'Base driver connected to {self.device}; drive_type={self.drive_type}; '
+            'built-in board speed PID is active'
         )
+
+    def _parameters_changed(
+        self,
+        parameters: list[Parameter],
+    ) -> SetParametersResult:
+        requested = self.drive_type
+        try:
+            for parameter in parameters:
+                if parameter.name == 'drive_type':
+                    requested = normalize_drive_type(parameter.value)
+        except ValueError as exc:
+            return SetParametersResult(successful=False, reason=str(exc))
+
+        if requested != self.drive_type:
+            self.target = [0.0, 0.0, 0.0]
+            self.current = [0.0, 0.0, 0.0]
+            self.current_accel = [0.0, 0.0, 0.0]
+            self.protocol.hold_stop()
+            self.released = False
+            self.drive_type = requested
+            self.get_logger().info(f'Drive type changed to {self.drive_type}')
+        return SetParametersResult(successful=True)
 
     def _cmd(self, message: Twist) -> None:
         values = [message.linear.x, message.linear.y, message.angular.z]
         if not all(math.isfinite(v) for v in values):
             self.get_logger().error('Ignored non-finite cmd_vel')
             return
-        self.target = [float(v) for v in values]
+        lateral = 0.0 if self.drive_type == DIFFERENTIAL else float(values[1])
+        self.target = [float(values[0]), lateral, float(values[2])]
         self.last_cmd = time.monotonic()
 
     def _profile_axis(self, i: int, target: float, dt: float) -> None:
@@ -190,7 +237,8 @@ class BaseDriverNode(Node):
             for index in range(3):
                 self._profile_axis(index, self.target[index], dt)
             target_wheels = scale_wheels(
-                inverse_mecanum(
+                inverse_kinematics(
+                    self.drive_type,
                     self.current[0], self.current[1], self.current[2],
                     self.wheelbase, self.track_width,
                 ),

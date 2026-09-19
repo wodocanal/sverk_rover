@@ -246,10 +246,10 @@ ROS State — ноды, топики и сервисы
             <h2>Клавиатура</h2>
             <div class="keypad" id="keypad">
               <button data-key="KeyQ">Q ↺</button><button data-key="KeyW">W ↑</button><button data-key="KeyE">E ↻</button>
-              <button data-key="KeyA">A ←</button><button data-key="KeyS">S ↓</button><button data-key="KeyD">D →</button>
+              <button class="strafe-control" data-key="KeyA">A ←</button><button data-key="KeyS">S ↓</button><button class="strafe-control" data-key="KeyD">D →</button>
             </div>
             <button class="stop-button wide" id="drive-stop">SPACE / STOP</button>
-            <p class="help-text">Команда существует только пока удерживается клавиша или кнопка. Потеря фокуса и скрытие вкладки вызывают нулевой Twist.</p>
+            <p class="help-text" id="drive-help">Команда существует только пока удерживается клавиша или кнопка. Потеря фокуса и скрытие вкладки вызывают нулевой Twist.</p>
           </article>
 
           <article class="panel">
@@ -257,7 +257,7 @@ ROS State — ноды, топики и сервисы
             <label>Скорость X <output id="linear-speed-output">0.18 м/с</output>
               <input id="linear-speed" type="range" min="0.05" max="0.35" value="0.18" step="0.01">
             </label>
-            <label>Скорость Y <output id="lateral-speed-output">0.16 м/с</output>
+            <label id="lateral-speed-control">Скорость Y <output id="lateral-speed-output">0.16 м/с</output>
               <input id="lateral-speed" type="range" min="0.05" max="0.35" value="0.16" step="0.01">
             </label>
             <label>Угловая скорость <output id="angular-speed-output">0.70 рад/с</output>
@@ -729,6 +729,20 @@ angular.z: 0.00</pre>
             <label class="check-label"><input type="checkbox" id="octoliner-enabled"> Показывать Octoliner</label>
             <button class="secondary" id="peripheral-defaults">Вернуть автоматическую видимость</button>
             <p>По умолчанию голос и Octoliner показываются по флагам запуска, а при отдельном запуске веба — по наличию нод в ROS. Ручной выбор сохраняется в этом браузере. Галочки не запускают и не останавливают ноды.</p>
+            <section class="drive-type-settings" aria-labelledby="drive-type-heading">
+              <h3 id="drive-type-heading">Тип привода</h3>
+              <div class="inline-form">
+                <label>Колёса
+                  <select id="drive-type-setting">
+                    <option value="mecanum">Mecanum</option>
+                    <option value="differential">Обычные</option>
+                  </select>
+                </label>
+                <button id="drive-type-apply">Применить</button>
+                <button class="secondary" id="drive-type-refresh">Обновить</button>
+              </div>
+              <div class="status-note" id="drive-type-status">Ожидание текущего режима привода.</div>
+            </section>
           </article>
         </div>
         <div class="two-column overview-bottom">

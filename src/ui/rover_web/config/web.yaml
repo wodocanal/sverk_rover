@@ -3,6 +3,9 @@ web_gateway_node:
     bind_address: 0.0.0.0
     port: 8765
     command_topic: /cmd_vel
+    base_driver_node_name: /base_driver_node
+    wheel_odometry_node_name: /wheel_odometry_node
+    drive_type_file: ~/.config/sverk-rover/drive_type
     camera_node_name: /usb_camera_node
     vision_node_name: /camera_detector_node
     lidar_node_name: /sllidar_node

@@ -14,10 +14,11 @@ setup(
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools', 'pyserial'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='Rover Team',
     maintainer_email='maintainer@example.com',
-    description='Vendor-neutral ROS 2 base driver for the rover motor controller.',
+    description='ROS 2 mecanum and differential base driver for the rover motor controller.',
     license='Apache-2.0',
     entry_points={'console_scripts': [
         'base_driver_node = rover_base_driver.base_driver_node:main',

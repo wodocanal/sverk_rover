@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import math
-from typing import Optional, Sequence
+from typing import Optional
 
 import rclpy
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 
+from rover_base_driver.drive_types import (
+    DEFAULT_DRIVE_TYPE_FILE,
+    normalize_drive_type,
+    read_drive_type,
+)
 from rover_interfaces.msg import WheelEncoders
+
+from .kinematics import forward_kinematics
 
 
 def diagonal36(values: Sequence[float]) -> list[float]:
@@ -28,16 +37,6 @@ def counter_delta(current: int, previous: int) -> int:
     return delta
 
 
-def forward_mecanum(wheels: Sequence[float], wheelbase: float, track: float):
-    fl, fr, rl, rr = (float(v) for v in wheels)
-    k = (wheelbase + track) / 2.0
-    return (
-        (fl + fr + rl + rr) / 4.0,
-        (-fl + fr + rl - rr) / 4.0,
-        (-fl + fr - rl + rr) / (4.0 * k),
-    )
-
-
 class WheelOdometryNode(Node):
     def __init__(self) -> None:
         super().__init__('wheel_odometry_node')
@@ -45,6 +44,8 @@ class WheelOdometryNode(Node):
         self.declare_parameter('odometry_topic', '/wheel/odometry')
         self.declare_parameter('odom_frame_id', 'odom')
         self.declare_parameter('base_frame_id', 'base_link')
+        self.declare_parameter('drive_type', 'mecanum')
+        self.declare_parameter('drive_type_file', DEFAULT_DRIVE_TYPE_FILE)
         self.declare_parameter('wheel_radius_m', 0.03)
         self.declare_parameter('wheelbase_m', 0.135)
         self.declare_parameter('track_width_m', 0.195)
@@ -64,6 +65,19 @@ class WheelOdometryNode(Node):
             'twist_covariance_diagonal',
             [0.02, 0.06, 999.0, 999.0, 999.0, 0.12],
         )
+
+        self.drive_type_file = str(self.get_parameter('drive_type_file').value)
+        configured_drive_type = normalize_drive_type(
+            self.get_parameter('drive_type').value
+        )
+        self.drive_type = read_drive_type(
+            self.drive_type_file,
+            configured_drive_type,
+        )
+        if self.drive_type != configured_drive_type:
+            self.set_parameters([
+                Parameter('drive_type', value=self.drive_type),
+            ])
 
         radius = float(self.get_parameter('wheel_radius_m').value)
         self.wheelbase = float(self.get_parameter('wheelbase_m').value)
@@ -108,9 +122,33 @@ class WheelOdometryNode(Node):
             self._encoder,
             20,
         )
+        self.add_on_set_parameters_callback(self._parameters_changed)
         self.get_logger().info(
-            f'Wheel odometry uses accumulated counts; {self.metres_per_count:.9f} m/count'
+            f'Wheel odometry uses accumulated counts; drive_type={self.drive_type}; '
+            f'{self.metres_per_count:.9f} m/count'
         )
+
+    def _parameters_changed(
+        self,
+        parameters: list[Parameter],
+    ) -> SetParametersResult:
+        requested = self.drive_type
+        try:
+            for parameter in parameters:
+                if parameter.name == 'drive_type':
+                    requested = normalize_drive_type(parameter.value)
+        except ValueError as exc:
+            return SetParametersResult(successful=False, reason=str(exc))
+
+        if requested != self.drive_type:
+            self.drive_type = requested
+            self.previous_counts = None
+            self.previous_stamp_ns = None
+            self.previous_sequence = None
+            self.get_logger().info(
+                f'Drive type changed to {self.drive_type}; encoder baseline reset'
+            )
+        return SetParametersResult(successful=True)
 
     def _encoder(self, message: WheelEncoders) -> None:
         if not message.valid:
@@ -140,7 +178,12 @@ class WheelOdometryNode(Node):
             self.get_logger().warning(f'Rejected implausible encoder jump: {deltas}')
             return
 
-        dx, dy, dyaw = forward_mecanum(wheel_delta, self.wheelbase, self.track)
+        dx, dy, dyaw = forward_kinematics(
+            self.drive_type,
+            wheel_delta,
+            self.wheelbase,
+            self.track,
+        )
         dx *= self.multipliers[0]
         dy *= self.multipliers[1]
         dyaw *= self.multipliers[2]
