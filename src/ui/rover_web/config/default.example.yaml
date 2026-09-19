@@ -16,6 +16,8 @@ web_gateway_node:
     voice_executable: waveshare_audio_node
     voice_config_file: ''
     voice_enabled_on_start: false
+    voice_page_mode: auto
+    octoliner_page_mode: auto
     drive_command_timeout_sec: 0.25
     default_linear_speed_mps: 0.18
     default_lateral_speed_mps: 0.16

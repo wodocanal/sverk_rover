@@ -524,6 +524,8 @@ class RoverWebGateway(Node):
         self.declare_parameter('rosboard_enabled', True)
         self.declare_parameter('rosboard_port', 8888)
         self.declare_parameter('servo_enabled', True)
+        self.declare_parameter('voice_page_mode', 'auto')
+        self.declare_parameter('octoliner_page_mode', 'auto')
         self.declare_parameter('drive_command_timeout_sec', 0.25)
         self.declare_parameter('default_linear_speed_mps', 0.18)
         self.declare_parameter('default_lateral_speed_mps', 0.16)
@@ -1261,6 +1263,12 @@ class RoverWebGateway(Node):
         except (OSError, ValueError, IndexError):
             return None
 
+    def _page_enabled(self, parameter: str, node_name: str) -> bool:
+        mode = str(self.get_parameter(parameter).value).lower()
+        if mode not in {'auto', 'enabled', 'disabled'}:
+            raise ValueError(f'{parameter} must be auto, enabled or disabled')
+        return self._node_is_visible(node_name) if mode == 'auto' else mode == 'enabled'
+
     def public_config_payload(self) -> dict[str, Any]:
         geometry = self.rover_config.get('geometry', {})
         encoders = self.rover_config.get('encoders', {})
@@ -1301,6 +1309,8 @@ class RoverWebGateway(Node):
                 'rosboard_enabled': self.rosboard_enabled,
                 'rosboard_port': self.rosboard_port,
                 'servo_enabled': self.servo_enabled,
+                'audio_enabled': self._page_enabled('voice_page_mode', self.voice_node_name),
+                'octoliner_enabled': self._page_enabled('octoliner_page_mode', self.octoliner_node_name),
             },
             'geometry': geometry,
             'encoders': encoders,

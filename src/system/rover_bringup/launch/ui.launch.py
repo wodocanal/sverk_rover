@@ -10,6 +10,8 @@ from rover_configuration import config_path, package_path
 
 # Translate the old aggregate UI arguments without inventing parameter defaults.
 WEB_ARGUMENTS = {
+    'voice_page_mode': ('voice_page_mode', 'web', 'voice_page_mode'),
+    'octoliner_page_mode': ('octoliner_page_mode', 'web', 'octoliner_page_mode'),
     'web_config_file': ('config_file', 'web', 'config_file'),
     'web_bind_address': ('bind_address', 'web', 'bind_address'),
     'web_port': ('port', 'web', 'port'),

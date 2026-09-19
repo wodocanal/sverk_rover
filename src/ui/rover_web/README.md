@@ -9,6 +9,25 @@ ros2 launch rover_web web.launch.py
 On the rover, `rover-web.service` owns the web UI independently of
 `rover-bringup.service`.
 
+## Peripheral Page Visibility
+
+Settings provides separate checkboxes for servos, voice recognition and Octoliner.
+These control only the UI, not ROS node lifecycle. Manual choices are stored in
+the browser; "Вернуть автоматическую видимость" clears these overrides.
+
+`voice_page_mode` and `octoliner_page_mode` in `config/web.yaml` accept `auto`,
+`enabled` or `disabled`. In `auto` (default), the gateway checks the configured
+`voice_node_name` and `octoliner_node_name` in the ROS graph. This works when
+`rover-web` is a separate service; defaults refresh every 12 seconds and may
+take time to reflect ROS discovery. A stopped/crashed node is considered absent.
+
+When `robot.launch.py` includes the web UI, it passes the resolved
+`waveshare_audio` and `octoliner` component flags from the selected profile,
+including `use_waveshare_audio`/`use_octoliner` launch overrides. These represent
+launch intent, not node health. A separately launched web service cannot infer
+the active hardware profile from its own UI profile, so it uses ROS discovery
+instead. Browser preferences always take priority over automatic defaults.
+
 ## Live Camera
 
 The web camera view requests the latest snapshot from `/api/camera/frame`.

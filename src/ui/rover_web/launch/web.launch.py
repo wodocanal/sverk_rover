@@ -15,6 +15,7 @@ ARGUMENTS = (
     'plans_directory', 'hackathon_files_root', 'terminal_enabled', 'start_terminal',
     'terminal_url', 'terminal_bind_address', 'terminal_port', 'terminal_path',
     'terminal_workspace', 'rosboard_enabled', 'rosboard_port',
+    'voice_page_mode', 'octoliner_page_mode',
 )
 
 

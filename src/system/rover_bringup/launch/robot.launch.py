@@ -445,6 +445,8 @@ def launch_setup(context):
             if use_mux else topics.get('cmd_vel', '/cmd_vel')
         )
         ui_arguments = {
+            'voice_page_mode': 'enabled' if use_waveshare_audio else 'disabled',
+            'octoliner_page_mode': 'enabled' if use_octoliner else 'disabled',
             'config_file': ui_config_file,
             'use_web': as_launch_bool(use_web),
             'use_display': as_launch_bool(use_display),

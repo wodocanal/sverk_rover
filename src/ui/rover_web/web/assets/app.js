@@ -17,6 +17,8 @@ const STORAGE_KEYS = {
   hackathonFile: 'rover_web.hackathon_file',
   ledStaticPresets: 'rover_web.led_static_presets',
   servoEnabled: 'rover_web.servo_enabled',
+  audioEnabled: 'rover_web.audio_enabled',
+  octolinerEnabled: 'rover_web.octoliner_enabled',
 };
 
 const PAGE_GROUPS = {
@@ -177,6 +179,8 @@ const state = {
   apiHealthy: false,
   rosHealthy: false,
   servoEnabled: localStorage.getItem(STORAGE_KEYS.servoEnabled) !== 'false',
+  audioEnabled: localStorage.getItem(STORAGE_KEYS.audioEnabled) === 'true',
+  octolinerEnabled: localStorage.getItem(STORAGE_KEYS.octolinerEnabled) === 'true',
 };
 
 function ensureSessionId() {
@@ -584,32 +588,40 @@ function bindCompactMode() {
   });
 }
 
+const PERIPHERAL_FEATURES = {
+  actuators: { key: 'servoEnabled', toggle: 'servo-enabled', config: 'servo_enabled' },
+  audio: { key: 'audioEnabled', toggle: 'audio-enabled', config: 'audio_enabled' },
+  octoliner: { key: 'octolinerEnabled', toggle: 'octoliner-enabled', config: 'octoliner_enabled' },
+};
+
 function isPageAvailable(page) {
-  return page !== 'actuators' || state.servoEnabled;
+  const feature = PERIPHERAL_FEATURES[page];
+  return !feature || state[feature.key];
 }
 
-function updateServoUsage(enabled, options = {}) {
+function updatePeripheralUsage(page, enabled, options = {}) {
+  const feature = PERIPHERAL_FEATURES[page];
   const { persist = true, redirect = true } = options;
-  state.servoEnabled = Boolean(enabled);
+  state[feature.key] = Boolean(enabled);
   if (persist) {
-    localStorage.setItem(STORAGE_KEYS.servoEnabled, state.servoEnabled ? 'true' : 'false');
+    localStorage.setItem(STORAGE_KEYS[feature.key], enabled ? 'true' : 'false');
   }
 
-  const toggle = $('#servo-enabled');
+  const toggle = $(`#${feature.toggle}`);
   if (toggle) {
-    toggle.checked = state.servoEnabled;
+    toggle.checked = Boolean(enabled);
   }
 
-  $$('.section-tab[data-page="actuators"]').forEach((button) => {
-    button.classList.toggle('hidden', !state.servoEnabled);
-    button.disabled = !state.servoEnabled;
+  $$(`.section-tab[data-page="${page}"]`).forEach((button) => {
+    button.classList.toggle('hidden', !enabled);
+    button.disabled = !enabled;
   });
 
-  if (!state.servoEnabled) {
-    if (localStorage.getItem(STORAGE_KEYS.peripheralsPage) === 'actuators') {
+  if (!enabled) {
+    if (localStorage.getItem(STORAGE_KEYS.peripheralsPage) === page) {
       localStorage.setItem(STORAGE_KEYS.peripheralsPage, 'camera');
     }
-    if (redirect && state.page === 'actuators') {
+    if (redirect && state.page === page) {
       setPage('camera');
     }
   }
@@ -617,22 +629,24 @@ function updateServoUsage(enabled, options = {}) {
 
 function applyFeatureDefaultsFromConfig(config) {
   const webConfig = config?.web || {};
-  const hasStoredServoPreference = localStorage.getItem(STORAGE_KEYS.servoEnabled) !== null;
-  if (
-    !hasStoredServoPreference
-    && Object.prototype.hasOwnProperty.call(webConfig, 'servo_enabled')
-  ) {
-    updateServoUsage(webConfig.servo_enabled !== false, {
-      persist: false,
-      redirect: false,
-    });
-  }
+  Object.entries(PERIPHERAL_FEATURES).forEach(([page, feature]) => {
+    if (localStorage.getItem(STORAGE_KEYS[feature.key]) === null
+      && typeof webConfig[feature.config] === 'boolean') {
+      updatePeripheralUsage(page, webConfig[feature.config], { persist: false });
+    }
+  });
 }
 
 function bindServoUsage() {
-  updateServoUsage(state.servoEnabled, { persist: false, redirect: false });
-  $('#servo-enabled').addEventListener('change', (event) => {
-    updateServoUsage(event.target.checked);
+  Object.entries(PERIPHERAL_FEATURES).forEach(([page, feature]) => {
+    updatePeripheralUsage(page, state[feature.key], { persist: false, redirect: false });
+    $(`#${feature.toggle}`).addEventListener('change', (event) => {
+      updatePeripheralUsage(page, event.target.checked);
+    });
+  });
+  $('#peripheral-defaults').addEventListener('click', () => {
+    Object.values(PERIPHERAL_FEATURES).forEach(feature => localStorage.removeItem(STORAGE_KEYS[feature.key]));
+    refreshIdentityAndConfig();
   });
 }
 
@@ -4440,9 +4454,7 @@ async function initialize() {
   window.setInterval(sendHeartbeat, 5000);
   window.setInterval(refreshPeriodicData, 1500);
   window.setInterval(() => {
-    if (state.page === 'overview' || state.page === 'settings') {
-      refreshIdentityAndConfig();
-    }
+    refreshIdentityAndConfig();
   }, 12000);
   window.addEventListener('resize', () => {
     renderVisualization();
