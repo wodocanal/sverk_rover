@@ -1404,6 +1404,42 @@ textarea {
   margin-bottom: 18px;
 }
 
+.diagnostics-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.diagnostics-panel,
+.diagnostic-summary-grid,
+.diagnostic-details-section {
+  display: grid;
+  gap: 14px;
+}
+
+.diagnostic-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.diagnostic-summary-grid section,
+.diagnostic-details-section {
+  min-width: 0;
+}
+
+.diagnostics-panel h3 {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.diagnostic-details-section {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
 .health-card {
   padding: 16px;
   display: grid;
@@ -1528,6 +1564,11 @@ textarea {
 @media (max-width: 1180px) {
   .diagnostic-health-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .diagnostics-layout,
+  .diagnostic-summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .route-step-fields {

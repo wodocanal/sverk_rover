@@ -682,17 +682,24 @@ angular.z: 0.00</pre>
           <article class="metric-card"><span>RAM</span><strong id="metric-ram">—</strong><small>%</small></article>
           <article class="metric-card"><span>Диск свободен</span><strong id="metric-disk">—</strong><small>ГБ</small></article>
         </div>
-        <div class="two-column">
-          <article class="panel">
-            <h2>Потоки данных</h2>
-            <div id="topic-health" class="status-list"></div>
+        <div class="diagnostics-layout">
+          <article class="panel diagnostics-panel">
+            <h2>Диагностика</h2>
+            <div class="diagnostic-summary-grid">
+              <section>
+                <h3>Потоки данных</h3>
+                <div id="topic-health" class="status-list"></div>
+              </section>
+              <section>
+                <h3>Сводка</h3>
+                <div id="diagnostic-summary" class="status-list"></div>
+              </section>
+            </div>
+            <section class="diagnostic-details-section">
+              <h3>Подробности</h3>
+              <div id="diagnostic-details" class="diagnostic-details"></div>
+            </section>
           </article>
-          <article class="panel">
-            <h2>Последняя диагностика</h2>
-            <div id="diagnostic-summary" class="status-list"></div>
-          </article>
-        </div>
-        <div class="two-column overview-bottom">
           <article class="panel">
             <h2>Система</h2>
             <dl class="detail-list" id="overview-system-details"></dl>
@@ -701,10 +708,10 @@ angular.z: 0.00</pre>
             <h2>Устройства</h2>
             <pre id="overview-devices" class="message-box">—</pre>
           </article>
-        </div>
-        <div class="two-column overview-bottom">
-          <article class="panel"><h2>/diagnostics</h2><div id="diagnostic-details" class="diagnostic-details"></div></article>
-          <article class="panel"><h2>Журнал действий</h2><div id="activity-list" class="activity-list"></div></article>
+          <article class="panel">
+            <h2>Журнал действий</h2>
+            <div id="activity-list" class="activity-list"></div>
+          </article>
         </div>
       </section>
 
