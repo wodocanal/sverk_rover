@@ -426,7 +426,7 @@ class CameraDetectorNode(Node):
                 'info',
                 'Camera detector enabled: '
                 f'{self._model_manifest.display_name} -> {self.processed_image_topic}, '
-                f'{self.detections_topic} via opencv_dnn',
+                f'{self.detections_topic} via {self._model_manifest.model_format}',
             )
 
     def _image_callback(self, message: Image) -> None:

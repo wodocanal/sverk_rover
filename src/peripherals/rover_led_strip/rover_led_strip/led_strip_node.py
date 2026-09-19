@@ -105,7 +105,7 @@ class LedStripNode(Node):
         self.declare_parameter('led_transport', 'auto')
         self.declare_parameter('spi_bus', 1)
         self.declare_parameter('spi_device', 0)
-        self.declare_parameter('led_count', 16)
+        self.declare_parameter('led_count', 42)
         self.declare_parameter('frame_id', 'led_strip')
         self.declare_parameter('state_topic', '/led_strip/state')
         self.declare_parameter('set_state_service', '/led_strip/set_state')

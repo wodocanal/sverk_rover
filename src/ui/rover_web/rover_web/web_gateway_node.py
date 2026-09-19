@@ -55,6 +55,7 @@ IMAGE_TOPIC_TYPES = {
     'sensor_msgs/msg/CompressedImage',
 }
 LASER_SCAN_TYPE = 'sensor_msgs/msg/LaserScan'
+DETECTIONS_TYPE = 'std_msgs/msg/String'
 LED_STRIP_STATE_TYPE = 'rover_interfaces/msg/LedStripState'
 OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading'
 PLAN_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
@@ -924,7 +925,9 @@ class RoverWebGateway(Node):
                 # LaserScan filters commonly offer BEST_EFFORT. A RELIABLE
                 # subscription cannot receive those publishers; sensor QoS can
                 # receive both BEST_EFFORT and RELIABLE scan streams.
-                qos_profile_sensor_data if type_name == LASER_SCAN_TYPE else 10,
+                qos_profile_sensor_data
+                if type_name in {LASER_SCAN_TYPE, DETECTIONS_TYPE}
+                else 10,
             )
             watch = TopicWatch(
                 topic=topic,

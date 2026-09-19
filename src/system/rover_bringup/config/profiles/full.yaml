@@ -22,4 +22,4 @@ components:
   octoliner: false
   waveshare_audio: false
   camera: true
-  vision: false
+  vision: true

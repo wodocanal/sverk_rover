@@ -484,11 +484,11 @@ function currentLedStripCount() {
   if (Number.isFinite(statusCount) && statusCount > 0) {
     return statusCount;
   }
-  return Number($('#led-strip-setting-count')?.value || '16') || 16;
+  return Number($('#led-strip-setting-count')?.value || '42') || 42;
 }
 
 function ensureLedStripPixels(count = currentLedStripCount(), seedColors = null) {
-  const safeCount = Math.max(1, Math.min(1024, Number(count) || 16));
+  const safeCount = Math.max(1, Math.min(1024, Number(count) || 42));
   const current = safeArray(seedColors ?? state.ledStripPixels).map((color) => (
     normalizeHexColor(color, '#000000')
   ));
@@ -1581,6 +1581,9 @@ function setCameraVisionRunning(enabled) {
 function setCameraVisionSettingsForm(payload = {}) {
   const parameters = payload.parameters || {};
   const enabled = Boolean(parameters.enabled ?? false);
+  // The markup starts hidden while the API request is pending. Once the node
+  // answers, keep its settings visible even when processing is active.
+  $('#camera-vision-body').classList.remove('hidden');
   renderCameraVisionModels(safeArray(payload.models), String(parameters.model_name || ''));
   $('#camera-vision-input-topic').value = parameters.input_topic || '/image_raw';
   $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/image_processed';
@@ -2323,7 +2326,7 @@ function setLedStripSettingsForm(parameters = {}) {
   $('#led-strip-setting-transport').value = parameters.led_transport || 'auto';
   $('#led-strip-setting-spi-bus').value = String(parameters.spi_bus ?? 1);
   $('#led-strip-setting-spi-device').value = String(parameters.spi_device ?? 0);
-  $('#led-strip-setting-count').value = String(parameters.led_count ?? 16);
+  $('#led-strip-setting-count').value = String(parameters.led_count ?? 42);
   $('#led-strip-setting-frame-id').value = parameters.frame_id || 'led_strip';
   $('#led-strip-setting-animation-rate').value = String(parameters.animation_rate_hz ?? 30);
   $('#led-strip-setting-publish-rate').value = String(parameters.state_publish_hz ?? 5);
@@ -2351,7 +2354,7 @@ function ledStripSettingsPayloadFromForm() {
     led_transport: $('#led-strip-setting-transport').value.trim().toLowerCase() || 'auto',
     spi_bus: Number($('#led-strip-setting-spi-bus').value || '1'),
     spi_device: Number($('#led-strip-setting-spi-device').value || '0'),
-    led_count: Number($('#led-strip-setting-count').value || '16'),
+    led_count: Number($('#led-strip-setting-count').value || '42'),
     frame_id: $('#led-strip-setting-frame-id').value.trim(),
     animation_rate_hz: Number($('#led-strip-setting-animation-rate').value || '30'),
     state_publish_hz: Number($('#led-strip-setting-publish-rate').value || '5'),

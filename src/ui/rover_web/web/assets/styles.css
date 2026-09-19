@@ -1227,22 +1227,33 @@ textarea {
   min-height: 300px;
 }
 
-.led-strip-layout {
-  align-items: stretch;
+.led-strip-workspace {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.78fr) minmax(0, 1.22fr);
+  gap: 18px;
+  align-items: start;
 }
 
-.led-strip-layout > .panel {
-  min-height: 300px;
+.led-strip-control-panel,
+.led-strip-state-column,
+.led-strip-source-section,
+.led-strip-command-section {
+  display: grid;
+  gap: 14px;
 }
 
-.led-strip-source-panel {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
+.led-strip-command-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
 }
 
-.led-strip-command-panel {
-  margin-top: 18px;
+.led-strip-control-panel h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 #led-strip-canvas {
@@ -1329,7 +1340,7 @@ textarea {
 
 .led-pixel-grid {
   display: grid;
-  grid-template-columns: repeat(8, minmax(72px, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px;
   margin: 14px 0 16px;
 }
@@ -1533,6 +1544,7 @@ textarea {
   .two-column,
   .route-layout,
   .camera-grid,
+  .led-strip-workspace,
   .sensor-layout,
   .ros-detail-layout {
     grid-template-columns: 1fr;
@@ -1597,7 +1609,24 @@ textarea {
   }
 
   .led-pixel-grid {
-    grid-template-columns: repeat(4, minmax(64px, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .led-pixel-cell {
+    gap: 5px;
+    padding: 5px;
+    border-radius: 8px;
+  }
+
+  .led-pixel-index {
+    font-size: 0.65rem;
+  }
+
+  .led-pixel-cell input[type="color"] {
+    min-height: 30px;
+    padding: 2px;
+    border-radius: 6px;
   }
 
   .metrics-grid,
