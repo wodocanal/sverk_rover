@@ -51,6 +51,10 @@
               <button id="overview-open-terminal">Открыть терминал</button>
             </div>
             <div class="status-note" id="overview-rosboard-url">Rosboard: —</div>
+            <section class="overview-identity-section" aria-labelledby="overview-identity-heading">
+              <h3 id="overview-identity-heading">Идентичность</h3>
+              <dl class="detail-list" id="overview-identity-details"></dl>
+            </section>
           </article>
           <article class="panel">
             <h2>Навигация</h2>
@@ -716,8 +720,7 @@ angular.z: 0.00</pre>
       </section>
 
       <section class="page" id="page-settings">
-        <div class="two-column">
-          <article class="panel"><h2>Идентичность</h2><pre id="identity-json" class="message-box">—</pre></article>
+        <div>
           <article class="panel">
             <h2>Конфигурация</h2>
             <label class="check-label"><input type="checkbox" id="compact-mode"> Компактный интерфейс</label>
@@ -726,7 +729,6 @@ angular.z: 0.00</pre>
             <label class="check-label"><input type="checkbox" id="octoliner-enabled"> Показывать Octoliner</label>
             <button class="secondary" id="peripheral-defaults">Вернуть автоматическую видимость</button>
             <p>По умолчанию голос и Octoliner показываются по флагам запуска, а при отдельном запуске веба — по наличию нод в ROS. Ручной выбор сохраняется в этом браузере. Галочки не запускают и не останавливают ноды.</p>
-            <pre id="config-json" class="message-box">—</pre>
           </article>
         </div>
         <div class="two-column overview-bottom">
@@ -767,7 +769,6 @@ angular.z: 0.00</pre>
               <button class="secondary" id="camera-preset-vga">VGA</button>
             </div>
             <div class="status-note" id="camera-settings-status">Ожидание текущих параметров камеры.</div>
-            <pre class="message-box" id="camera-capabilities">—</pre>
           </article>
 
           <article class="panel">
@@ -799,7 +800,6 @@ angular.z: 0.00</pre>
               <button id="lidar-settings-apply">Применить</button>
             </div>
             <div class="status-note" id="lidar-settings-status">Ожидание параметров лидара.</div>
-            <pre class="message-box" id="lidar-settings-details">—</pre>
           </article>
         </div>
         <div class="two-column overview-bottom">
@@ -823,7 +823,6 @@ angular.z: 0.00</pre>
               <button id="led-strip-settings-apply">Применить настройки</button>
             </div>
             <div class="status-note" id="led-strip-settings-status">Ожидание параметров ленты.</div>
-            <pre class="message-box" id="led-strip-settings-details">—</pre>
           </article>
 
           <article class="panel">
@@ -848,7 +847,6 @@ angular.z: 0.00</pre>
               <button class="secondary" id="octoliner-optimize">Калибровать по чёрному</button>
             </div>
             <div class="status-note" id="octoliner-settings-status">Ожидание параметров Octoliner.</div>
-            <pre class="message-box" id="octoliner-settings-details">—</pre>
           </article>
         </div>
       </section>

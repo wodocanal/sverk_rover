@@ -809,6 +809,16 @@ function renderOverview() {
   $('#metric-ram').textContent = Number.isFinite(memoryUsedPercent) ? formatFloat(memoryUsedPercent, 0) : '—';
   $('#metric-disk').textContent = formatGigabytes(system.disk_free_bytes);
 
+  const identity = state.identity || status?.identity || {};
+  renderDetailList($('#overview-identity-details'), [
+    { label: 'Robot ID', value: identity.robot_id || '—' },
+    { label: 'Модель', value: identity.model || '—' },
+    { label: 'Компания', value: identity.company || '—' },
+    { label: 'Hostname', value: identity.runtime_hostname || identity.hostname || system.hostname || '—' },
+    { label: 'IP', value: safeArray(identity.ip_addresses || system.ip_addresses).join(', ') || '—' },
+    { label: 'Версия ПО', value: identity.software_version || '—' },
+  ]);
+
   const topicContainer = $('#topic-health');
   topicContainer.innerHTML = '';
   const topicState = status?.topics || {};
@@ -1047,11 +1057,7 @@ function renderMotionStatus(motion) {
 }
 
 function renderSettings() {
-  if (state.identity) {
-    $('#identity-json').textContent = pretty(state.identity);
-  }
   if (state.config) {
-    $('#config-json').textContent = pretty(state.config);
     $('#drive-topic-label').textContent = state.config.command_topic || '/cmd_vel';
   }
 }
@@ -1493,28 +1499,6 @@ function renderCameraTopics() {
   });
 }
 
-function summarizeCameraCapabilities(capabilities) {
-  if (!capabilities?.available) {
-    return pretty({
-      device: capabilities?.device || state.cameraSettings?.parameters?.device || '/dev/video0',
-      error: capabilities?.error || 'v4l2-ctl недоступен',
-    });
-  }
-
-  const rows = [];
-  safeArray(capabilities.formats).forEach((format) => {
-    rows.push(`${format.pixel_format} · ${format.description}`);
-    safeArray(format.modes).forEach((mode) => {
-      const fpsValues = safeArray(mode.fps);
-      const fpsText = fpsValues.length
-        ? fpsValues.map((value) => Number(value).toFixed(value >= 10 ? 0 : 1)).join(', ')
-        : 'unknown';
-      rows.push(`  ${mode.width}x${mode.height} @ ${fpsText} fps`);
-    });
-  });
-  return rows.length ? rows.join('\n') : 'Форматы не обнаружены.';
-}
-
 function setCameraSettingsForm(parameters = {}) {
   $('#camera-setting-device').value = parameters.device || '/dev/video0';
   $('#camera-setting-frame-id').value = parameters.frame_id || 'camera_optical_frame';
@@ -1902,11 +1886,9 @@ async function refreshCameraSettings() {
     state.cameraSettings = payload;
     state.cameraSettingsLastRefresh = Date.now();
     setCameraSettingsForm(payload.parameters || {});
-    $('#camera-capabilities').textContent = summarizeCameraCapabilities(payload.capabilities);
     $('#camera-settings-status').textContent = `Параметры получены из ${payload.node_name || '/usb_camera_node'}.`;
   } catch (error) {
     $('#camera-settings-status').textContent = String(error.message || error);
-    $('#camera-capabilities').textContent = 'Не удалось получить параметры камеры.';
   }
 }
 
@@ -1936,7 +1918,6 @@ async function applyCameraSettings() {
     });
     state.cameraSettings = payload;
     setCameraSettingsForm(payload.parameters || {});
-    $('#camera-capabilities').textContent = summarizeCameraCapabilities(payload.capabilities);
     $('#camera-settings-status').textContent = 'Параметры камеры применены.';
     showToast('Настройки камеры применены');
     await Promise.all([refreshRosGraph(), refreshCameraSettings()]);
@@ -2251,26 +2232,15 @@ function lidarSettingsPayloadFromForm() {
   };
 }
 
-function summarizeLidarSettings(payload) {
-  return pretty({
-    node_name: payload?.node_name || '/sllidar_node',
-    runtime_parameters: payload?.runtime_parameters || [],
-    parameters: payload?.parameters || {},
-    notes: payload?.notes || {},
-  });
-}
-
 async function refreshLidarSettings() {
   try {
     const payload = await api('/api/lidar/settings');
     state.lidarSettings = payload;
     setLidarSettingsForm(payload.parameters || {});
-    $('#lidar-settings-details').textContent = summarizeLidarSettings(payload);
     $('#lidar-settings-status').textContent = `Параметры получены из ${payload.node_name || '/sllidar_node'}.`;
     return payload;
   } catch (error) {
     $('#lidar-settings-status').textContent = String(error.message || error);
-    $('#lidar-settings-details').textContent = 'Не удалось получить параметры лидара.';
     return null;
   }
 }
@@ -2284,7 +2254,6 @@ async function applyLidarSettings() {
     });
     state.lidarSettings = payload;
     setLidarSettingsForm(payload.parameters || {});
-    $('#lidar-settings-details').textContent = summarizeLidarSettings(payload);
     $('#lidar-settings-status').textContent = 'Параметры лидара применены.';
     showToast('Настройки лидара применены');
     await Promise.all([refreshLidarSettings(), refreshLidarStatus()]);
@@ -2374,17 +2343,6 @@ function ledStripCommandPayloadFromForm(enabledOverride = null) {
   };
 }
 
-function summarizeLedStripSettings(payload) {
-  const parameters = payload?.parameters || {};
-  return pretty({
-    node_name: payload?.node_name || '/led_strip_node',
-    runtime_parameters: payload?.runtime_parameters || [],
-    effects: payload?.effects || [],
-    parameters,
-    notes: payload?.notes || {},
-  });
-}
-
 async function refreshLedStripSettings() {
   try {
     const payload = await api('/api/led_strip/settings');
@@ -2402,12 +2360,10 @@ async function refreshLedStripSettings() {
       );
       renderLedStripPixelGrid();
     }
-    $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload);
     $('#led-strip-settings-status').textContent = `Параметры получены из ${payload.node_name || '/led_strip_node'}.`;
     return payload;
   } catch (error) {
     $('#led-strip-settings-status').textContent = String(error.message || error);
-    $('#led-strip-settings-details').textContent = 'Не удалось получить параметры LED strip.';
     return null;
   }
 }
@@ -2421,7 +2377,6 @@ async function applyLedStripSettings() {
     });
     state.ledStripSettings = payload;
     setLedStripSettingsForm(payload.parameters || {});
-    $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload);
     $('#led-strip-settings-status').textContent = 'Параметры LED strip применены.';
     state.ledStripPixels = ensureLedStripPixels(
       Number(payload?.parameters?.led_count ?? currentLedStripCount()),
@@ -2598,7 +2553,6 @@ async function sendLedStripCommand(enabledOverride = null) {
       state.ledStripSettings = payload.settings;
       setLedStripSettingsForm(payload.settings.parameters || {});
       setLedStripControlForm(payload.settings.parameters || {});
-      $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload.settings);
     }
     state.ledStripControlInitialized = true;
     state.ledStripControlDirty = false;
@@ -2734,7 +2688,6 @@ async function ensureLedStripEnabledForManualFrame() {
     state.ledStripSettings = payload.settings;
     setLedStripSettingsForm(payload.settings.parameters || {});
     setLedStripControlForm(payload.settings.parameters || {});
-    $('#led-strip-settings-details').textContent = summarizeLedStripSettings(payload.settings);
   }
   state.ledStripControlInitialized = true;
   state.ledStripControlDirty = false;
@@ -2832,33 +2785,15 @@ function octolinerSettingsPayloadFromForm() {
   };
 }
 
-function summarizeOctolinerSettings(payload) {
-  const parameters = payload?.parameters || {};
-  const notes = payload?.notes || {};
-  return pretty({
-    node_name: payload?.node_name || '/octoliner_node',
-    runtime_parameters: payload?.runtime_parameters || [],
-    read_only: {
-      i2c_address: parameters.i2c_address,
-      i2c_bus: parameters.i2c_bus,
-      set_sensitivity_service: parameters.set_sensitivity_service,
-      optimize_on_black_service: parameters.optimize_on_black_service,
-    },
-    notes,
-  });
-}
-
 async function refreshOctolinerSettings() {
   try {
     const payload = await api('/api/octoliner/settings');
     state.octolinerSettings = payload;
     setOctolinerSettingsForm(payload.parameters || {});
-    $('#octoliner-settings-details').textContent = summarizeOctolinerSettings(payload);
     $('#octoliner-settings-status').textContent = `Параметры получены из ${payload.node_name || '/octoliner_node'}.`;
     return payload;
   } catch (error) {
     $('#octoliner-settings-status').textContent = String(error.message || error);
-    $('#octoliner-settings-details').textContent = 'Не удалось получить параметры Octoliner.';
     return null;
   }
 }
@@ -2872,7 +2807,6 @@ async function applyOctolinerSettings() {
     });
     state.octolinerSettings = payload;
     setOctolinerSettingsForm(payload.parameters || {});
-    $('#octoliner-settings-details').textContent = summarizeOctolinerSettings(payload);
     $('#octoliner-settings-status').textContent = 'Параметры Octoliner применены.';
     showToast('Настройки Octoliner применены');
     await Promise.all([refreshOctolinerSettings(), refreshOctolinerStatus()]);
@@ -2892,7 +2826,6 @@ async function optimizeOctoliner() {
     if (payload.settings) {
       state.octolinerSettings = payload.settings;
       setOctolinerSettingsForm(payload.settings.parameters || {});
-      $('#octoliner-settings-details').textContent = summarizeOctolinerSettings(payload.settings);
     }
     $('#octoliner-settings-status').textContent = payload.response?.message || 'Калибровка завершена.';
     showToast('Octoliner откалиброван');
