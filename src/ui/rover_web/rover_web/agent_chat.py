@@ -18,6 +18,9 @@ class AgentChatMixin:
         self.declare_parameter('fleet_connection_topic', '/fleet/connection')
         self.fleet_connection_topic = str(self.get_parameter('fleet_connection_topic').value)
         self.create_subscription(String, self.fleet_connection_topic, self._fleet_connection_received, 10)
+        self.declare_parameter('fleet_received_command_topic', '/fleet/received_command')
+        self.fleet_received_command_topic = str(self.get_parameter('fleet_received_command_topic').value)
+        self.create_subscription(String, self.fleet_received_command_topic, self._server_command_received, 10)
         self._agent_topics = {}
         for key, default in (
             ('input', '/agent/text_command'),
@@ -31,6 +34,37 @@ class AgentChatMixin:
                                  lambda msg: self._agent_receive(msg, answer=True), 10)
         self.create_subscription(String, self._agent_topics['status'],
                                  lambda msg: self._agent_receive(msg, answer=False), 10)
+
+    def _server_command_received(self, message):
+        try:
+            payload = json.loads(message.data)
+        except (ValueError, TypeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        if any(not isinstance(payload.get(key), str) or not payload[key].strip()
+               for key in ('message_id', 'robot_id', 'text')):
+            return
+        message_id = payload['message_id']
+        if len(message_id) > 128 or payload.get('status') not in ('queued', 'sent'):
+            return
+        with self._agent_lock:
+            entry = next((item for item in self._agent_messages if item['message_id'] == message_id), None)
+            if entry is not None and entry.get('source') == 'web':
+                return
+            if entry is None:
+                entry = {'message_id': message_id, 'created_at': time.time(), 'answer': None,
+                         'status': 'queued', 'status_text': 'Получено от сервера; ожидает передачи агенту.'}
+                self._agent_messages.append(entry)
+            before = dict(entry)
+            entry.update(text=payload['text'][:16000], robot_id=payload['robot_id'][:128], source='server')
+            # DDS can deliver an answer before the receipt from a different topic.
+            # Late receipt/dispatch notifications must not undo agent progress.
+            if entry.get('status') == 'queued' and payload['status'] == 'sent' and entry['answer'] is None:
+                entry.update(status='sent', status_text='Передано агенту; ожидаем подтверждения.')
+            self._agent_messages = self._agent_messages[-100:]
+            if entry != before:
+                self._agent_revision += 1
 
     def _agent_receive(self, message, *, answer):
         raw = message.data[:16000]
@@ -48,7 +82,7 @@ class AgentChatMixin:
                           if message_id and item['message_id'] == message_id), None)
             if entry is None:
                 entry = {'message_id': message_id or str(uuid.uuid4()), 'text': None,
-                         'created_at': time.time(), 'answer': None}
+                         'created_at': time.time(), 'answer': None, 'source': 'external'}
                 self._agent_messages.append(entry)
             # Late status events must not overwrite a final answer.
             if answer or entry['answer'] is None:
@@ -66,6 +100,7 @@ class AgentChatMixin:
                 'instance_id': self._agent_instance,
                 'revision': self._agent_revision,
                 'topics': dict(self._agent_topics),
+                'server_input_topic': self.fleet_received_command_topic,
                 'input_subscribers': self.count_subscribers(self._agent_topics['input']),
                 'answer_publishers': self.count_publishers(self._agent_topics['answer']),
                 'messages': [dict(item) for item in self._agent_messages],
@@ -142,6 +177,7 @@ class AgentChatMixin:
                 'message_id': message_id, 'text': text, 'answer': None,
                 'status': 'sent', 'status_text': 'Опубликовано в ROS; ожидаем подтверждения агента.',
                 'created_at': time.time(), 'robot_id': '',
+                'source': 'web',
             })
             self._agent_messages = self._agent_messages[-100:]
             self._agent_revision += 1

@@ -1946,6 +1946,7 @@ textarea {
 #server-settings-file { overflow-wrap: anywhere; }
 .agent-server-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; margin: 16px 0; background: var(--surface-2); min-width: 0; overflow-wrap: anywhere; }
 .agent-server-card h3 { margin: 0; }
+.agent-bubble.agent-server { background: var(--surface-2); border-left: 3px solid var(--accent); }
 @media (max-width: 600px) {
   .agent-server-card .detail-list { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .agent-server-card .detail-list dd { margin-bottom: 8px; }

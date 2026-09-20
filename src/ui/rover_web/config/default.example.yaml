@@ -13,6 +13,7 @@ web_gateway_node:
     agent_answer_topic: /agent/answer
     agent_status_topic: /agent/status
     fleet_connection_topic: /fleet/connection
+    fleet_received_command_topic: /fleet/received_command
     fleet_settings_file: ~/.config/sverk-rover/fleet_connection.json
     fleet_bridge_node_name: /fleet_text_bridge
     lidar_node_name: /sllidar_node

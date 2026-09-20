@@ -94,6 +94,39 @@ def test_server_status_expiry_missing_bridge_and_sanitization():
     assert not chat.fleet_connection_state()['ready']
 
 
+def test_server_commands_merge_with_reordered_answers_and_keep_web_source():
+    chat = bare_chat()
+    command = {'message_id':str(uuid.uuid4()), 'robot_id':'test-rover',
+               'text':'Сообщи статус', 'status':'queued'}
+    receipt = lambda value: chat._server_command_received(String(data=json.dumps(value)))
+    receipt(command)
+    revision = chat._agent_revision
+    receipt(command)
+    assert chat._agent_revision == revision
+    assert len(chat._agent_messages) == 1
+    assert chat._agent_messages[0]['source'] == 'server'
+    receipt({**command, 'status':'sent'})
+    chat._agent_receive(String(data=json.dumps({**command,'status':'running','text':'Думаю'})), answer=False)
+    receipt(command)
+    assert chat._agent_messages[0]['status'] == 'running'
+    chat._agent_receive(String(data=json.dumps({**command,'status':'completed','text':'Готов'})), answer=True)
+    receipt(command)
+    assert chat._agent_messages[0]['answer'] == 'Готов'
+    assert chat._agent_messages[0]['text'] == command['text']
+    late = {**command,'message_id':str(uuid.uuid4())}
+    chat._agent_receive(String(data=json.dumps({**late,'status':'completed','text':'Ответ раньше запроса'})), answer=True)
+    receipt(late)
+    assert chat._agent_messages[-1]['status'] == 'completed'
+    assert chat._agent_messages[-1]['source'] == 'server'
+    local = {'message_id':str(uuid.uuid4()),'text':'Локальный запрос'}
+    chat.agent_chat_send(local)
+    receipt({**command, **local})
+    assert chat._agent_messages[-1]['source'] == 'web'
+    for payload in ['not json', '[]', '{}', json.dumps({**command,'text':None})]:
+        chat._server_command_received(String(data=payload))
+    assert len(chat._agent_messages) == 3
+
+
 def test_http_ros_agent_round_trip(tmp_path):
     """Use a fake ROS agent, no LLM, MCP, robot commands or external network."""
     topic = '/test_agent_' + uuid.uuid4().hex

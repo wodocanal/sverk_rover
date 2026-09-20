@@ -7,6 +7,8 @@ from urllib.request import Request, urlopen
 
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
+from std_msgs.msg import String
 
 from fleet_text_bridge_ros2.bridge_node import FleetTextBridge
 from rover_web.web_gateway_node import RoverWebGateway
@@ -40,6 +42,7 @@ class MQTTHandler(socketserver.BaseRequestHandler):
                 body = read(size)
                 kind = header >> 4
                 if kind == 1:
+                    self.server.client_socket = self.request
                     self.server.connects.append(body)
                     self.request.sendall(b'\x20\x02\x00\x00')
                 elif kind == 8:
@@ -136,3 +139,80 @@ def test_web_save_reconnect_busy_guard_and_restart(tmp_path):
         for broker in brokers:
             broker.shutdown()
             broker.server_close()
+
+
+def test_mqtt_received_commands_visible_while_queued_and_correlated_with_answers(tmp_path):
+    broker = Broker(('127.0.0.1', 0), MQTTHandler)
+    broker.connects, broker.messages = [], []
+    threading.Thread(target=broker.serve_forever, daemon=True).start()
+    rclpy.init(args=['--ros-args', '-p', 'port:=0', '-p', 'mqtt_host:=127.0.0.1',
+        '-p', f'mqtt_port:={broker.server_address[1]}', '-p', 'mqtt_username:=""',
+        '-p', 'robot_id:=connection-test', '-p', f'connection_settings_file:={tmp_path}/mqtt.json',
+        '-p', f'hackathon_files_root:={tmp_path}/files', '-p', f'plans_directory:={tmp_path}/plans'])
+    executor = SingleThreadedExecutor()
+    bridge = gateway = agent = worker = None
+    try:
+        gateway, bridge, agent = RoverWebGateway(), FleetTextBridge(), Node('test_receiving_agent')
+        commands = []
+        agent.create_subscription(String, '/agent/text_command', lambda msg: commands.append(json.loads(msg.data)), 10)
+        answers = agent.create_publisher(String, '/agent/answer', 10)
+        for node in (gateway, bridge, agent):
+            executor.add_node(node)
+        worker = threading.Thread(target=executor.spin, daemon=True)
+        worker.start()
+        url = f'http://127.0.0.1:{gateway._http_server.server_port}/api/agent'
+
+        def get():
+            with urlopen(url, timeout=5) as response:
+                return json.load(response)
+
+        def wait_for(predicate):
+            deadline = time.monotonic()+8
+            while time.monotonic() < deadline:
+                if predicate():
+                    return
+                time.sleep(.1)
+            raise AssertionError('Timed out waiting for server message')
+
+        def send(command):
+            topic = bridge.command_mqtt_topic.encode()
+            body = len(topic).to_bytes(2, 'big') + topic + json.dumps(command, ensure_ascii=False).encode()
+            size, encoded = len(body), bytearray()
+            while True:
+                byte, size = size % 128, size // 128
+                encoded.append(byte | (128 if size else 0))
+                if not size:
+                    break
+            broker.client_socket.sendall(b'\x30' + bytes(encoded) + body)
+
+        wait_for(lambda: get()['server_connection']['ready'] and get()['input_subscribers'] == 1)
+        first = {'message_id':'1dfdcaf6-ff60-4bb1-b874-d399fb4a5ae7',
+                 'robot_id':'connection-test', 'text':'Сообщи статус <script>test</script>'}
+        second = {**first,'message_id':'1dfdcaf6-ff60-4bb1-b874-d399fb4a5ae8','text':'Второе сообщение'}
+        send(first)
+        wait_for(lambda: len(commands) == 1 and len(get()['messages']) == 1)
+        send(second)
+        send(second)
+        send({**second,'robot_id':'different-robot','message_id':'wrong-robot'})
+        wait_for(lambda: len(get()['messages']) == 2)
+        messages = get()['messages']
+        assert messages[0]['source'] == messages[1]['source'] == 'server'
+        assert messages[0]['text'] == first['text']
+        assert messages[1]['status'] == 'queued'
+        assert len(commands) == 1
+        answers.publish(String(data=json.dumps({**first,'status':'completed','text':'Первый ответ'})))
+        wait_for(lambda: len(commands) == 2 and get()['messages'][0]['answer'] == 'Первый ответ')
+        answers.publish(String(data=json.dumps({**second,'status':'completed','text':'Второй ответ'})))
+        wait_for(lambda: get()['messages'][1]['answer'] == 'Второй ответ')
+        assert len(get()['messages']) == 2
+        assert get()['input_subscribers'] == 1  # The web observer must not look like an agent.
+    finally:
+        executor.shutdown(timeout_sec=3)
+        if worker:
+            worker.join(timeout=3)
+        for node in (bridge, gateway, agent):
+            if node:
+                node.destroy_node()
+        rclpy.shutdown()
+        broker.shutdown()
+        broker.server_close()

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   let snapshot = null, polling = false, sending = false, rendered = '', attempt = null;
-  const labels = { sent: 'Отправлено', running: 'Выполняется', completed: 'Ответ получен', error: 'Ошибка' };
+  const labels = { queued: 'В очереди', sent: 'Отправлено', running: 'Выполняется', completed: 'Ответ получен', error: 'Ошибка' };
   function messageId() {
     // getRandomValues also works over HTTP on the rover's LAN address.
     const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -29,6 +29,10 @@
       const term = document.createElement('dt'), value = document.createElement('dd');
       term.textContent = label; value.textContent = data.topics[key]; topics.append(term, value);
     }
+    if (data.server_input_topic) {
+      const term = document.createElement('dt'), value = document.createElement('dd');
+      term.textContent = 'С сервера'; value.textContent = data.server_input_topic; topics.append(term, value);
+    }
     const version = `${data.instance_id}:${data.revision}`;
     if (version !== rendered) {
       const log = $('#agent-messages');
@@ -45,7 +49,8 @@
           heading.textContent = role; content.textContent = text;
           block.append(heading, content); thread.append(block);
         };
-        if (item.text !== null) bubble('Вы', item.text, 'agent-user');
+        if (item.text !== null) bubble(item.source === 'server' ? 'С сервера' : 'Вы', item.text,
+          item.source === 'server' ? 'agent-server' : 'agent-user');
         if (item.answer !== null) bubble(item.robot_id ? `Агент · ${item.robot_id}` : 'Агент', item.answer, 'agent-answer');
         const status = document.createElement('p');
         status.className = `status-note${item.status === 'error' ? ' maintenance-error' : ''}`;

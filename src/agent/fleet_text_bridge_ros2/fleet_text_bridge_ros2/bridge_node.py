@@ -43,6 +43,7 @@ class FleetTextBridge(ConnectionSettingsMixin, ConnectionMonitorMixin, Node):
         self.declare_parameter("command_topic", os.getenv("AGENT_TEXT_COMMAND_TOPIC", "/agent/text_command"))
         self.declare_parameter("answer_topic", os.getenv("AGENT_ANSWER_TOPIC", "/agent/answer"))
         self.declare_parameter("status_topic", os.getenv("AGENT_STATUS_TOPIC", "/agent/status"))
+        self.declare_parameter('received_command_topic', '/fleet/received_command')
         self.declare_parameter("duplicate_cache_size", int(os.getenv("FLEET_DUPLICATE_CACHE_SIZE", "100")))
         self.declare_parameter("agent_command_timeout_sec", float(os.getenv("FLEET_AGENT_COMMAND_TIMEOUT_SEC", "300")))
 
@@ -69,6 +70,8 @@ class FleetTextBridge(ConnectionSettingsMixin, ConnectionMonitorMixin, Node):
             str(self.get_parameter("command_topic").value),
             10,
         )
+        self._received_command_pub = self.create_publisher(
+            String, str(self.get_parameter('received_command_topic').value), 10)
         self.create_subscription(
             String,
             str(self.get_parameter("answer_topic").value),
@@ -167,6 +170,7 @@ class FleetTextBridge(ConnectionSettingsMixin, ConnectionMonitorMixin, Node):
                 self.get_logger().warning(f"Duplicate ignored: {data['message_id']}")
                 return
             self._incoming.put(data)
+            self._publish_command_event(data, 'queued')
         except Exception as exc:
             self.get_logger().error(f"Invalid MQTT command: {exc}")
 
@@ -185,10 +189,17 @@ class FleetTextBridge(ConnectionSettingsMixin, ConnectionMonitorMixin, Node):
         message = String()
         message.data = json.dumps(self._active_command, ensure_ascii=False)
         self._command_pub.publish(message)
+        self._publish_command_event(self._active_command, 'sent')
         self.get_logger().info(
             f"Published command {self._active_command['message_id']} to ROS agent; "
             f"queued={len(self._pending)}"
         )
+
+    def _publish_command_event(self, command, status):
+        # Observe accepted commands without adding a subscriber to the agent input.
+        event = {key: command[key] for key in ('message_id', 'robot_id', 'text')}
+        event['status'] = status
+        self._received_command_pub.publish(String(data=json.dumps(event, ensure_ascii=False)))
 
     def _active_message_id(self) -> str | None:
         if not self._active_command:
