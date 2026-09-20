@@ -262,7 +262,11 @@ ROS State — ноды, топики и сервисы
                   <label class="check-label"><input id="camera-vision-publish-detections" type="checkbox" checked> Публиковать detections</label>
                   <label class="check-label"><input id="camera-vision-annotate-labels" type="checkbox" checked> Подписи классов</label>
                   <label class="check-label"><input id="camera-vision-annotate-confidence" type="checkbox" checked> Confidence</label>
+                  <label class="check-label"><input id="camera-vision-detect-aruco" type="checkbox"> Распознавать ArUco (OpenCV)</label>
+                  <label class="check-label"><input id="camera-vision-detect-qr" type="checkbox"> Распознавать QR (OpenCV)</label>
                 </div>
+                <label>Словарь ArUco<select id="camera-vision-aruco-dictionary"><option value="DICT_4X4_50">DICT_4X4_50</option></select></label>
+                <p class="status-note">Словарь должен совпадать с напечатанными маркерами. ID ArUco и содержимое QR появятся в детекциях, рамки — в обработанном потоке. Чтобы изменить параметры, выключите обработку.</p>
                 <div class="button-row">
                   <button class="secondary" id="camera-vision-refresh">Обновить</button>
                   <button id="camera-vision-apply">Применить</button>

@@ -883,6 +883,8 @@ textarea {
 .vision-detection-row small {
   grid-column: 1 / -1;
   color: var(--muted);
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .camera-preview-panel {

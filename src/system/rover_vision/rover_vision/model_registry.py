@@ -225,7 +225,7 @@ def discover_model_manifests(directory: str | Path) -> list[ModelManifest]:
         return []
     manifests: list[ModelManifest] = []
     for path in sorted(root.iterdir()):
-        if path.suffix.lower() not in {'.yaml', '.yml'}:
+        if path.suffix.lower() not in {'.yaml', '.yml'} or not path.is_file():
             continue
         manifests.append(load_model_manifest(path))
     return manifests

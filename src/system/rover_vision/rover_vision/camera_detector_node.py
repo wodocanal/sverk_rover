@@ -16,6 +16,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import String
+from rover_vision.markers import ARUCO_DICTIONARIES, MarkerDetector
 
 from rover_vision.model_registry import (
     ModelManifest,
@@ -92,7 +93,10 @@ class CameraDetectorNode(Node):
         super().__init__('camera_detector_node')
 
         self.declare_parameter('enabled', False)
-        self.declare_parameter('model_name', FIXED_MODEL_ID)
+        self.declare_parameter('model_name', 'yolo11n')
+        self.declare_parameter('detect_aruco', False)
+        self.declare_parameter('detect_qr', False)
+        self.declare_parameter('aruco_dictionary', 'DICT_4X4_50')
         self.declare_parameter('models_directory', 'models')
         self.declare_parameter('input_topic', '/image_raw')
         self.declare_parameter('processed_image_topic', '/image_processed')
@@ -122,6 +126,7 @@ class CameraDetectorNode(Node):
         self._timer = None
 
         self._detector: Any = None
+        self._marker_detector = None
         self._model_manifest: ModelManifest | None = None
         self._labels: list[str] = []
         self._models_directory = resolve_models_directory('models')
@@ -145,6 +150,9 @@ class CameraDetectorNode(Node):
     def _load_parameters(self) -> None:
         self.enabled = bool(self.get_parameter('enabled').value)
         self.model_name = str(self.get_parameter('model_name').value).strip()
+        self.detect_aruco = bool(self.get_parameter('detect_aruco').value)
+        self.detect_qr = bool(self.get_parameter('detect_qr').value)
+        self.aruco_dictionary = str(self.get_parameter('aruco_dictionary').value)
         self.models_directory_text = str(
             self.get_parameter('models_directory').value
         ).strip() or 'models'
@@ -185,6 +193,10 @@ class CameraDetectorNode(Node):
         self._models_directory = resolve_models_directory(self.models_directory_text)
 
     def _validate_configuration(self) -> None:
+        if self.aruco_dictionary not in ARUCO_DICTIONARIES:
+            raise ValueError('Unsupported ArUco dictionary')
+        if self.detect_aruco and not hasattr(cv2, 'aruco'):
+            raise ValueError('OpenCV build does not include ArUco support')
         if not self.input_topic:
             raise ValueError('input_topic must not be empty')
         if not self.processed_image_topic:
@@ -225,6 +237,9 @@ class CameraDetectorNode(Node):
         candidate = {
             'enabled': self.enabled,
             'model_name': self.model_name,
+            'detect_aruco': self.detect_aruco,
+            'detect_qr': self.detect_qr,
+            'aruco_dictionary': self.aruco_dictionary,
             'models_directory': self.models_directory_text,
             'input_topic': self.input_topic,
             'processed_image_topic': self.processed_image_topic,
@@ -257,8 +272,16 @@ class CameraDetectorNode(Node):
                 if parameter.name in candidate:
                     candidate[parameter.name] = parameter.value
 
+            if candidate['aruco_dictionary'] not in ARUCO_DICTIONARIES:
+                raise ValueError('Unsupported ArUco dictionary')
+            if candidate['detect_aruco'] and not hasattr(cv2, 'aruco'):
+                raise ValueError('OpenCV build does not include ArUco support')
+
             self.enabled = bool(candidate['enabled'])
             self.model_name = str(candidate['model_name']).strip()
+            self.detect_aruco = bool(candidate['detect_aruco'])
+            self.detect_qr = bool(candidate['detect_qr'])
+            self.aruco_dictionary = str(candidate['aruco_dictionary'])
             self.models_directory_text = str(candidate['models_directory']).strip() or 'models'
             self.input_topic = str(candidate['input_topic']).strip()
             self.processed_image_topic = str(candidate['processed_image_topic']).strip()
@@ -284,6 +307,9 @@ class CameraDetectorNode(Node):
 
         self._configure_timer()
         self._reconfigure_pipeline()
+        if self.enabled and not self._active:
+            self.enabled = False
+            return SetParametersResult(successful=False, reason=self._last_error or 'Vision pipeline could not start')
         return SetParametersResult(successful=True)
 
     def _configure_timer(self) -> None:
@@ -380,6 +406,7 @@ class CameraDetectorNode(Node):
         with self._config_lock:
             self._destroy_io()
             self._detector = None
+            self._marker_detector = None
             self._model_manifest = None
             self._labels = []
             self._active = False
@@ -391,6 +418,8 @@ class CameraDetectorNode(Node):
                 return
 
             try:
+                self._marker_detector = MarkerDetector(aruco=self.detect_aruco, qr=self.detect_qr,
+                                                       dictionary=self.aruco_dictionary)
                 self._detector, self._labels, self._model_manifest = self._load_detector()
             except Exception as exc:
                 self._last_error = f'Could not load model {self.model_name}: {exc}'
@@ -464,13 +493,15 @@ class CameraDetectorNode(Node):
 
         try:
             annotated, detections = self._run_detection(frame)
+            markers = self._marker_detector.detect(frame) if self.detect_aruco or self.detect_qr else []
+            MarkerDetector.annotate(annotated, markers, self.line_thickness)
         except Exception as exc:
             self._last_error = str(exc)
             self.get_logger().warning(f'Inference failed: {exc}')
             return
 
         self._publish_processed_frame(annotated, stamp)
-        self._publish_detections(detections, frame.shape, stamp)
+        self._publish_detections(detections, frame.shape, stamp, markers=markers)
         self._last_processed_seq = sequence
         self._frames_processed += 1
         self._last_error = ''
@@ -525,6 +556,7 @@ class CameraDetectorNode(Node):
             conf=float(self.confidence_threshold),
             iou=float(self.nms_threshold),
             verbose=False,
+            imgsz=(self._model_manifest.input_height, self._model_manifest.input_width),
         )
         if not results:
             return frame.copy(), []
@@ -624,6 +656,7 @@ class CameraDetectorNode(Node):
         detections: list[Detection],
         frame_shape: tuple[int, ...],
         stamp: Any,
+        *, markers: list[dict] | None = None,
     ) -> None:
         if self._detections_publisher is None:
             return
@@ -644,9 +677,12 @@ class CameraDetectorNode(Node):
                 'width': width,
                 'height': height,
             },
-            'count': len(detections),
+            'count': len(detections) + len(markers or []),
+            'object_count': len(detections),
+            'marker_count': len(markers or []),
             'detections': [
                 {
+                    'kind': 'object',
                     'class_id': detection.class_id,
                     'label': detection.label,
                     'confidence': detection.confidence,
@@ -662,7 +698,7 @@ class CameraDetectorNode(Node):
                     },
                 }
                 for detection in detections
-            ],
+            ] + (markers or []),
         }
 
         message = String()

@@ -12,7 +12,7 @@ def data_files_from_tree(source_dir: str, install_dir: str):
         selected = [
             os.path.join(root, name)
             for name in files
-            if not name.startswith('.')
+            if not name.startswith('.') and os.path.isfile(os.path.join(root, name))
         ]
         if not selected:
             continue

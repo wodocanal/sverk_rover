@@ -1,50 +1,59 @@
 # Camera Models
 
-В эту папку складываются модели и их manifest-файлы для `rover_vision`.
+Russian operator/update guide: `docs/vision-markers.md` in the repository root.
 
-Поддерживаемые варианты:
-- `OpenCV DNN` для TensorFlow SSD
-- `Ultralytics YOLO` checkpoint в формате `.pt`
-- форматы манифестов `yolov5` и `yolov8`
-- задача `detection`
+## Default: YOLO11n COCO
 
-Пример структуры:
+`yolo11n.pt` and `yolo11n.yaml` replace the previous custom `best.pt`/`best.yaml`.
+This is the official Ultralytics nano detector with 80 COCO classes (person,
+bicycle, car, bottle, chair, etc.), not a model for the old custom classes.
 
-```text
-models/
-  yolov8n.onnx
-  yolov8n.yaml
-```
+- Source: https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
+- SHA-256: `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`
+- Documentation: https://docs.ultralytics.com/models/yolo11/
+- Upstream licensing: AGPL-3.0 / Ultralytics Enterprise.
+- Input: 320 x 320, selected in the manifest to reduce CPU work on Raspberry Pi.
+  Smaller input can miss distant/small objects. Actual FPS depends on hardware;
+  the configured FPS is an upper limit, not a performance guarantee.
 
-Пример manifest:
+Install `requirements.txt` in the Python environment running the ROS node.
+The loader uses `ultralytics.YOLO`; class labels are read from the checkpoint.
+Only load trusted checkpoints. Weights are included, so startup does not require
+an automatic model download. A direct node run and both package configs select
+`yolo11n` by default. Remove any custom launch override `model_name:=best`.
 
-```yaml
-id: yolov8n
-name: YOLOv8 Nano
-description: Лёгкая модель для общих объектов
-task: detection
-format: yolov8
-model: yolov8n.onnx
-input_size: [640, 640]
-swap_rb: true
-confidence_threshold: 0.25
-nms_threshold: 0.45
-labels_file: coco.names
-```
+Supported runtime formats are `ultralytics_pt` and `opencv_ssd_tf`. Existing SSD
+assets remain as an alternative; old ONNX assets are not selectable because
+this runtime does not implement an ONNX backend. A new model needs a YAML
+manifest; `.pt` models do not need a separate labels file.
 
-Если `labels_file` не указан, интерфейс всё равно заработает, но классы будут
-показаны как `class_0`, `class_1` и так далее.
+## OpenCV ArUco and QR
 
-В рабочем дереве уже добавлены `best.pt` и `best.yaml` — дообученная модель
-ровера. Файл весов имеет SHA-256
-`e609e19448bf5c6f3678012fa7611b8030bd0b8fcc0343ef134a72d9aca47ef9`.
+On **Camera -> Video processing**, disable processing, choose **Recognize ArUco**
+and/or **Recognize QR**, apply, then enable processing. Both flags default to
+false and are ROS parameters `detect_aruco` and `detect_qr`. The markers are
+detected on the original frame, separately from YOLO, without training a model.
+The main processing switch still controls the whole pipeline.
 
-`.pt` не выполняется OpenCV напрямую. Для него нужен пакет `ultralytics` в том
-же Python-окружении, из которого запускается `camera_detector_node`. Полный
-список зависимостей лежит в `requirements.txt` пакета `rover_vision`.
-Установка зависит от архитектуры Raspberry Pi и версии PyTorch, поэтому перед
-запуском проверь импорт в окружении ROS: `python3 -c 'from ultralytics import YOLO'`.
+`aruco_dictionary` defaults to `DICT_4X4_50`; select the dictionary matching your
+printed markers. Standard 4x4, 5x5, 6x6, 7x7 families and ARUCO_ORIGINAL are
+supported. OpenCV 4.6's `detectMarkers` and newer `ArucoDetector` APIs are handled.
+The installed OpenCV must include `cv2.aruco`; the Ubuntu ROS image's
+`python3-opencv` does. For other environments, verify the import first and use
+an OpenCV build with ArUco support (do not mix several pip OpenCV variants).
+QR uses `QRCodeDetector.detectAndDecodeMulti` with a single-code fallback.
 
-Файлы ONNX в этой папке оставлены как материалы для будущего backend-а; текущая
-нода не позволяет выбрать их, чтобы не создавать впечатление, что их вывод
-проверен на ровере.
+Results go into `/detections` along with YOLO detections:
+
+- `kind: object`: existing class_id, label, confidence, bbox, center.
+- `kind: aruco`: marker_id, dictionary, corners, bbox, label.
+- `kind: qr`: data (decoded text), decoded (boolean), corners, bbox, label.
+
+`count` is the total; `object_count` and `marker_count` separate the categories.
+There is no invented neural-network confidence for marker detections. Markers
+are outlined in `/image_processed` and `/image_processed/compressed`; the web
+list displays IDs and QR text safely, without opening URLs or executing content.
+This is 2D recognition only, not calibrated pose/distance estimation.
+
+Web edits remain runtime ROS parameters, like the existing detector settings.
+For defaults after restart edit `config/vision.yaml`.

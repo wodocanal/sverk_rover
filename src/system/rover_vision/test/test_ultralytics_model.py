@@ -7,15 +7,18 @@ from rover_vision.camera_detector_node import CameraDetectorNode
 from rover_vision.model_registry import discover_model_manifests
 
 
-def test_custom_pt_manifest_is_selectable():
+def test_default_pt_manifest_is_selectable():
     manifests = {
         item.identifier: item
         for item in discover_model_manifests(Path(__file__).parents[1] / 'models')
     }
-    model = manifests['best']
+    model = manifests['yolo11n']
     assert model.valid
     assert model.model_format == 'ultralytics_pt'
-    assert model.model_path.name == 'best.pt'
+    assert model.model_path.name == 'yolo11n.pt'
+    assert model.input_width == model.input_height == 320
+    assert 'best' not in manifests
+    assert not (Path(__file__).parents[1] / 'models' / 'best.pt').exists()
 
 
 def test_ultralytics_results_become_annotated_detections():
@@ -35,6 +38,7 @@ def test_ultralytics_results_become_annotated_detections():
         def predict(self, **kwargs):
             assert kwargs['conf'] == 0.25
             assert kwargs['iou'] == 0.45
+            assert kwargs['imgsz'] == (320, 320)
             boxes = SimpleNamespace(
                 xyxy=Values([[1.2, 2.0, 8.9, 9.0]]),
                 conf=Values([0.88]),
@@ -45,6 +49,7 @@ def test_ultralytics_results_become_annotated_detections():
     node = SimpleNamespace(
         _detector=Detector(), confidence_threshold=0.25, nms_threshold=0.45,
         annotate_labels=True, annotate_confidence=True, line_thickness=2,
+        _model_manifest=SimpleNamespace(input_height=320, input_width=320),
     )
     node._color_for_class = lambda class_id: CameraDetectorNode._color_for_class(node, class_id)
     node._annotate_detections = lambda frame, detections: CameraDetectorNode._annotate_detections(

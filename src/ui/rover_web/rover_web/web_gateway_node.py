@@ -61,6 +61,7 @@ from rover_vision.model_registry import (
     manifest_to_dict,
     resolve_models_directory,
 )
+from rover_vision.markers import ARUCO_DICTIONARIES
 from sensor_msgs.msg import CompressedImage, Image, Imu, LaserScan
 from std_msgs.msg import String
 import yaml
@@ -144,6 +145,7 @@ CAMERA_PARAMETER_NAMES = [
     'rotate',
 ]
 VISION_PARAMETER_NAMES = [
+    'detect_aruco', 'detect_qr', 'aruco_dictionary',
     'enabled',
     'model_name',
     'models_directory',
@@ -164,6 +166,7 @@ VISION_PARAMETER_NAMES = [
     'jpeg_quality',
 ]
 VISION_RUNTIME_PARAMETER_NAMES = {
+    'detect_aruco', 'detect_qr', 'aruco_dictionary',
     'enabled',
     'model_name',
     'models_directory',
@@ -2529,6 +2532,7 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
             'models_directory': str(models_directory),
             'models': models,
             'selected_model': selected_model,
+            'aruco_dictionaries': list(ARUCO_DICTIONARIES),
             'runtime_parameters': sorted(VISION_RUNTIME_PARAMETER_NAMES),
             'notes': {
                 'input_topic': 'Для обработки должен поступать raw image topic.',
@@ -2804,6 +2808,7 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
                 continue
             value = payload[name]
             if name in {
+                'detect_aruco', 'detect_qr',
                 'enabled',
                 'publish_raw',
                 'publish_compressed',
@@ -2830,7 +2835,7 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
 
         response = self._wait_for_future(
             client.set_parameters(updates),
-            timeout_sec=3.0,
+            timeout_sec=15.0,
             label='vision parameter update',
         )
         failures = [

@@ -1576,6 +1576,7 @@ function setCameraVisionRunning(enabled) {
     '#camera-vision-publish-raw', '#camera-vision-publish-compressed',
     '#camera-vision-publish-detections', '#camera-vision-annotate-labels',
     '#camera-vision-annotate-confidence',
+    '#camera-vision-detect-aruco', '#camera-vision-detect-qr', '#camera-vision-aruco-dictionary',
   ].forEach((selector) => { $(selector).disabled = enabled; });
 }
 
@@ -1598,6 +1599,16 @@ function setCameraVisionSettingsForm(payload = {}) {
   $('#camera-vision-publish-detections').checked = Boolean(parameters.publish_detections ?? true);
   $('#camera-vision-annotate-labels').checked = Boolean(parameters.annotate_labels ?? true);
   $('#camera-vision-annotate-confidence').checked = Boolean(parameters.annotate_confidence ?? true);
+  $('#camera-vision-detect-aruco').checked = Boolean(parameters.detect_aruco ?? false);
+  $('#camera-vision-detect-qr').checked = Boolean(parameters.detect_qr ?? false);
+  const dictionarySelect = $('#camera-vision-aruco-dictionary');
+  dictionarySelect.replaceChildren();
+  for (const dictionary of payload.aruco_dictionaries || ['DICT_4X4_50']) {
+    const option = document.createElement('option');
+    option.value = option.textContent = dictionary;
+    dictionarySelect.append(option);
+  }
+  dictionarySelect.value = parameters.aruco_dictionary || 'DICT_4X4_50';
   setCameraVisionRunning(enabled);
 }
 
@@ -1628,10 +1639,13 @@ function renderCameraVisionDetections(payload = {}) {
     const label = document.createElement('strong');
     label.textContent = detection.label || `class_${detection.class_id ?? '?'}`;
     const confidence = document.createElement('span');
-    confidence.textContent = `${Math.round(Number(detection.confidence || 0) * 100)}%`;
+    confidence.textContent = detection.kind === 'aruco' ? detection.dictionary || 'ArUco'
+      : detection.kind === 'qr' ? (detection.decoded ? 'Прочитан' : 'Не расшифрован')
+      : `${Math.round(Number(detection.confidence || 0) * 100)}%`;
     const bbox = detection.bbox || {};
     const details = document.createElement('small');
     details.textContent = `x:${bbox.x ?? '?'} y:${bbox.y ?? '?'} ${bbox.width ?? '?'}×${bbox.height ?? '?'}`;
+    if (detection.kind === 'qr' && detection.data) details.textContent += ` · ${detection.data}`;
     item.append(label, confidence, details);
     list.append(item);
   });
@@ -1742,6 +1756,9 @@ function cameraVisionSettingsPayloadFromForm() {
     max_processing_fps: Number($('#camera-vision-fps').value || '8'),
     annotate_labels: $('#camera-vision-annotate-labels').checked,
     annotate_confidence: $('#camera-vision-annotate-confidence').checked,
+    detect_aruco: $('#camera-vision-detect-aruco').checked,
+    detect_qr: $('#camera-vision-detect-qr').checked,
+    aruco_dictionary: $('#camera-vision-aruco-dictionary').value,
   };
 }
 
