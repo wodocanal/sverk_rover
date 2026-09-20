@@ -65,6 +65,7 @@ sudo install -m 0644 "${tmp_policy}" /etc/polkit-1/rules.d/49-rover-maintenance.
 rm -f "${tmp_policy}"
 
 sudo systemctl daemon-reload
+sudo env ROVER_SERVICE_USER="${RUN_USER}" bash "${SCRIPT_DIR}/install-service-control.sh"
 for service_name in "${SERVICE_NAMES[@]}"; do
   sudo systemctl enable "${service_name}"
 done

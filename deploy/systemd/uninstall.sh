@@ -11,6 +11,7 @@ for service_name in "${SERVICE_NAMES[@]}"; do
   sudo rm -f "/etc/systemd/system/${service_name}"
 done
 sudo rm -f /etc/polkit-1/rules.d/49-rover-maintenance.rules
+sudo rm -f /etc/sudoers.d/rover-service-control
 sudo systemctl daemon-reload
 
 cat <<EOF

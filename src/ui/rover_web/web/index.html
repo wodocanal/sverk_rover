@@ -68,6 +68,13 @@
           <p class="status-note">Остановка или перезапуск bringup отключает оборудование. Перезапуск веба прерывает веб-навигацию и временно разрывает соединение; интерфейс дождется восстановления. Перед выполнением остановите ровер.</p>
           <p id="services-operation-status" class="status-note" role="status"></p>
           <p id="services-error" class="status-note maintenance-error" role="alert"></p>
+          <details id="services-permissions">
+            <summary>Права управления сервисами</summary>
+            <p class="status-note" id="services-permissions-status">Проверка прав…</p>
+            <p class="status-note">Если требуется авторизация, один раз выполните на ровере из папки проекта через SSH:</p>
+            <pre class="message-box">sudo bash deploy/systemd/install-service-control.sh</pre>
+            <p class="status-note">Установщик определит пользователя rover-web и разрешит только запуск/остановку bringup и перезапуск веба. Пароль вводится только в терминале. Сервисы при установке прав не перезапускаются.</p>
+          </details>
         </article>
         <div class="two-column">
           <article class="panel">

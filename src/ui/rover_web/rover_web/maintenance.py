@@ -9,7 +9,7 @@ import uuid
 import yaml
 from rover_configuration import config_path
 from rover_device_manager.web_setup import WebDeviceSetup
-from .system_services import service_status, restart_web_unit
+from .system_services import service_status, restart_web_unit, control_unit, service_control_permissions, UNITS
 
 
 class MaintenanceMixin:
@@ -123,17 +123,14 @@ class MaintenanceMixin:
                     pass
             actions = ('stop', 'start') if action == 'restart' else (action,)
             for verb in actions:
-                result = subprocess.run(['systemctl', '--no-ask-password', verb, 'rover-bringup.service'],
-                                        capture_output=True, text=True, timeout=45)
-                if result.returncode:
-                    raise RuntimeError((result.stderr or result.stdout).strip()
-                        + ' Install deploy/systemd/install.sh for limited service-control permissions.')
+                control_unit(UNITS['bringup'], verb)
             self._motor_calibration_active = False
             self.record_activity('maintenance', f'rover-bringup {action}', {})
             return {'ok': True, 'message': f'rover-bringup: {action}'}
 
     def system_services_status(self):
         return dict(services=service_status(), instance_id=self._web_instance_id,
+                    permissions=service_control_permissions(),
                     web_restart=dict(state=self._web_restart_state, error=self._web_restart_error))
 
     def restart_web_service(self, payload):

@@ -37,11 +37,84 @@ def test_web_restart_submits_only_allowlisted_nonblocking_job(monkeypatch):
     run = Mock(return_value=SimpleNamespace(returncode=0, stdout='', stderr=''))
     monkeypatch.setattr(system_services.subprocess, 'run', run)
     system_services.restart_web_unit()
-    assert run.call_args.args[0] == ['systemctl', '--no-ask-password', '--no-block', 'restart', 'rover-web.service']
+    assert run.call_args.args[0] == system_services.control_command('rover-web.service', 'restart')
     run.return_value.returncode = 1
     run.return_value.stderr = 'Access denied'
     with pytest.raises(RuntimeError, match='Access denied'):
         system_services.restart_web_unit()
+
+
+def test_auth_failure_retries_only_exact_command_without_password(monkeypatch):
+    command = system_services.control_command('rover-bringup.service', 'stop')
+    run = Mock(side_effect=[
+        SimpleNamespace(returncode=1, stdout='', stderr='Interactive authentication required.'),
+        SimpleNamespace(returncode=0, stdout='', stderr='')])
+    monkeypatch.setattr(system_services.subprocess, 'run', run)
+    system_services.control_unit('rover-bringup.service', 'stop')
+    assert run.call_args_list[0].args[0] == command
+    assert run.call_args_list[1].args[0] == ['sudo', '-n', '--', *command]
+    assert all('input' not in call.kwargs for call in run.call_args_list)
+
+
+def test_service_failure_and_timeout_are_never_retried(monkeypatch):
+    run = Mock(return_value=SimpleNamespace(returncode=1, stdout='', stderr='Job failed: exit-code'))
+    monkeypatch.setattr(system_services.subprocess, 'run', run)
+    with pytest.raises(RuntimeError, match='exit-code'):
+        system_services.control_unit('rover-bringup.service', 'start')
+    assert run.call_count == 1
+    run.reset_mock()
+    run.side_effect = system_services.subprocess.TimeoutExpired('systemctl', 45)
+    with pytest.raises(system_services.subprocess.TimeoutExpired):
+        system_services.control_unit('rover-bringup.service', 'start')
+    assert run.call_count == 1
+
+
+def test_authorized_sudo_service_error_is_not_reported_as_missing_permissions(monkeypatch):
+    run = Mock(side_effect=[
+        SimpleNamespace(returncode=1, stdout='', stderr='Interactive authentication required'),
+        SimpleNamespace(returncode=1, stdout='', stderr='Job failed: exit-code')])
+    monkeypatch.setattr(system_services.subprocess, 'run', run)
+    with pytest.raises(RuntimeError, match='Job failed') as error:
+        system_services.control_unit('rover-bringup.service', 'start')
+    assert 'install-service-control' not in str(error.value)
+
+
+@pytest.mark.parametrize('unit,action', [('sshd.service','stop'),('rover-web.service','stop'),
+    ('rover-bringup.service','enable'),('rover-bringup.service','restart'),
+    ('rover-bringup.service; reboot','stop')])
+def test_rejects_any_other_service_or_arguments(monkeypatch, unit, action):
+    run = Mock()
+    monkeypatch.setattr(system_services.subprocess, 'run', run)
+    with pytest.raises(ValueError):
+        system_services.control_unit(unit, action)
+    run.assert_not_called()
+
+
+def test_permission_probe_is_readonly_and_cached(monkeypatch):
+    monkeypatch.setattr(system_services, '_permission_cache', None)
+    monkeypatch.setattr(system_services.Path, 'is_dir', lambda _self: True)
+    run = Mock(return_value=SimpleNamespace(returncode=0,stdout='',stderr=''))
+    monkeypatch.setattr(system_services.subprocess,'run',run)
+    assert system_services.service_control_permissions()['sudo_ready']
+    assert system_services.service_control_permissions()['sudo_ready']
+    assert run.call_count == 3
+    assert all(call.args[0][:4] == ['sudo','-n','-l','--'] for call in run.call_args_list)
+
+
+def test_bringup_restart_keeps_safety_checks_and_stop_start_order(monkeypatch):
+    node = gateway()
+    control = Mock()
+    monkeypatch.setattr(maintenance,'control_unit',control)
+    maintenance.MaintenanceMixin.hardware_service_command(node, {'action':'restart','confirmed':True})
+    assert [call.args for call in control.call_args_list] == [
+        ('rover-bringup.service','stop'), ('rover-bringup.service','start')]
+    node.stop_drive.assert_called_once()
+    node.stop_navigation_runtime.assert_called_once()
+    control.reset_mock()
+    control.side_effect = RuntimeError('stop failed')
+    with pytest.raises(RuntimeError):
+        maintenance.MaintenanceMixin.hardware_service_command(node, {'action':'restart','confirmed':True})
+    assert control.call_count == 1
 
 
 def gateway():

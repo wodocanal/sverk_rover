@@ -27,6 +27,12 @@
     $('#web-service-restart').disabled = busy || !web?.available || !web.managed_current_process
       || !stable(web.active_state);
     $('#services-refresh').disabled = busy;
+    const permissions = snapshot?.permissions;
+    $('#services-permissions-status').textContent = !permissions ? 'Данные о правах недоступны.'
+      : !permissions.supported ? 'В этой среде systemd недоступен.'
+      : `Пользователь веба: ${permissions.user}. ${permissions.root ? 'Процесс работает от root.'
+        : permissions.sudo_ready ? 'Разрешение sudo на нужные команды подтверждено.'
+        : 'Разрешение sudo не подтверждено. Прямой доступ через Polkit может работать; при ошибке авторизации выполните команду ниже.'}`;
   }
   async function refresh() {
     if (polling || busy) return;
