@@ -1,4 +1,5 @@
 fleet_bridge:
+  connection_settings_file: ~/.config/sverk-rover/fleet_connection.json
   robot_id: package://rover_description/config/rover_v1.yaml#robot.id
   mqtt_host: 10.63.18.111
   mqtt_port: 1883

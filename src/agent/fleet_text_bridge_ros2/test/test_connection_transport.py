@@ -12,7 +12,7 @@ from std_msgs.msg import String
 from fleet_text_bridge_ros2.bridge_node import FleetTextBridge
 
 
-def test_mqtt_handshake_and_disconnect_reach_ros():
+def test_mqtt_handshake_and_disconnect_reach_ros(tmp_path):
     listener = socket.socket()
     listener.bind(('127.0.0.1', 0))
     listener.listen(1)
@@ -57,7 +57,8 @@ def test_mqtt_handshake_and_disconnect_reach_ros():
     broker_thread.start()
     rclpy.init(args=['--ros-args', '-p', 'mqtt_host:=127.0.0.1', '-p', f'mqtt_port:={port}',
                     '-p', 'mqtt_username:=""', '-p', 'robot_id:=connection-test',
-                    '-p', 'connection_topic:=/test/fleet_connection'])
+                    '-p', 'connection_topic:=/test/fleet_connection',
+                    '-p', f'connection_settings_file:={tmp_path}/mqtt.json'])
     bridge = observer = worker = None
     executor = SingleThreadedExecutor()
     states = []

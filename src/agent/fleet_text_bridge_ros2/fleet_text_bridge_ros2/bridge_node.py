@@ -14,6 +14,7 @@ from std_msgs.msg import String
 
 from .duplicate_cache import DuplicateCache
 from .connection_monitor import ConnectionMonitorMixin
+from .connection_settings import ConnectionSettingsMixin
 from .message_codec import (
     decode_json_object,
     normalize_agent_payload,
@@ -22,7 +23,7 @@ from .message_codec import (
 )
 
 
-class FleetTextBridge(ConnectionMonitorMixin, Node):
+class FleetTextBridge(ConnectionSettingsMixin, ConnectionMonitorMixin, Node):
     """MQTT ↔ ROS 2 bridge for the rover text agent protocol.
 
     Commands are serialized before publication to `/agent/text_command`. This
@@ -83,12 +84,15 @@ class FleetTextBridge(ConnectionMonitorMixin, Node):
         self.create_timer(0.05, self._process_commands)
         self.create_timer(1.0, self._check_active_timeout)
 
+        self.init_connection_settings()
         self.init_connection_monitor()
+        self._start_transport()
+
+    def _start_transport(self):
         self._mqtt = self._make_mqtt_client()
         username = str(self.get_parameter("mqtt_username").value).strip()
-        password_env = str(self.get_parameter("mqtt_password_env").value)
         if username:
-            self._mqtt.username_pw_set(username, os.getenv(password_env, os.getenv("FLEET_MQTT_PASSWORD", "")) or None)
+            self._mqtt.username_pw_set(username, self._mqtt_settings['mqtt_password'] or None)
         self._mqtt.will_set(
             self.availability_mqtt_topic,
             json.dumps({"robot_id": self.robot_id, "online": False}),

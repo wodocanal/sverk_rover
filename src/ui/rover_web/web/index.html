@@ -996,6 +996,32 @@ angular.z: 0.00</pre>
             <p class="status-note" id="navigation-settings-status" role="status">Загрузка настроек…</p>
             <p class="maintenance-error" id="navigation-settings-error" role="alert"></p>
           </article>
+          <article class="panel" id="server-settings-panel">
+            <div class="panel-heading-row"><h2>Подключение к серверу</h2><button class="secondary" id="server-settings-refresh">Перечитать</button></div>
+            <p class="status-note">MQTT-связь с сервером команд, не API нейросети. Сохранение не прерывает связь; переподключение перезапускает только MQTT, без перезапуска bringup.</p>
+            <form id="server-settings-form">
+              <fieldset id="server-settings-fields" disabled>
+                <div class="form-grid">
+                  <label>Адрес сервера<input id="server-mqtt_host" type="text" placeholder="192.168.1.100" maxlength="253" required autocomplete="off"></label>
+                  <label>Порт<input id="server-mqtt_port" type="number" min="1" max="65535" required></label>
+                  <label>Префикс MQTT<input id="server-mqtt_topic_prefix" type="text" required autocomplete="off"></label>
+                  <label>Логин<input id="server-mqtt_username" type="text" autocomplete="off"></label>
+                </div>
+                <label>Новый пароль<input id="server-mqtt_password" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></label>
+                <label class="check-label"><input id="server-clear-password" type="checkbox"> Удалить пароль (не использовать и пароль из окружения)</label>
+                <p class="status-note" id="server-password-status"></p>
+                <div class="button-row">
+                  <button class="secondary" type="submit" id="server-settings-save">Сохранить</button>
+                  <button type="submit" id="server-settings-reconnect">Сохранить и переподключить</button>
+                </div>
+              </fieldset>
+            </form>
+            <p class="status-note" id="server-settings-status" role="status">Загрузка настроек…</p>
+            <p class="status-note" id="server-settings-connection"></p>
+            <p class="status-note" id="server-settings-file"></p>
+            <p class="status-note">Пароль не отображается обратно и хранится на ровере в файле с правами 600. Используйте веб-интерфейс только в доверенной сети: HTTP и обычный MQTT не шифруют данные.</p>
+            <p class="maintenance-error" id="server-settings-error" role="alert"></p>
+          </article>
           <article class="panel camera-settings-panel">
             <div class="panel-heading-row">
               <div>
@@ -1125,5 +1151,6 @@ angular.z: 0.00</pre>
   <script src="/assets/system-services.js"></script>
   <script src="/assets/agent-chat.js"></script>
   <script src="/assets/navigation-settings.js"></script>
+  <script src="/assets/server-settings.js"></script>
 </body>
 </html>

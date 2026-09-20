@@ -1939,9 +1939,11 @@ textarea {
   .agent-bubble { max-width: 100%; }
   .agent-composer .button-row { align-items: stretch; }
 }
-#navigation-settings-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+#navigation-settings-fields, #server-settings-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 #navigation-settings-fields legend { font-weight: 700; margin-bottom: 12px; }
 #navigation-settings-fields:disabled { opacity: 0.65; }
+#server-settings-fields:disabled { opacity: 0.65; }
+#server-settings-file { overflow-wrap: anywhere; }
 .agent-server-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; margin: 16px 0; background: var(--surface-2); min-width: 0; overflow-wrap: anywhere; }
 .agent-server-card h3 { margin: 0; }
 @media (max-width: 600px) {

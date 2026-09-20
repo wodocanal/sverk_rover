@@ -30,6 +30,7 @@ from rover_configuration import config_path, node_parameters
 from .maintenance import MaintenanceMixin
 from .agent_chat import AgentChatMixin
 from .navigation_settings import NavigationSettingsMixin
+from .server_settings import ServerSettingsMixin
 import cv2
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
@@ -488,7 +489,7 @@ class ServiceHandle:
     client: Any
 
 
-class RoverWebGateway(NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin, Node):
+class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin, Node):
     def __init__(self) -> None:
         super().__init__('web_gateway_node')
 
@@ -762,6 +763,7 @@ class RoverWebGateway(NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin,
         self._navigation_control_lock = threading.RLock()
         self.init_maintenance()
         self.init_agent_chat()
+        self.init_server_settings()
         self.init_navigation_settings()
         self._topic_watches: dict[tuple[str, str], TopicWatch] = {}
         self._image_watches: dict[tuple[str, str], ImageWatch] = {}
@@ -4189,6 +4191,9 @@ class RoverWebGateway(NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin,
                     if path == '/api/agent':
                         self._send_json(gateway.agent_chat_state(), HTTPStatus.OK)
                         return
+                    if path == '/api/server/settings':
+                        self._send_json(gateway.server_settings_payload(), HTTPStatus.OK)
+                        return
                     if path == '/api/identity':
                         self._send_json(gateway.identity_payload(), HTTPStatus.OK)
                         return
@@ -4378,6 +4383,9 @@ class RoverWebGateway(NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin,
                         return
                     if parsed.path == '/api/agent/send':
                         self._send_json(gateway.agent_chat_send(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/server/settings':
+                        self._send_json(gateway.update_server_settings(payload), HTTPStatus.OK)
                         return
                     if parsed.path == '/api/heartbeat':
                         gateway.register_heartbeat(

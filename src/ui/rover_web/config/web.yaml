@@ -14,6 +14,8 @@ web_gateway_node:
     agent_answer_topic: package://rover_interfaces/config/topics.yaml#topics.agent_answer
     agent_status_topic: package://rover_interfaces/config/topics.yaml#topics.agent_status
     fleet_connection_topic: package://rover_interfaces/config/topics.yaml#topics.fleet_connection
+    fleet_settings_file: ~/.config/sverk-rover/fleet_connection.json
+    fleet_bridge_node_name: /fleet_text_bridge
     lidar_node_name: /sllidar_node
     led_strip_node_name: /led_strip_node
     octoliner_node_name: /octoliner_node
