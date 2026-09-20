@@ -8,5 +8,6 @@ fleet_bridge:
   command_topic: package://rover_interfaces/config/topics.yaml#topics.agent_text_command
   answer_topic: package://rover_interfaces/config/topics.yaml#topics.agent_answer
   status_topic: package://rover_interfaces/config/topics.yaml#topics.agent_status
+  connection_topic: package://rover_interfaces/config/topics.yaml#topics.fleet_connection
   duplicate_cache_size: 100
   agent_command_timeout_sec: 300.0

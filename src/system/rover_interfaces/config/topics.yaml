@@ -27,6 +27,7 @@ topics:
   agent_text_command: /agent/text_command
   agent_status: /agent/status
   agent_answer: /agent/answer
+  fleet_connection: /fleet/connection
   amcl_pose: /amcl_pose
   battery_state: /battery/state
 frames:

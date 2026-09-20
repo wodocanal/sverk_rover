@@ -71,6 +71,29 @@ def test_answers_status_plain_text_and_history_bound():
     assert history[-1]['text'] is None
 
 
+def test_server_status_expiry_missing_bridge_and_sanitization():
+    chat = bare_chat()
+    assert chat.fleet_connection_state()['state'] == 'waiting'
+    message = {'state':'connected','connected':True,'subscribed':True,
+               'availability_confirmed':True,'host':'mqtt.test','port':1883,
+               'password':'do-not-expose','robot_id':'test'}
+    chat._fleet_connection_received(String(data=json.dumps(message)))
+    assert chat.fleet_connection_state()['ready']
+    assert 'password' not in chat.fleet_connection_state()
+    chat._fleet_received_at -= 6
+    assert chat.fleet_connection_state()['state'] == 'stale'
+    assert not chat.fleet_connection_state()['ready']
+    chat.count_publishers.return_value = 0
+    assert chat.fleet_connection_state()['state'] == 'unavailable'
+    chat.count_publishers.return_value = 2
+    assert chat.fleet_connection_state()['state'] == 'ambiguous'
+    assert not chat.fleet_connection_state()['ready']
+    chat.count_publishers.return_value = 1
+    chat._fleet_connection_received(String(data=json.dumps({**message,'connected':False,'state':'disconnected'})))
+    assert chat.fleet_connection_state()['state'] == 'disconnected'
+    assert not chat.fleet_connection_state()['ready']
+
+
 def test_http_ros_agent_round_trip(tmp_path):
     """Use a fake ROS agent, no LLM, MCP, robot commands or external network."""
     topic = '/test_agent_' + uuid.uuid4().hex
@@ -78,6 +101,7 @@ def test_http_ros_agent_round_trip(tmp_path):
         '-p', f'agent_input_topic:={topic}/input',
         '-p', f'agent_answer_topic:={topic}/answer',
         '-p', f'agent_status_topic:={topic}/status',
+        '-p', f'fleet_connection_topic:={topic}/connection',
         '-p', f'hackathon_files_root:={tmp_path}/files',
         '-p', f'plans_directory:={tmp_path}/plans'])
     executor = SingleThreadedExecutor()
@@ -88,6 +112,10 @@ def test_http_ros_agent_round_trip(tmp_path):
         received = []
         answer = agent.create_publisher(String, topic+'/answer', 10)
         status = agent.create_publisher(String, topic+'/status', 10)
+        connection = agent.create_publisher(String, topic+'/connection', 10)
+        connection_state = dict(state='connected', connected=True, subscribed=True,
+            availability_confirmed=True, host='test-broker', port=1883, robot_id='test-rover')
+        agent.create_timer(.1, lambda: connection.publish(String(data=json.dumps(connection_state))))
 
         def receive(msg):
             command = json.loads(msg.data)
@@ -128,6 +156,16 @@ def test_http_ros_agent_round_trip(tmp_path):
         assert messages[0]['status'] == 'completed'
         assert send(request)['ok']
         assert len(received) == 1
+        deadline = time.monotonic()+5
+        while not get()['server_connection']['ready'] and time.monotonic() < deadline:
+            time.sleep(.1)
+        assert get()['server_connection']['ready']
+        assert get()['server_connection']['host'] == 'test-broker'
+        connection_state.update(connected=False, state='disconnected')
+        deadline = time.monotonic()+5
+        while get()['server_connection']['ready'] and time.monotonic() < deadline:
+            time.sleep(.1)
+        assert get()['server_connection']['state'] == 'disconnected'
         with pytest.raises(HTTPError) as error:
             send({'text': '', 'message_id': str(uuid.uuid4())})
         assert error.value.code == 400

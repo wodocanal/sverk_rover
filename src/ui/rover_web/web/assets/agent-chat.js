@@ -16,6 +16,7 @@
   }
   function render(data) {
     snapshot = data;
+    renderServerConnection(data.server_connection);
     $('#agent-connection').textContent = data.input_subscribers
       ? 'Входной топик имеет подписчика. Можно отправить сообщение.'
       : 'Агент не подключен: у входного топика нет подписчиков.';
@@ -71,10 +72,42 @@
       $('#agent-connection').classList.remove('maintenance-error');
     } catch (error) {
       snapshot = null;
+      renderServerConnection(null);
       $('#agent-connection').textContent = `Не удалось получить состояние: ${error.message}`;
       $('#agent-connection').classList.add('maintenance-error');
       updateSendButton();
     } finally { polling = false; }
+  }
+  function renderServerConnection(connection) {
+    const stateName = connection?.state || 'unavailable';
+    const ready = connection?.ready === true;
+    const descriptions = {
+      connected: 'MQTT-соединение установлено, подписка на команды и публикация online подтверждены брокером.',
+      connecting: 'Подключение к MQTT-серверу; ожидаем подтверждения соединения, подписки и online.',
+      disconnected: 'Связь с MQTT-сервером потеряна или сервер недоступен. Мост повторяет подключение.',
+      error: 'MQTT-сервер отклонил подключение или подписку; проверьте настройки и права доступа.',
+      unavailable: 'Нет данных от MQTT-моста. Он не запущен, ещё не обнаружен или требует обновления.',
+      waiting: 'Издатель статуса найден; ожидаем первое сообщение.',
+      stale: 'Статус не обновлялся более 5 секунд. Подключение больше не подтверждено.',
+      ambiguous: 'Найдено несколько издателей статуса MQTT. Проверьте, что запущен только один мост.',
+    };
+    const tone = ready ? 'ok' : ['error','disconnected'].includes(stateName) ? 'error' : 'unknown';
+    const label = ready ? 'ПОДКЛЮЧЕН' : stateName === 'connecting' ? 'ПОДКЛЮЧЕНИЕ'
+      : ['error','disconnected'].includes(stateName) ? 'НЕТ СВЯЗИ' : 'НЕТ ПОДТВЕРЖДЕНИЯ';
+    setToneClass($('#agent-server-state'), tone, label);
+    $('#agent-server-detail').textContent = connection
+      ? `${descriptions[stateName] || 'Состояние неизвестно.'}${connection.error ? ` ${connection.error}` : ''}`
+      : 'Состояние связи с сервером недоступно. Обновите страницу или проверьте веб-сервис.';
+    const meta = $('#agent-server-meta');
+    meta.replaceChildren();
+    for (const [label, value] of [
+      ['MQTT-сервер', connection?.host ? `${connection.host}:${connection.port || '—'}` : '—'],
+      ['Robot ID моста', connection?.robot_id || '—'],
+      ['Обновление статуса', Number.isFinite(connection?.age_sec) ? `${Math.floor(connection.age_sec)} с назад` : 'Нет данных'],
+    ]) {
+      const term = document.createElement('dt'), description = document.createElement('dd');
+      term.textContent = label; description.textContent = value; meta.append(term, description);
+    }
   }
   $('#agent-form').addEventListener('submit', async event => {
     event.preventDefault();

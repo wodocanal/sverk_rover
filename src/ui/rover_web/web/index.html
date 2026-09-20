@@ -103,6 +103,12 @@ ROS State — ноды, топики и сервисы
             <button class="secondary" id="agent-refresh">Обновить</button>
           </div>
           <p id="agent-connection" role="status">Проверка подключения…</p>
+          <section class="agent-server-card" aria-labelledby="agent-server-heading">
+            <div class="panel-heading-row"><h3 id="agent-server-heading">Связь с сервером</h3><span id="agent-server-state" class="status-pill unknown" role="status">ПРОВЕРКА</span></div>
+            <p id="agent-server-detail" class="status-note">Ожидание состояния MQTT-моста…</p>
+            <dl class="detail-list" id="agent-server-meta"></dl>
+            <p class="status-note">Проверяется MQTT-подключение, подписка на команды и подтверждение публикации online. Это не проверка LLM/API модели и не подтверждение обработки сообщений приложением сервера.</p>
+          </section>
           <details class="agent-topics"><summary>ROS-топики</summary><dl class="detail-list" id="agent-topics"></dl></details>
           <p class="status-note">Агент может управлять движением и оборудованием. Перед отправкой команды убедитесь, что пространство вокруг ровера свободно. Эта страница не запускает агента автоматически.</p>
           <div id="agent-messages" class="agent-messages" role="log" aria-label="Переписка с агентом" aria-live="polite">

@@ -13,6 +13,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from .duplicate_cache import DuplicateCache
+from .connection_monitor import ConnectionMonitorMixin
 from .message_codec import (
     decode_json_object,
     normalize_agent_payload,
@@ -21,7 +22,7 @@ from .message_codec import (
 )
 
 
-class FleetTextBridge(Node):
+class FleetTextBridge(ConnectionMonitorMixin, Node):
     """MQTT ↔ ROS 2 bridge for the rover text agent protocol.
 
     Commands are serialized before publication to `/agent/text_command`. This
@@ -82,6 +83,7 @@ class FleetTextBridge(Node):
         self.create_timer(0.05, self._process_commands)
         self.create_timer(1.0, self._check_active_timeout)
 
+        self.init_connection_monitor()
         self._mqtt = self._make_mqtt_client()
         username = str(self.get_parameter("mqtt_username").value).strip()
         password_env = str(self.get_parameter("mqtt_password_env").value)
@@ -96,6 +98,9 @@ class FleetTextBridge(Node):
         self._mqtt.on_connect = self._on_mqtt_connect
         self._mqtt.on_disconnect = self._on_mqtt_disconnect
         self._mqtt.on_message = self._on_mqtt_message
+        self._mqtt.on_subscribe = self._on_mqtt_subscribe
+        self._mqtt.on_publish = self._on_mqtt_publish
+        self._mqtt.on_connect_fail = self._on_mqtt_connect_fail
         self._mqtt.reconnect_delay_set(min_delay=1, max_delay=15)
 
         host = str(self.get_parameter("mqtt_host").value)
@@ -131,17 +136,11 @@ class FleetTextBridge(Node):
         rc,
         properties=None,
     ) -> None:  # noqa: ANN001
+        self._connection_started(client, rc)
         if rc != 0:
             self.get_logger().error(f"MQTT connect failed rc={rc}")
             return
-        client.subscribe(self.command_mqtt_topic, qos=1)
-        client.publish(
-            self.availability_mqtt_topic,
-            json.dumps({"robot_id": self.robot_id, "online": True}),
-            qos=1,
-            retain=True,
-        )
-        self.get_logger().info(f"MQTT connected; subscribed to {self.command_mqtt_topic}")
+        self.get_logger().info(f"MQTT connected; subscription requested for {self.command_mqtt_topic}")
 
     def _on_mqtt_disconnect(
         self,
@@ -150,6 +149,8 @@ class FleetTextBridge(Node):
         rc,
         properties=None,
     ) -> None:  # noqa: ANN001
+        self._connection_changed(connected=False, subscribed=False, availability_confirmed=False,
+            state='disconnected', error=f'MQTT disconnected rc={rc}; reconnecting' if rc else '')
         if rc != 0:
             self.get_logger().warning(f"Unexpected MQTT disconnect rc={rc}; reconnecting")
 
@@ -157,6 +158,7 @@ class FleetTextBridge(Node):
         try:
             data = decode_json_object(message.payload)
             validate_command(data, self.robot_id)
+            self._connection_changed(last_command_at=time.time())
             if self._duplicates.seen(data["message_id"]):
                 self.get_logger().warning(f"Duplicate ignored: {data['message_id']}")
                 return

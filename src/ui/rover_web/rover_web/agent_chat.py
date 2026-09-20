@@ -13,6 +13,11 @@ class AgentChatMixin:
         self._agent_messages = []
         self._agent_instance = str(uuid.uuid4())
         self._agent_revision = 0
+        self._fleet_connection = None
+        self._fleet_received_at = None
+        self.declare_parameter('fleet_connection_topic', '/fleet/connection')
+        self.fleet_connection_topic = str(self.get_parameter('fleet_connection_topic').value)
+        self.create_subscription(String, self.fleet_connection_topic, self._fleet_connection_received, 10)
         self._agent_topics = {}
         for key, default in (
             ('input', '/agent/text_command'),
@@ -64,7 +69,47 @@ class AgentChatMixin:
                 'input_subscribers': self.count_subscribers(self._agent_topics['input']),
                 'answer_publishers': self.count_publishers(self._agent_topics['answer']),
                 'messages': [dict(item) for item in self._agent_messages],
+                'server_connection': self.fleet_connection_state(),
             }
+
+    def _fleet_connection_received(self, message):
+        try:
+            data = json.loads(message.data)
+        except (ValueError, TypeError):
+            return
+        if not isinstance(data, dict) or not isinstance(data.get('connected'), bool):
+            return
+        # Explicit allowlist: a ROS publisher cannot accidentally expose passwords through this API.
+        with self._agent_lock:
+            self._fleet_connection = {
+                key: str(data.get(key) or '')[:256]
+                for key in ('host', 'robot_id', 'state', 'error')
+            }
+            self._fleet_connection.update({key: data.get(key) is True
+                for key in ('connected', 'subscribed', 'availability_confirmed')})
+            for key in ('port', 'connected_at', 'last_command_at'):
+                value = data.get(key)
+                self._fleet_connection[key] = value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+            self._fleet_received_at = time.monotonic()
+
+    def fleet_connection_state(self):
+        with self._agent_lock:
+            data = dict(self._fleet_connection or {})
+            age = None if self._fleet_received_at is None else time.monotonic() - self._fleet_received_at
+        publishers = self.count_publishers(self.fleet_connection_topic)
+        if not publishers:
+            data.update(state='unavailable', connected=False)
+        elif age is None:
+            data.update(state='waiting', connected=False)
+        elif age > 5.0:
+            data.update(state='stale', connected=False)
+        data.update(topic=self.fleet_connection_topic, age_sec=age,
+                    ready=bool(publishers == 1 and age is not None and age <= 5.0
+                               and data.get('connected') and data.get('subscribed')
+                               and data.get('availability_confirmed') and data.get('state') == 'connected'))
+        if publishers > 1:
+            data.update(state='ambiguous', ready=False)
+        return data
 
     def agent_chat_send(self, payload):
         if not isinstance(payload, dict):

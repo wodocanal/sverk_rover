@@ -12,6 +12,7 @@ web_gateway_node:
     agent_input_topic: /agent/text_command
     agent_answer_topic: /agent/answer
     agent_status_topic: /agent/status
+    fleet_connection_topic: /fleet/connection
     lidar_node_name: /sllidar_node
     led_strip_node_name: /led_strip_node
     octoliner_node_name: /octoliner_node
