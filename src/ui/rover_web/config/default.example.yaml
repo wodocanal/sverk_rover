@@ -9,6 +9,9 @@ web_gateway_node:
     drive_type_file: ~/.config/sverk-rover/drive_type
     camera_node_name: /usb_camera_node
     vision_node_name: /camera_detector_node
+    agent_input_topic: /agent/text_command
+    agent_answer_topic: /agent/answer
+    agent_status_topic: /agent/status
     lidar_node_name: /sllidar_node
     led_strip_node_name: /led_strip_node
     octoliner_node_name: /octoliner_node

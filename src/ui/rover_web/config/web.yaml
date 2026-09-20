@@ -6,8 +6,13 @@ web_gateway_node:
     base_driver_node_name: /base_driver_node
     wheel_odometry_node_name: /wheel_odometry_node
     drive_type_file: ~/.config/sverk-rover/drive_type
+    # Leave empty to use rover_device_manager/config/device_manager.yaml.
+    device_setup_config: ''
     camera_node_name: /usb_camera_node
     vision_node_name: /camera_detector_node
+    agent_input_topic: package://rover_interfaces/config/topics.yaml#topics.agent_text_command
+    agent_answer_topic: package://rover_interfaces/config/topics.yaml#topics.agent_answer
+    agent_status_topic: package://rover_interfaces/config/topics.yaml#topics.agent_status
     lidar_node_name: /sllidar_node
     led_strip_node_name: /led_strip_node
     octoliner_node_name: /octoliner_node

@@ -10,6 +10,7 @@ for service_name in "${SERVICE_NAMES[@]}"; do
   sudo systemctl disable --now "${service_name}" 2>/dev/null || true
   sudo rm -f "/etc/systemd/system/${service_name}"
 done
+sudo rm -f /etc/polkit-1/rules.d/49-rover-maintenance.rules
 sudo systemctl daemon-reload
 
 cat <<EOF

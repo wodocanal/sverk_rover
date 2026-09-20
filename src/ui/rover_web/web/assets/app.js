@@ -6,8 +6,6 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const STORAGE_KEYS = {
   page: 'rover_web.page',
   compact: 'rover_web.compact',
-  vizScale: 'rover_web.viz_scale',
-  vizFollow: 'rover_web.viz_follow',
   vizMapVisible: 'rover_web.viz_map_visible',
   vizMapSelected: 'rover_web.viz_map_selected',
   sessionId: 'rover_web.session_id',
@@ -22,6 +20,7 @@ const STORAGE_KEYS = {
 };
 
 const PAGE_GROUPS = {
+  agent: 'agent',
   overview: 'home',
   ros: 'ros',
   drive: 'movement',
@@ -37,9 +36,12 @@ const PAGE_GROUPS = {
   terminal: 'terminal',
   diagnostics: 'diagnostics',
   settings: 'settings',
+  'motor-calibration': 'settings',
+  'device-manager': 'settings',
 };
 
 const GROUP_DEFAULT_PAGES = {
+  agent: 'agent',
   home: 'overview',
   ros: 'ros',
   movement: 'drive',
@@ -167,8 +169,9 @@ const state = {
   selectedHackathonFile: localStorage.getItem(STORAGE_KEYS.hackathonFile) || '',
   viz: {
     trail: [],
-    scale: Number(localStorage.getItem(STORAGE_KEYS.vizScale) || '120'),
-    follow: localStorage.getItem(STORAGE_KEYS.vizFollow) !== 'false',
+    view: new RoverMapView.MapViewport(),
+    posePreview: null,
+    cancelGesture: null,
     mapVisible: localStorage.getItem(STORAGE_KEYS.vizMapVisible) === 'true',
     maps: [],
     mapsRoot: '',
@@ -507,6 +510,7 @@ function ensureLedStripPixels(count = currentLedStripCount(), seedColors = null)
 
 function currentPageTitle(page) {
   return {
+    agent: 'Агент',
     overview: 'Главная',
     ros: 'ROS State',
     camera: 'Камера',
@@ -522,6 +526,8 @@ function currentPageTitle(page) {
     terminal: 'Терминал',
     diagnostics: 'Диагностика',
     settings: 'Настройки',
+    'motor-calibration': 'Калибровка моторов',
+    'device-manager': 'Device Manager',
   }[page] || 'Rover';
 }
 
@@ -1262,9 +1268,10 @@ function renderNodes() {
   renderList($('#nodes-list'), items, state.selectedNode, (item) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'list-item';
+    button.className = 'ros-list-row';
     button.dataset.key = item.full_name || '';
-    button.innerHTML = `<strong>${item.full_name || item.name || 'node'}</strong>`;
+    button.setAttribute('aria-pressed', String(item.full_name === state.selectedNode));
+    button.textContent = item.full_name || item.name || 'node';
     button.addEventListener('click', () => selectNode(item.full_name));
     return button;
   });
@@ -1304,12 +1311,11 @@ function renderTopics() {
   renderList($('#topics-list'), items, state.selectedTopic, (item) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'list-item';
+    button.className = 'ros-list-row';
     button.dataset.key = item.name || '';
+    button.setAttribute('aria-pressed', String(item.name === state.selectedTopic));
     const type = safeArray(item.types)[0] || 'unknown';
-    const tags = [`pub ${item.publishers ?? 0}`, `sub ${item.subscribers ?? 0}`];
-    if (item.is_image) tags.push('image');
-    button.innerHTML = `<strong>${item.name || 'topic'}</strong><small>${type}</small><small>${tags.join(' · ')}</small>`;
+    button.textContent = item.name || 'topic';
     button.addEventListener('click', () => selectTopic(item.name, type));
     return button;
   });
@@ -1324,10 +1330,11 @@ function renderServices() {
   renderList($('#services-list'), items, state.selectedService, (item) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'list-item';
+    button.className = 'ros-list-row';
     button.dataset.key = item.name || '';
+    button.setAttribute('aria-pressed', String(item.name === state.selectedService));
     const type = safeArray(item.types)[0] || 'unknown';
-    button.innerHTML = `<strong>${item.name || 'service'}</strong><small>${type}</small>`;
+    button.textContent = item.name || 'service';
     button.addEventListener('click', () => selectService(item.name, type));
     return button;
   });
@@ -3787,20 +3794,21 @@ function writeNavigationPose(prefix, pose) {
 }
 
 function setVisualizationPickMode(mode) {
+  state.viz.cancelGesture?.();
   state.viz.pickMode = state.viz.pickMode === mode ? null : mode;
   const active = Boolean(state.viz.pickMode);
   if (active && currentVisualizationMap()) {
     state.viz.mapVisible = true;
     $('#viz-map-visible').checked = true;
-    $('#viz-follow').checked = false;
+    localStorage.setItem(STORAGE_KEYS.vizMapVisible, 'true');
     renderVisualization();
   }
   $('.visualization-panel').classList.toggle('pick-active', active);
   $('#nav-pick-initial').classList.toggle('active', state.viz.pickMode === 'initial');
   $('#nav-pick-goal').classList.toggle('active', state.viz.pickMode === 'goal');
   $('#viz-canvas-hint').textContent = active
-    ? `Нажмите на карту, чтобы задать ${state.viz.pickMode === 'initial' ? 'начальную позицию' : 'цель'}`
-    : 'X вперёд · Y влево · голубой — ровер · оранжевый — план';
+    ? `Нажмите и протяните: ${state.viz.pickMode === 'initial' ? 'начальная позиция' : 'цель'} и направление · Esc — отмена`
+    : 'Перетаскивание — сдвиг · колесо / два пальца — масштаб · двойной щелчок — вся карта';
 }
 
 function navigationRuntimeLabel(runtime) {
@@ -3995,30 +4003,19 @@ function renderVisualization() {
   $('#viz-yaw').textContent = `Курс: ${pose ? formatAngleRad(pose.yaw) : '—'}`;
   $('#viz-points').textContent = `Точек: ${trail.length}`;
 
-  const scale = Number($('#viz-scale').value || state.viz.scale);
-  state.viz.scale = scale;
-  localStorage.setItem(STORAGE_KEYS.vizScale, String(scale));
-  const follow = $('#viz-follow').checked;
-  state.viz.follow = follow;
-  localStorage.setItem(STORAGE_KEYS.vizFollow, follow ? 'true' : 'false');
-
-  let centerX = pose?.x ?? 0;
-  let centerY = pose?.y ?? 0;
-  const map = displayedVisualizationMap();
-  if (map && (!follow || !pose)) {
+  const map = (state.viz.mapVisible || runtime?.mode === 'mapping') ? displayedVisualizationMap() : null;
+  if (map) {
     const yaw = map.origin[2] || 0;
-    centerX = map.origin[0] + (map.width_m * Math.cos(yaw) - map.height_m * Math.sin(yaw)) / 2;
-    centerY = map.origin[1] + (map.width_m * Math.sin(yaw) + map.height_m * Math.cos(yaw)) / 2;
+    const corners = [[0, 0], [map.width_m, 0], [0, map.height_m], [map.width_m, map.height_m]]
+      .map(([x, y]) => ({ x: map.origin[0] + x * Math.cos(yaw) - y * Math.sin(yaw),
+        y: map.origin[1] + x * Math.sin(yaw) + y * Math.cos(yaw) }));
+    state.viz.view.fit(runtime?.mode === 'mapping' ? `live:${runtime.started_at}` : `map:${map.path}`,
+      { minX: Math.min(...corners.map(p => p.x)), maxX: Math.max(...corners.map(p => p.x)),
+        minY: Math.min(...corners.map(p => p.y)), maxY: Math.max(...corners.map(p => p.y)) }, width, height);
+  } else {
+    state.viz.view.fit('odom', pathBounds(trail.length ? trail : [pose || { x: 0, y: 0 }]), width, height);
   }
-  const overviewPath = runtime?.mode === 'navigation' && navigationPlan.length
-    ? navigationPlan
-    : trail;
-  if (!follow && overviewPath.length && !map) {
-    const bounds = pathBounds(overviewPath);
-    centerX = (bounds.minX + bounds.maxX) / 2;
-    centerY = (bounds.minY + bounds.maxY) / 2;
-  }
-
+  const { scale, centerX, centerY } = state.viz.view;
   state.viz.transform = { centerX, centerY, scale, width, height };
 
   drawVisualizationMap(ctx, width, height, scale, centerX, centerY);
@@ -4056,14 +4053,16 @@ function renderVisualization() {
     ctx.stroke();
   }
 
-  const initialPose = readNavigationPose('nav-initial');
-  const goal = readNavigationPose('nav-goal');
+  const preview = state.viz.posePreview;
+  const initialPose = preview?.mode === 'initial' ? preview.pose : readNavigationPose('nav-initial');
+  const goal = preview?.mode === 'goal' ? preview.pose : readNavigationPose('nav-goal');
   if (initialPose) {
     const screen = toScreen(initialPose);
     ctx.fillStyle = '#178f59';
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, 8, 0, Math.PI * 2);
     ctx.fill();
+    drawRoverArrow(ctx, screen, initialPose.yaw, '#178f59', 30);
   }
   if (goal) {
     const screen = toScreen(goal);
@@ -4071,7 +4070,20 @@ function renderVisualization() {
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, 10, 0, Math.PI * 2);
     ctx.fill();
-    drawRoverArrow(ctx, screen, goal.yaw, '#c93644', 14);
+    drawRoverArrow(ctx, screen, goal.yaw, '#c93644', 30);
+  }
+
+  if (preview?.end) {
+    const start = toScreen(preview.pose);
+    const end = toScreen(preview.end);
+    const color = preview.mode === 'initial' ? '#178f59' : '#c93644';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    drawRoverArrow(ctx, end, preview.pose.yaw, color, 12);
   }
 
   if (pose) {
@@ -4347,11 +4359,18 @@ function bindRoutesPage() {
 }
 
 function bindVisualizationPage() {
-  $('#viz-scale').value = String(state.viz.scale);
-  $('#viz-follow').checked = state.viz.follow;
   $('#viz-map-visible').checked = state.viz.mapVisible;
-  $('#viz-scale').addEventListener('input', renderVisualization);
-  $('#viz-follow').addEventListener('change', renderVisualization);
+  state.viz.cancelGesture = RoverMapView.bindMapViewport($('#odom-canvas'), state.viz.view,
+    renderVisualization, {
+      mode: () => state.viz.pickMode,
+      yaw: mode => Number($(`#nav-${mode}-yaw`).value) * Math.PI / 180,
+      preview: value => { state.viz.posePreview = value; },
+      commit: (mode, pose) => {
+        writeNavigationPose(`nav-${mode}`, pose);
+        setVisualizationPickMode(null);
+      },
+      cancel: () => setVisualizationPickMode(null),
+    });
   $('#viz-map-visible').addEventListener('change', (event) => {
     state.viz.mapVisible = event.target.checked;
     localStorage.setItem(STORAGE_KEYS.vizMapVisible, state.viz.mapVisible ? 'true' : 'false');
@@ -4362,6 +4381,7 @@ function bindVisualizationPage() {
     renderVisualization();
   });
   $('#viz-map-select').addEventListener('change', (event) => {
+    setVisualizationPickMode(null);
     state.viz.selectedMap = event.target.value || '';
     localStorage.setItem(STORAGE_KEYS.vizMapSelected, state.viz.selectedMap);
     state.viz.mapImage = null;
@@ -4376,6 +4396,11 @@ function bindVisualizationPage() {
     renderVisualization();
   });
   $('#viz-map-refresh').addEventListener('click', refreshVisualizationMaps);
+  $('#viz-fit').addEventListener('click', () => {
+    state.viz.cancelGesture?.();
+    state.viz.view.reset();
+    renderVisualization();
+  });
   $('#viz-clear').addEventListener('click', () => {
     state.viz.trail = [];
     renderVisualization();
@@ -4399,24 +4424,6 @@ function bindVisualizationPage() {
   });
   $('#nav-pick-initial').addEventListener('click', () => setVisualizationPickMode('initial'));
   $('#nav-pick-goal').addEventListener('click', () => setVisualizationPickMode('goal'));
-  $('#odom-canvas').addEventListener('click', (event) => {
-    if (!state.viz.pickMode || !state.viz.transform) return;
-    const canvas = event.currentTarget;
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = event.clientX - rect.left;
-    const canvasY = event.clientY - rect.top;
-    const transform = state.viz.transform;
-    const pose = {
-      x: transform.centerX + (canvasX - transform.width / 2) / transform.scale,
-      y: transform.centerY - (canvasY - transform.height / 2) / transform.scale,
-      yaw: 0,
-    };
-    writeNavigationPose(
-      state.viz.pickMode === 'initial' ? 'nav-initial' : 'nav-goal',
-      pose,
-    );
-    setVisualizationPickMode(null);
-  });
 
   $('#mapping-start').addEventListener('click', () => {
     navigationRequest('/api/mapping/start', {}, 'Запись карты запускается');
@@ -4807,7 +4814,7 @@ async function initialize() {
     await loadPlan(state.route.selectedName);
   }
 
-  setPage(['overview', 'ros', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'lights', 'audio', 'octoliner', 'actuators', 'hackathon', 'terminal', 'diagnostics', 'settings'].includes(state.page)
+  setPage(['overview', 'ros', 'agent', 'camera', 'drive', 'routes', 'visualization', 'lidar', 'lights', 'audio', 'octoliner', 'actuators', 'hackathon', 'terminal', 'diagnostics', 'settings', 'motor-calibration', 'device-manager'].includes(state.page)
     ? state.page
     : 'overview');
   setRosTab(state.rosTab);

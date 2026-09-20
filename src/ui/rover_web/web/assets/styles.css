@@ -502,7 +502,7 @@ p {
   color: var(--danger);
 }
 
-button:not(.nav-item):not(.stop-button):not(.menu-toggle):not(.section-tab) {
+button:not(.nav-item):not(.stop-button):not(.menu-toggle):not(.section-tab):not(.ros-list-row) {
   border: 1px solid var(--accent-dark);
   background: var(--accent);
   color: #062f43;
@@ -512,7 +512,7 @@ button:not(.nav-item):not(.stop-button):not(.menu-toggle):not(.section-tab) {
   box-shadow: 0 5px 12px rgba(22, 184, 243, 0.13);
 }
 
-button:not(.nav-item):not(.stop-button):not(.menu-toggle):not(.section-tab):hover {
+button:not(.nav-item):not(.stop-button):not(.menu-toggle):not(.section-tab):not(.ros-list-row):hover {
   background: #3ac5f6;
 }
 
@@ -725,13 +725,65 @@ textarea {
   display: none;
 }
 
+.maintenance-layout > .panel { min-width: 0; }
+.maintenance-list { padding-left: 22px; line-height: 1.7; overflow-wrap: anywhere; }
+.maintenance-path { overflow-wrap: anywhere; }
+.maintenance-error { color: var(--danger); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.overview-services { margin-bottom: 18px; }
+.service-controls { min-width: 0; }
+.service-controls h3 { margin: 8px 0; }
+.service-controls .status-note { overflow-wrap: anywhere; }
+
+#topics-list,
+#services-list,
+#nodes-list {
+  grid-template-columns: minmax(max-content, 1fr);
+  align-content: start;
+  gap: 0;
+  overflow-x: auto;
+}
+
+.ros-list-row {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  box-shadow: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.ros-list-row:hover,
+.ros-list-row.active {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  box-shadow: none;
+  transform: none;
+}
+
+.ros-list-row:focus-visible {
+  outline: 2px solid var(--accent-dark);
+  outline-offset: -2px;
+}
+
 .ros-section.active {
   display: block;
 }
 
 .ros-detail-layout {
-  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
   align-items: start;
+}
+
+.ros-detail-layout > .panel {
+  min-width: 0;
 }
 
 .list-panel {
@@ -1235,16 +1287,19 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-#lidar-canvas {
+#lidar-canvas,
+#odom-canvas {
   touch-action: none;
   cursor: grab;
 }
 
-#lidar-canvas.is-dragging {
+#lidar-canvas.is-dragging,
+#odom-canvas.is-dragging {
   cursor: grabbing;
 }
 
-#lidar-canvas:focus-visible {
+#lidar-canvas:focus-visible,
+#odom-canvas:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -3px;
 }
@@ -1427,6 +1482,13 @@ textarea {
   grid-template-columns: minmax(0, 1fr) minmax(340px, 410px);
   align-items: start;
   gap: 18px;
+}
+
+.visualization-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  min-width: 0;
 }
 
 .visualization-sidebar {
@@ -1665,12 +1727,6 @@ textarea {
   gap: 9px;
 }
 
-@media (max-width: 1320px) {
-  .ros-detail-layout {
-    grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
-  }
-}
-
 @media (max-width: 1180px) {
   .diagnostic-health-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1855,4 +1911,26 @@ textarea {
     flex: 0 0 auto;
     min-height: 44px;
   }
+}
+:root { --agent-user-bg: #e7f7ff; }
+
+.agent-chat-panel { max-width: 1100px; margin-inline: auto; min-width: 0; }
+.agent-topics { margin-bottom: 12px; overflow-wrap: anywhere; }
+.agent-topics summary { cursor: pointer; color: var(--muted); }
+.agent-messages {
+  min-height: 200px; height: min(48vh, 560px); overflow: auto;
+  border-block: 1px solid var(--line); padding: 18px 0;
+  overscroll-behavior: contain;
+}
+.agent-exchange { display: grid; gap: 8px; margin-bottom: 22px; min-width: 0; }
+.agent-bubble { max-width: 90%; min-width: 0; padding: 14px 18px; border-radius: 16px; overflow-wrap: anywhere; }
+.agent-bubble p { white-space: pre-wrap; margin: 8px 0 0; }
+.agent-user { justify-self: end; background: var(--agent-user-bg); }
+.agent-answer { justify-self: start; background: var(--bg); border: 1px solid var(--line); }
+.agent-exchange > .status-note { margin: 0; overflow-wrap: anywhere; }
+.agent-composer { display: grid; gap: 10px; margin-top: 18px; min-width: 0; }
+.agent-composer textarea { width: 100%; resize: vertical; min-height: 90px; }
+@media (max-width: 600px) {
+  .agent-bubble { max-width: 100%; }
+  .agent-composer .button-row { align-items: stretch; }
 }

@@ -12,6 +12,11 @@ RUN_USER="${ROVER_SERVICE_USER:-pi}"
 RUN_GROUP="${ROVER_SERVICE_GROUP:-${RUN_USER}}"
 WORKSPACE="${ROVER_WS:-${REPO_ROOT}}"
 
+if [[ ! "${RUN_USER}" =~ ^[a-z_][a-z0-9_-]*\$?$ ]]; then
+  echo "Invalid service user" >&2
+  exit 1
+fi
+
 if [[ ! -f "${WORKSPACE}/install/setup.bash" ]]; then
   cat >&2 <<EOF
 Workspace install/setup.bash was not found:
@@ -51,6 +56,13 @@ for env_name in rover-bringup rover-web; do
     echo "Keeping existing ${env_dst}"
   fi
 done
+
+# Allow hardware start/stop and web restart only, never arbitrary units.
+tmp_policy="$(mktemp)"
+sed "s|@ROVER_USER@|${RUN_USER}|g" "${SCRIPT_DIR}/rover-maintenance.rules" > "${tmp_policy}"
+sudo install -d -m 0755 /etc/polkit-1/rules.d
+sudo install -m 0644 "${tmp_policy}" /etc/polkit-1/rules.d/49-rover-maintenance.rules
+rm -f "${tmp_policy}"
 
 sudo systemctl daemon-reload
 for service_name in "${SERVICE_NAMES[@]}"; do

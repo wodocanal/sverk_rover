@@ -29,6 +29,7 @@
         <button class="nav-item" data-page="ros" data-nav-group="ros">ROS State</button>
         <button class="nav-item" data-page="drive" data-nav-group="movement">Движение</button>
         <button class="nav-item" data-page="camera" data-nav-group="peripherals">Периферия</button>
+        <button class="nav-item" data-page="agent" data-nav-group="agent">Агент</button>
         <button class="nav-item" data-page="hackathon" data-nav-group="hackathon">Хакатон</button>
         <button class="nav-item" id="nav-terminal" data-page="terminal" data-nav-group="terminal">Терминал</button>
         <button class="nav-item" data-page="diagnostics" data-nav-group="diagnostics">Диагностика</button>
@@ -42,6 +43,32 @@
 
     <main class="content">
       <section class="page active" id="page-overview">
+        <article class="panel overview-services">
+          <div class="panel-heading-row">
+            <h2>Сервисы ровера</h2>
+            <button class="secondary" id="services-refresh">Обновить состояние</button>
+          </div>
+          <div class="two-column">
+            <section class="service-controls" aria-labelledby="bringup-service-heading">
+              <h3 id="bringup-service-heading">rover-bringup</h3>
+              <p id="bringup-service-status" class="status-note" role="status">Проверка состояния…</p>
+              <div class="button-row">
+                <button id="bringup-service-toggle" disabled>Запустить</button>
+                <button class="secondary" id="bringup-service-restart" disabled>Перезапустить</button>
+              </div>
+            </section>
+            <section class="service-controls" aria-labelledby="web-service-heading">
+              <h3 id="web-service-heading">rover-web</h3>
+              <p id="web-service-status" class="status-note" role="status">Проверка состояния…</p>
+              <div class="button-row">
+                <button class="secondary" id="web-service-restart" disabled>Перезапустить веб</button>
+              </div>
+            </section>
+          </div>
+          <p class="status-note">Остановка или перезапуск bringup отключает оборудование. Перезапуск веба прерывает веб-навигацию и временно разрывает соединение; интерфейс дождется восстановления. Перед выполнением остановите ровер.</p>
+          <p id="services-operation-status" class="status-note" role="status"></p>
+          <p id="services-error" class="status-note maintenance-error" role="alert"></p>
+        </article>
         <div class="two-column">
           <article class="panel">
             <h2>Базовая страница</h2>
@@ -62,10 +89,33 @@
 ROS State — ноды, топики и сервисы
 Движение — teleop, маршруты и визуализация
 Периферия — камеры и остальные устройства
+Агент — сообщения, ответы и состояние обработки
 Диагностика — состояние систем, устройств и журнал действий
 Настройки — конфигурация интерфейса и компонентов</pre>
           </article>
         </div>
+      </section>
+
+      <section class="page" id="page-agent">
+        <article class="panel agent-chat-panel">
+          <div class="panel-heading-row">
+            <h2>Чат с агентом</h2>
+            <button class="secondary" id="agent-refresh">Обновить</button>
+          </div>
+          <p id="agent-connection" role="status">Проверка подключения…</p>
+          <details class="agent-topics"><summary>ROS-топики</summary><dl class="detail-list" id="agent-topics"></dl></details>
+          <p class="status-note">Агент может управлять движением и оборудованием. Перед отправкой команды убедитесь, что пространство вокруг ровера свободно. Эта страница не запускает агента автоматически.</p>
+          <div id="agent-messages" class="agent-messages" role="log" aria-label="Переписка с агентом" aria-live="polite">
+            <p class="muted">Сообщений пока нет.</p>
+          </div>
+          <form id="agent-form" class="agent-composer">
+            <label for="agent-input">Сообщение агенту</label>
+            <textarea id="agent-input" rows="3" maxlength="4000" placeholder="Напишите сообщение или команду…" required></textarea>
+            <div class="button-row"><button id="agent-send" type="submit" disabled>Отправить</button><span class="status-note">Enter: отправить · Shift+Enter: новая строка</span></div>
+          </form>
+          <p id="agent-error" class="maintenance-error" role="alert"></p>
+          <p class="status-note">Последние 100 сообщений хранятся до перезапуска веб-сервиса. Ответы из других источников также отображаются. История чата не передается агенту: каждое сообщение является отдельным запросом.</p>
+        </article>
       </section>
 
       <section class="page" id="page-ros">
@@ -350,13 +400,12 @@ angular.z: 0.00</pre>
           <button class="section-tab active" data-page="visualization">Визуализация</button>
           <div class="section-tabs-actions">
             <div class="inline-form visualization-controls">
-              <label>Масштаб <input id="viz-scale" type="range" min="40" max="300" value="120"></label>
-              <label class="check-label"><input id="viz-follow" type="checkbox" checked> Следовать за ровером</label>
               <label class="check-label"><input id="viz-map-visible" type="checkbox"> Показывать карту</label>
               <label>Карта
                 <select id="viz-map-select"></select>
               </label>
               <button class="secondary" id="viz-map-refresh">Обновить карты</button>
+              <button class="secondary" id="viz-fit">Вся карта</button>
               <button class="secondary" id="viz-clear">Очистить след</button>
             </div>
           </div>
@@ -369,11 +418,17 @@ angular.z: 0.00</pre>
           <span id="viz-navigation-state">SLAM / Nav2: выключены</span>
         </div>
         <div class="visualization-workspace">
-          <article class="panel canvas-panel visualization-panel">
-            <canvas id="odom-canvas" width="1100" height="680"></canvas>
-            <div id="viz-empty" class="canvas-empty">Ожидание данных /odom…</div>
-            <div class="canvas-legend" id="viz-canvas-hint">X вперёд · Y влево · голубой — ровер · оранжевый — план</div>
-          </article>
+          <div class="visualization-main">
+            <article class="panel canvas-panel visualization-panel">
+              <canvas id="odom-canvas" width="1100" height="680" tabindex="0" aria-label="Карта: перетаскивание для сдвига, колесо для масштаба; в режиме выбора протяните для задания направления"></canvas>
+              <div id="viz-empty" class="canvas-empty">Ожидание данных /odom…</div>
+              <div class="canvas-legend" id="viz-canvas-hint">Перетаскивание — сдвиг · колесо / два пальца — масштаб · двойной щелчок — вся карта</div>
+            </article>
+            <article class="panel navigation-log-card">
+              <h2>SLAM / Nav2</h2>
+              <pre class="log-box" id="navigation-log">Процессы не запущены.</pre>
+            </article>
+          </div>
 
           <aside class="visualization-sidebar">
             <article class="panel navigation-control-card">
@@ -430,10 +485,6 @@ angular.z: 0.00</pre>
               </div>
             </article>
 
-            <article class="panel navigation-log-card">
-              <h2>SLAM / Nav2</h2>
-              <pre class="log-box" id="navigation-log">Процессы не запущены.</pre>
-            </article>
           </aside>
         </div>
       </section>
@@ -783,7 +834,102 @@ angular.z: 0.00</pre>
         </div>
       </section>
 
+      <section class="page" id="page-motor-calibration">
+        <div class="section-tabs">
+          <button class="section-tab" data-page="settings">Общие</button>
+          <button class="section-tab active" data-page="motor-calibration">Калибровка моторов</button>
+          <button class="section-tab" data-page="device-manager">Device Manager</button>
+        </div>
+        <div class="two-column maintenance-layout">
+          <article class="panel">
+            <h2>Калибровка подключения моторов</h2>
+            <p>Поднимите ровер так, чтобы все четыре колеса свободно вращались. Не держите его в руках. Остановите навигацию, патрулирование и любые внешние команды движения.</p>
+            <p>Каждый тест подает положительную команду только на один физический канал контроллера: 0,06 м/с, не более 2 секунд. Во время калибровки драйвер игнорирует обычные команды движения.</p>
+            <label class="check-label"><input id="motor-raised" type="checkbox"> Ровер надежно установлен, все колеса подняты, зона свободна</label>
+            <div class="button-row">
+              <button id="motor-begin">Начать калибровку</button>
+              <button class="danger-secondary" id="motor-stop">Остановить мотор</button>
+              <button class="secondary" id="motor-end">Завершить без применения</button>
+            </div>
+            <p class="status-note" id="motor-status" role="status">Проверка драйвера…</p>
+            <h3 id="motor-step">Канал 1 из 4</h3>
+            <button id="motor-pulse" disabled>Прокрутить этот мотор</button>
+            <p>Смотрите на ровер сверху, его перед направлен от вас. «Вперед» означает, что это вращение катило бы ровер вперед по полу, а не «по часовой стрелке» с произвольной стороны.</p>
+            <div class="form-grid">
+              <label>Какое колесо вращалось?
+                <select id="motor-wheel"><option value="">Выберите колесо</option><option value="0">Переднее левое</option><option value="1">Переднее правое</option><option value="2">Заднее левое</option><option value="3">Заднее правое</option></select>
+              </label>
+              <label>В какую сторону?
+                <select id="motor-direction"><option value="">Выберите направление</option><option value="1">Вперед</option><option value="-1">Назад</option></select>
+              </label>
+            </div>
+            <button id="motor-record" disabled>Подтвердить и перейти к следующему</button>
+          </article>
+          <article class="panel">
+            <h2>Результат</h2>
+            <ol id="motor-observations" class="maintenance-list"></ol>
+            <p>Результат сохраняется отдельно от исходников и переживает обновления кода. Порядок моторов и энкодеров применяется вместе при перезапуске bringup, не во время теста.</p>
+            <div class="button-row">
+              <button id="motor-save" disabled>Сохранить калибровку</button>
+              <button class="secondary" id="motor-restart" disabled>Применить: перезапустить bringup</button>
+            </div>
+            <p id="motor-file" class="status-note maintenance-path"></p>
+            <p>Пока калибровка активна, движение заблокировано даже после закрытия вкладки. Короткий импульс остановится автоматически. После сохранения используйте перезапуск, а для отмены — «Завершить без применения».</p>
+          </article>
+        </div>
+        <p class="status-note maintenance-error" id="motor-error" role="alert"></p>
+      </section>
+
+      <section class="page" id="page-device-manager">
+        <div class="section-tabs">
+          <button class="section-tab" data-page="settings">Общие</button>
+          <button class="section-tab" data-page="motor-calibration">Калибровка моторов</button>
+          <button class="section-tab active" data-page="device-manager">Device Manager</button>
+        </div>
+        <div class="two-column maintenance-layout">
+          <article class="panel">
+            <h2>Подключение компонентов</h2>
+            <p>Мастер находит и проверяет Quad-MD, Yahboom YB-MRA02 и SLLIDAR/RPLIDAR. Камера, LED и другие периферийные устройства этим последовательным Device Manager не настраиваются.</p>
+            <p>Сначала остановите аппаратный запуск. Веб должен работать отдельным сервисом rover-web.</p>
+            <div class="button-row">
+              <button class="danger-secondary" id="devices-hardware-stop">Режим обслуживания: остановить bringup</button>
+              <button class="secondary" id="devices-hardware-start">Запустить bringup</button>
+            </div>
+            <label class="check-label"><input id="devices-confirmed" type="checkbox"> Bringup остановлен, колеса подняты, USB контроллера, IMU и лидара отключены</label>
+            <div class="button-row">
+              <button id="devices-begin">Начать настройку</button>
+              <button class="secondary" id="devices-refresh">Обновить список</button>
+              <button class="danger-secondary" id="devices-cancel">Отменить настройку</button>
+            </div>
+            <p id="devices-status" class="status-note" role="status">Ожидание…</p>
+            <p>Подключите один компонент, выберите его роль и появившийся порт. Уже принятые компоненты оставляйте подключенными. Непроверенные порты не сохраняются.</p>
+            <label>Компонент<select id="devices-role"><option value="motor_controller">Контроллер Quad-MD</option><option value="imu">IMU Yahboom YB-MRA02</option><option value="lidar">Лидар SLLIDAR/RPLIDAR</option></select></label>
+            <label>Новый последовательный порт<select id="devices-port"><option value="">Новых устройств нет</option></select></label>
+            <div class="button-row">
+              <button id="devices-probe" disabled>Проверить устройство</button>
+              <button id="devices-accept" disabled>Принять найденное устройство</button>
+            </div>
+            <p id="devices-verification" class="status-note maintenance-path"></p>
+          </article>
+          <article class="panel">
+            <h2>Устройства и конфигурация</h2>
+            <h3>Подключенные порты</h3><ul id="devices-inventory" class="maintenance-list"></ul>
+            <h3>Принятые в этом мастере</h3><ul id="devices-accepted" class="maintenance-list"></ul>
+            <h3>Сохраненные устройства</h3><ul id="devices-saved" class="maintenance-list"></ul>
+            <button id="devices-save" disabled>Сохранить конфигурацию устройств</button>
+            <p id="devices-config" class="status-note maintenance-path"></p>
+            <p>Старая конфигурация не меняется до сохранения. После сохранения запустите bringup: он создаст рабочие ссылки на устройства. Предыдущий конфиг остается в файле .json.bak.</p>
+          </article>
+        </div>
+        <p id="devices-error" class="status-note maintenance-error" role="alert"></p>
+      </section>
+
       <section class="page" id="page-settings">
+        <div class="section-tabs">
+          <button class="section-tab active" data-page="settings">Общие</button>
+          <button class="section-tab" data-page="motor-calibration">Калибровка моторов</button>
+          <button class="section-tab" data-page="device-manager">Device Manager</button>
+        </div>
         <div>
           <article class="panel">
             <h2>Конфигурация</h2>
@@ -933,6 +1079,10 @@ angular.z: 0.00</pre>
 
   <div id="toast-container" class="toast-container"></div>
   <script src="/assets/lidar-view.js"></script>
+  <script src="/assets/map-view.js"></script>
   <script src="/assets/app.js"></script>
+  <script src="/assets/maintenance.js"></script>
+  <script src="/assets/system-services.js"></script>
+  <script src="/assets/agent-chat.js"></script>
 </body>
 </html>

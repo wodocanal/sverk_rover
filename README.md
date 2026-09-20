@@ -118,6 +118,12 @@ pose and a goal before **Start navigation** becomes available.
 See [Web mapping and navigation](docs/web-navigation.md) for the operator guide,
 service update instructions and integration tests.
 
+See [Web hardware setup](docs/web-hardware-setup.md) for the motor calibration
+wizard and Device Manager, available under Settings.
+
+See [Web agent chat](docs/web-agent.md) for sending ROS agent commands and
+viewing replies, status updates and errors on the **Agent** page.
+
 Any component can be overridden from the command line:
 
 ```bash

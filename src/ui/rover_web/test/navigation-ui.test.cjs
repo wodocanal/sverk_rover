@@ -5,6 +5,12 @@ const fs = require('node:fs');
 const html = fs.readFileSync(`${__dirname}/../web/index.html`, 'utf8');
 const source = fs.readFileSync(`${__dirname}/../web/assets/app.js`, 'utf8');
 
+test('map uses gestures instead of scale and follow controls', () => {
+  assert.doesNotMatch(html, /id="viz-(scale|follow)"/);
+  assert.match(html, /assets\/map-view.js/);
+  assert.match(source, /RoverMapView.bindMapViewport/);
+});
+
 test('visualization page exposes mapping lifecycle controls', () => {
   for (const id of ['mapping-start', 'mapping-save', 'mapping-stop', 'mapping-label']) {
     assert.match(html, new RegExp(`id="${id}"`));

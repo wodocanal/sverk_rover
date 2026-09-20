@@ -4,6 +4,7 @@ base_driver_node:
     cmd_vel_topic: /cmd_vel
     drive_type: mecanum
     drive_type_file: ~/.config/sverk-rover/drive_type
+    motor_calibration_file: ~/.config/sverk-rover/motor_calibration.json
     control_rate_hz: 50.0
     command_timeout_sec: 0.5
     feedback_timeout_sec: 0.35

@@ -44,6 +44,7 @@ class QuadMdProtocol:
         self.stop_event = threading.Event()
         self.closed = False
         self.latest_counts: Optional[tuple[int, int, int, int]] = None
+        self.latest_raw_counts = None
         self.latest_speeds: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self.latest_sample: Optional[EncoderSample] = None
         self.latest_battery: Optional[float] = None
@@ -92,6 +93,17 @@ class QuadMdProtocol:
     def hold_stop(self) -> None:
         self.write('$spd:0,0,0,0#')
 
+    def calibration_speed(self, channel: int, speed_mm_s: int) -> None:
+        if channel not in range(4) or not 0 <= speed_mm_s <= 60:
+            raise ValueError('Invalid calibration pulse')
+        values = [0, 0, 0, 0]
+        values[channel] = speed_mm_s
+        self.write('$spd:' + ','.join(str(value) for value in values) + '#')
+
+    def raw_counts(self):
+        with self.state_lock:
+            return self.latest_raw_counts
+
     def release(self) -> None:
         self.write('$pwm:0,0,0,0#')
 
@@ -137,6 +149,7 @@ class QuadMdProtocol:
                 for index, sign in zip(self.feedback_order, self.feedback_signs)
             )
             with self.state_lock:
+                self.latest_raw_counts = (raw, now)
                 self.latest_counts = counts  # type: ignore[assignment]
                 self.sequence += 1
                 self.latest_sample = EncoderSample(

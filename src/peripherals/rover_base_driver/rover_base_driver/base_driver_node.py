@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import time
 from typing import Optional
 
@@ -13,6 +14,8 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, Float64MultiArray
 
 from rover_interfaces.msg import WheelCommand, WheelEncoders
+from rover_interfaces.srv import CalibrateMotors
+from .motor_calibration import DEFAULT_CALIBRATION_FILE, MotorCalibration, load_calibration
 
 from .drive_types import (
     DEFAULT_DRIVE_TYPE_FILE,
@@ -47,6 +50,7 @@ class BaseDriverNode(Node):
         self.declare_parameter('reduction_ratio', 45.0)
         self.declare_parameter('quadrature_factor', 4.0)
         self.declare_parameter('motor_command_order', [0, 1, 2, 3])
+        self.declare_parameter('motor_calibration_file', DEFAULT_CALIBRATION_FILE)
         self.declare_parameter('motor_command_signs', [1, -1, -1, 1])
         self.declare_parameter('encoder_feedback_order', [0, 1, 2, 3])
         self.declare_parameter('encoder_feedback_signs', [1, -1, -1, 1])
@@ -113,6 +117,10 @@ class BaseDriverNode(Node):
             float(self.get_parameter('max_jerk_z_radps3').value),
         ]
 
+        calibration_file = str(self.get_parameter('motor_calibration_file').value)
+        saved_calibration = load_calibration(calibration_file)
+        if saved_calibration:
+            self.set_parameters([Parameter(key, value=value) for key, value in saved_calibration.items()])
         self.protocol = QuadMdProtocol(
             self.device,
             int(self.get_parameter('baudrate').value),
@@ -122,6 +130,8 @@ class BaseDriverNode(Node):
             list(self.get_parameter('encoder_feedback_signs').value),
         )
 
+        self.calibration = MotorCalibration(self.protocol, calibration_file)
+        self.create_service(CalibrateMotors, '/drive/calibrate_motors', self._calibrate)
         self.target = [0.0, 0.0, 0.0]
         self.current = [0.0, 0.0, 0.0]
         self.current_accel = [0.0, 0.0, 0.0]
@@ -182,6 +192,8 @@ class BaseDriverNode(Node):
         return SetParametersResult(successful=True)
 
     def _cmd(self, message: Twist) -> None:
+        if self.calibration.active:
+            return
         values = [message.linear.x, message.linear.y, message.angular.z]
         if not all(math.isfinite(v) for v in values):
             self.get_logger().error('Ignored non-finite cmd_vel')
@@ -210,6 +222,13 @@ class BaseDriverNode(Node):
         now = time.monotonic()
         dt = max(0.001, min(0.1, now - self.last_loop))
         self.last_loop = now
+
+        if self.calibration.active:
+            try:
+                self.calibration.tick()
+            except Exception as exc:
+                self.calibration.stop(f'Calibration error: {exc}')
+            return
 
         stale = now - self.last_cmd > self.command_timeout
         if stale:
@@ -311,6 +330,27 @@ class BaseDriverNode(Node):
 
     def close(self) -> None:
         self.protocol.close()
+
+    def _calibrate(self, request, response):
+        try:
+            if request.command == 'begin' and (max(map(abs, self.current)) > 0.001
+                                               or max(map(abs, self.target)) > 0.001):
+                raise ValueError('Stop rover motion before starting calibration')
+            result = self.calibration.command(request.command, request.wheels_raised,
+                                              request.wheel, request.direction)
+            if request.command in ('begin', 'end', 'stop'):
+                self.target = self.current = [0.0, 0.0, 0.0]
+                self.current_accel = [0.0, 0.0, 0.0]
+                self.last_cmd = 0.0
+                self.stale_since = None
+                self.released = True
+            response.success = True
+            response.message = result['message']
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
+        response.state_json = json.dumps(self.calibration.state())
+        return response
 
 
 def main(args: Optional[list[str]] = None) -> None:

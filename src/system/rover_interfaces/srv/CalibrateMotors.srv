@@ -1,0 +1,10 @@
+# Commands: status, begin, pulse, record, save, end, stop.
+string command
+bool wheels_raised
+int32 wheel
+# +1: observed wheel motion would propel rover forward; -1: backward.
+int32 direction
+---
+bool success
+string message
+string state_json

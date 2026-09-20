@@ -34,6 +34,7 @@ def test_differential_drive_rejects_lateral_command():
         _lock=Lock(),
         _latest_drive_command=None,
         _latest_drive_monotonic=0.0,
+        _motor_calibration_active=False,
     )
     result = RoverWebGateway.set_drive_command(node, 0.2, 0.3, 0.7)
     assert result['command'] == {

@@ -27,6 +27,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from ament_index_python.packages import get_package_share_directory
 from rover_configuration import config_path, node_parameters
+from .maintenance import MaintenanceMixin
+from .agent_chat import AgentChatMixin
 import cv2
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
@@ -485,7 +487,7 @@ class ServiceHandle:
     client: Any
 
 
-class RoverWebGateway(Node):
+class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
     def __init__(self) -> None:
         super().__init__('web_gateway_node')
 
@@ -757,6 +759,8 @@ class RoverWebGateway(Node):
         self.started_at = time.time()
         self._lock = threading.RLock()
         self._navigation_control_lock = threading.RLock()
+        self.init_maintenance()
+        self.init_agent_chat()
         self._topic_watches: dict[tuple[str, str], TopicWatch] = {}
         self._image_watches: dict[tuple[str, str], ImageWatch] = {}
         self._publisher_cache: dict[tuple[str, str], PublisherHandle] = {}
@@ -3224,6 +3228,8 @@ class RoverWebGateway(Node):
         }
 
     def set_drive_command(self, linear_x: float, linear_y: float, angular_z: float) -> dict[str, Any]:
+        if self._motor_calibration_active and any((linear_x, linear_y, angular_z)):
+            raise RuntimeError('Finish motor calibration before driving')
         command = Twist()
         command.linear.x = clamp(float(linear_x), self.max_linear_speed)
         command.linear.y = (
@@ -3264,6 +3270,8 @@ class RoverWebGateway(Node):
             self.drive_publisher.publish(Twist())
 
     def start_motion(self, request: dict[str, Any]) -> dict[str, Any]:
+        if self._motor_calibration_active:
+            raise RuntimeError('Finish motor calibration before driving')
         with self._lock:
             if self._motion_process is not None and self._motion_process.poll() is None:
                 raise RuntimeError('A motion command is already running')
@@ -3610,6 +3618,8 @@ class RoverWebGateway(Node):
 
     @navigation_operation
     def start_navigation(self, request: dict[str, Any]) -> dict[str, Any]:
+        if self._motor_calibration_active:
+            raise RuntimeError('Finish motor calibration before navigation')
         self._assert_navigation_runtime_idle()
         self._assert_navigation_topics('navigation')
         map_name = str(request.get('map', '')).strip()
@@ -4138,6 +4148,9 @@ class RoverWebGateway(Node):
                             HTTPStatus.OK,
                         )
                         return
+                    if path == '/api/agent':
+                        self._send_json(gateway.agent_chat_state(), HTTPStatus.OK)
+                        return
                     if path == '/api/identity':
                         self._send_json(gateway.identity_payload(), HTTPStatus.OK)
                         return
@@ -4162,6 +4175,12 @@ class RoverWebGateway(Node):
                         return
                     if path == '/api/maps':
                         self._send_json(gateway.maps_payload(), HTTPStatus.OK)
+                        return
+                    if path == '/api/maintenance':
+                        self._send_json(gateway.maintenance_status(), HTTPStatus.OK)
+                        return
+                    if path == '/api/system/services':
+                        self._send_json(gateway.system_services_status(), HTTPStatus.OK)
                         return
                     if path == '/api/mapping/image':
                         self._send_bytes(gateway.live_map_image(), 'image/png', HTTPStatus.OK)
@@ -4316,6 +4335,9 @@ class RoverWebGateway(Node):
                 try:
                     parsed = urlparse(self.path)
                     payload = self._read_json_body()
+                    if parsed.path == '/api/agent/send':
+                        self._send_json(gateway.agent_chat_send(payload), HTTPStatus.OK)
+                        return
                     if parsed.path == '/api/heartbeat':
                         gateway.register_heartbeat(
                             str(payload.get('session_id', '')),
@@ -4335,6 +4357,10 @@ class RoverWebGateway(Node):
                         self._send_json({'ok': True}, HTTPStatus.OK)
                         return
                     if parsed.path == '/api/stop':
+                        try:
+                            gateway.motor_calibration_command({'command': 'stop'})
+                        except Exception:
+                            pass
                         gateway.stop_navigation_runtime()
                         details = (
                             payload.get('details', {})
@@ -4455,6 +4481,18 @@ class RoverWebGateway(Node):
                             {'ok': True, 'navigation': gateway.start_mapping()},
                             HTTPStatus.OK,
                         )
+                        return
+                    if parsed.path == '/api/maintenance/motors':
+                        self._send_json(gateway.motor_calibration_command(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/maintenance/devices':
+                        self._send_json(gateway.device_setup_command(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/maintenance/hardware':
+                        self._send_json(gateway.hardware_service_command(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/system/web/restart':
+                        self._send_json(gateway.restart_web_service(payload), HTTPStatus.ACCEPTED)
                         return
                     if parsed.path == '/api/mapping/save':
                         self._send_json(
