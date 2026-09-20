@@ -399,24 +399,22 @@ angular.z: 0.00</pre>
           <button class="section-tab" data-page="routes">Маршруты</button>
           <button class="section-tab active" data-page="visualization">Визуализация</button>
           <div class="section-tabs-actions">
-            <div class="inline-form visualization-controls">
-              <label class="check-label"><input id="viz-map-visible" type="checkbox"> Показывать карту</label>
-              <label>Карта
-                <select id="viz-map-select"></select>
-              </label>
-              <button class="secondary" id="viz-map-refresh">Обновить карты</button>
-              <button class="secondary" id="viz-fit">Вся карта</button>
-              <button class="secondary" id="viz-clear">Очистить след</button>
-            </div>
+            <label class="check-label"><input id="viz-map-visible" type="checkbox"> Показывать карту</label>
           </div>
         </div>
         <div class="visualization-readout">
+          <div class="visualization-map-picker">
+            <select id="viz-map-select" aria-label="Карта"></select>
+            <button class="secondary" id="viz-map-refresh" aria-label="Обновить карты" title="Обновить карты">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1A8 8 0 0 1 19.5 10M4.5 14a8 8 0 0 0 13.4 3.9"/></svg>
+            </button>
+          </div>
           <span id="viz-position">Позиция: —</span>
           <span id="viz-yaw">Курс: —</span>
           <span id="viz-points">Точек: 0</span>
-          <span id="viz-map-info">Карта: —</span>
           <span id="viz-navigation-state">SLAM / Nav2: выключены</span>
         </div>
+        <p id="viz-map-error" class="maintenance-error" role="alert"></p>
         <div class="visualization-workspace">
           <div class="visualization-main">
             <article class="panel canvas-panel visualization-panel">

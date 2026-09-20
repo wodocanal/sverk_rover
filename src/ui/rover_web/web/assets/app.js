@@ -3723,7 +3723,6 @@ function renderVisualizationMapSelector() {
     select.disabled = true;
     visibleToggle.disabled = true;
     state.viz.selectedMap = '';
-    $('#viz-map-info').textContent = 'Карта: нет доступных YAML';
     return;
   }
 
@@ -3762,6 +3761,7 @@ function loadVisualizationMapImage(map) {
   }
 
   state.viz.mapImageLoading = true;
+  $('#viz-map-error').textContent = '';
   state.viz.mapImagePath = imageKey;
   const image = new Image();
   image.onload = () => {
@@ -3775,7 +3775,7 @@ function loadVisualizationMapImage(map) {
     state.viz.mapImage = null;
     state.viz.mapImageLoading = false;
     state.viz.mapImageFailedKey = imageKey;
-    $('#viz-map-info').textContent = `Карта: не удалось загрузить ${map.name}`;
+    $('#viz-map-error').textContent = `Не удалось загрузить карту «${map.name}».`;
     renderVisualization();
   };
   image.src = map.image_url;
@@ -3783,6 +3783,7 @@ function loadVisualizationMapImage(map) {
 
 async function refreshVisualizationMaps() {
   state.viz.mapImageFailedKey = '';
+  $('#viz-map-error').textContent = '';
   try {
     const payload = await api('/api/maps');
     state.viz.maps = safeArray(payload.maps);
@@ -3798,7 +3799,7 @@ async function refreshVisualizationMaps() {
   } catch (error) {
     state.viz.maps = [];
     renderVisualizationMapSelector();
-    $('#viz-map-info').textContent = String(error.message || error);
+    $('#viz-map-error').textContent = String(error.message || error);
     return null;
   }
 }
@@ -3971,18 +3972,11 @@ function drawVisualizationMap(ctx, width, height, scale, centerX, centerY) {
   const map = displayedVisualizationMap();
   const live = state.viz.navigation?.mode === 'mapping';
   if ((!state.viz.mapVisible && !live) || !map) {
-    $('#viz-map-info').textContent = state.viz.mapVisible
-      ? 'Карта: нет выбранной карты'
-      : 'Карта: скрыта';
     return;
   }
 
   loadVisualizationMapImage(map);
   const image = state.viz.mapImage;
-  const cellCm = Number(map.resolution || 0) * 100;
-  $('#viz-map-info').textContent = image?.complete
-    ? `Карта: ${map.name}, клетка ${formatFloat(cellCm, 1)} см`
-    : `Карта: загрузка ${map.name}…`;
   if (!image?.complete) {
     return;
   }
@@ -4434,15 +4428,6 @@ function bindVisualizationPage() {
     renderVisualization();
   });
   $('#viz-map-refresh').addEventListener('click', refreshVisualizationMaps);
-  $('#viz-fit').addEventListener('click', () => {
-    state.viz.cancelGesture?.();
-    state.viz.view.reset();
-    renderVisualization();
-  });
-  $('#viz-clear').addEventListener('click', () => {
-    state.viz.trail = [];
-    renderVisualization();
-  });
 
   ['nav-initial-x', 'nav-initial-y', 'nav-initial-yaw', 'nav-goal-x', 'nav-goal-y', 'nav-goal-yaw']
     .forEach((id) => {

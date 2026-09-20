@@ -6,9 +6,19 @@ const html = fs.readFileSync(`${__dirname}/../web/index.html`, 'utf8');
 const source = fs.readFileSync(`${__dirname}/../web/assets/app.js`, 'utf8');
 
 test('map uses gestures instead of scale and follow controls', () => {
-  assert.doesNotMatch(html, /id="viz-(scale|follow)"/);
+  assert.doesNotMatch(html, /id="viz-(scale|follow|fit|clear|map-info)"/);
   assert.match(html, /assets\/map-view.js/);
   assert.match(source, /RoverMapView.bindMapViewport/);
+});
+
+test('map picker and accessible icon refresh share the telemetry row', () => {
+  const row = html.slice(html.indexOf('<div class="visualization-readout">'), html.indexOf('<div class="visualization-workspace">'));
+  for (const id of ['viz-map-select', 'viz-map-refresh', 'viz-position', 'viz-yaw', 'viz-navigation-state']) {
+    assert.ok(row.includes(`id="${id}"`));
+  }
+  assert.match(row, /id="viz-map-refresh" aria-label="Обновить карты"/);
+  assert.match(row, /<svg /);
+  assert.doesNotMatch(source, /\$\('#viz-(fit|clear|map-info)'\)/);
 });
 
 test('visualization page exposes mapping lifecycle controls', () => {

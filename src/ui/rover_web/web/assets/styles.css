@@ -1375,6 +1375,7 @@ textarea {
 
 .visualization-readout {
   display: flex;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   margin: -8px 0 12px;
@@ -1459,22 +1460,26 @@ textarea {
   padding: 4px;
 }
 
-.visualization-controls {
+.visualization-map-picker {
+  display: flex;
   align-items: center;
-}
-
-.visualization-controls label:not(.check-label) {
-  min-width: 190px;
-  margin: 0;
-}
-
-.visualization-controls .check-label {
-  margin: 0;
-  flex: 0 0 auto;
+  gap: 8px;
+  flex: 1 1 260px;
+  min-width: 0;
 }
 
 #viz-map-select {
-  min-width: 190px;
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+#viz-map-refresh { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; padding: 0; }
+#viz-map-error:empty { display: none; }
+.visualization-readout > span { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .visualization-map-picker { flex-basis: 100%; }
 }
 
 .visualization-workspace {
