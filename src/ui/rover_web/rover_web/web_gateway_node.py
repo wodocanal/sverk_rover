@@ -29,6 +29,7 @@ from ament_index_python.packages import get_package_share_directory
 from rover_configuration import config_path, node_parameters
 from .maintenance import MaintenanceMixin
 from .agent_chat import AgentChatMixin
+from .navigation_settings import NavigationSettingsMixin
 import cv2
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
@@ -487,7 +488,7 @@ class ServiceHandle:
     client: Any
 
 
-class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
+class RoverWebGateway(NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin, Node):
     def __init__(self) -> None:
         super().__init__('web_gateway_node')
 
@@ -761,6 +762,7 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
         self._navigation_control_lock = threading.RLock()
         self.init_maintenance()
         self.init_agent_chat()
+        self.init_navigation_settings()
         self._topic_watches: dict[tuple[str, str], TopicWatch] = {}
         self._image_watches: dict[tuple[str, str], ImageWatch] = {}
         self._publisher_cache: dict[tuple[str, str], PublisherHandle] = {}
@@ -2701,6 +2703,7 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
     def update_drive_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError('Drive settings payload must be an object')
+        self._assert_navigation_runtime_idle()
         drive_type = normalize_drive_type(payload.get('drive_type', ''))
         previous = self.drive_type
         self.stop_drive()
@@ -3547,6 +3550,8 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
             self.navigation_package,
             self.mapping_launch_file,
             'use_rviz:=false',
+            f'settings_file:={self.navigation_settings_file}',
+            f'drive_type_file:={self.drive_type_file}',
         ]
         self._start_navigation_process('mapping', command)
         with self._lock:
@@ -3562,7 +3567,6 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
             raise ValueError(
                 'Map label may contain only Latin letters, digits, _ and -'
             )
-        occupancy_only = bool(request.get('occupancy_only', False))
         with self._lock:
             navigation_process = self._navigation_process
             if (
@@ -3583,8 +3587,6 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
             '--timeout',
             str(self.map_save_timeout_sec),
         ]
-        if occupancy_only:
-            command.append('--occupancy-only')
         command.extend(['--', label])
         environment = os.environ.copy()
         environment.setdefault('ROS_AUTOMATIC_DISCOVERY_RANGE', 'LOCALHOST')
@@ -3634,6 +3636,8 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
             self.navigation_launch_file,
             f'map:={map_yaml}',
             'use_rviz:=false',
+            f'settings_file:={self.navigation_settings_file}',
+            f'drive_type_file:={self.drive_type_file}',
         ]
         self._start_navigation_process(
             'navigation',
@@ -4009,12 +4013,28 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
         _, content_type = HACKATHON_FILE_TYPES[path.suffix.lower()]
         return path.read_bytes(), content_type
 
+    def _map_library_roots(self) -> list[tuple[str, Path]]:
+        roots = [('', self.maps_root.resolve())]
+        if self.maps_root.name == 'current':
+            roots.append(('archive/', self.maps_root.parent / 'archive'))
+        return roots
+
+    def _map_library_location(self, path: Path) -> tuple[str, Path]:
+        resolved = path.resolve()
+        for prefix, root in self._map_library_roots():
+            if resolved.is_relative_to(root):
+                return prefix + resolved.relative_to(root).as_posix(), root
+        raise PermissionError('Map file must stay inside current or archive')
+
     def _resolve_map_yaml(self, relative_path: str) -> Path:
         requested = relative_path.strip().replace('\\', '/').lstrip('/')
         if not requested:
             raise FileNotFoundError('Map file name is empty')
-        candidate = (self.maps_root / requested).resolve()
         root = self.maps_root.resolve()
+        if requested.startswith('archive/') and self.maps_root.name == 'current':
+            root = self.maps_root.parent / 'archive'
+            requested = requested.removeprefix('archive/')
+        candidate = (root / requested).resolve()
         if os.path.commonpath([str(root), str(candidate)]) != str(root):
             raise PermissionError('Forbidden')
         if candidate.suffix.lower() not in MAP_YAML_EXTENSIONS:
@@ -4031,9 +4051,9 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
         if not image_path.is_absolute():
             image_path = map_yaml.parent / image_path
         image_path = image_path.resolve()
-        root = self.maps_root.resolve()
+        _, root = self._map_library_location(map_yaml)
         if os.path.commonpath([str(root), str(image_path)]) != str(root):
-            raise PermissionError('Map image must stay inside maps_root')
+            raise PermissionError('Map image must stay inside its map library root')
         if image_path.suffix.lower() not in MAP_IMAGE_EXTENSIONS:
             raise PermissionError('Unsupported map image type')
         if not image_path.exists() or not image_path.is_file():
@@ -4067,13 +4087,24 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
         if not math.isfinite(resolution) or resolution <= 0.0:
             resolution = 0.05
 
-        relative_yaml = map_yaml.relative_to(self.maps_root).as_posix()
-        relative_image = image_path.relative_to(self.maps_root).as_posix()
+        relative_yaml, _ = self._map_library_location(map_yaml)
+        relative_image, _ = self._map_library_location(image_path)
+        info = read_yaml(map_yaml.parent / 'map_info.json', {})
+        if not isinstance(info, dict):
+            info = {}
+        archived = relative_yaml.startswith('archive/') and self.maps_root.name == 'current'
+        label = str(info.get('label') or (map_yaml.parent.name if archived else map_yaml.stem))
+        created_at = str(info.get('created_at') or '')
+        revision = f'{map_yaml.stat().st_mtime_ns}-{image_path.stat().st_mtime_ns}'
         return {
             'path': relative_yaml,
-            'name': map_yaml.stem,
+            'name': label,
+            'archived': archived,
+            'created_at': created_at,
+            'version': map_yaml.parent.name if archived else '',
+            'revision': revision,
             'image': relative_image,
-            'image_url': f'/api/maps/image?map={quote(relative_yaml)}',
+            'image_url': f'/api/maps/image?map={quote(relative_yaml)}&revision={revision}',
             'resolution': resolution,
             'origin': self._map_origin(metadata),
             'negate': int(metadata.get('negate', 0) or 0),
@@ -4087,23 +4118,27 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
         }
 
     def maps_payload(self) -> dict[str, Any]:
-        root = self.maps_root.resolve()
         maps: list[dict[str, Any]] = []
-        if root.exists():
+        for prefix, root in self._map_library_roots():
+            if not root.exists():
+                continue
             for path in sorted(root.rglob('*')):
                 if not path.is_file() or path.suffix.lower() not in MAP_YAML_EXTENSIONS:
                     continue
                 try:
+                    self._resolve_map_yaml(prefix + path.relative_to(root).as_posix())
                     maps.append(self._map_metadata_payload(path))
                 except Exception as exc:
                     maps.append({
-                        'path': path.relative_to(root).as_posix(),
+                        'path': prefix + path.relative_to(root).as_posix(),
                         'name': path.stem,
                         'valid': False,
                         'error': str(exc),
                     })
+        maps.sort(key=lambda item: (item.get('created_at', ''), item['path']), reverse=True)
+        maps.sort(key=lambda item: item['path'].startswith('archive/'))
         return {
-            'root': str(root),
+            'root': str(self.maps_root),
             'maps': maps,
         }
 
@@ -4147,6 +4182,9 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
                             {'ok': True, 'service': 'rover_web'},
                             HTTPStatus.OK,
                         )
+                        return
+                    if path == '/api/navigation/settings':
+                        self._send_json(gateway.navigation_settings_payload(), HTTPStatus.OK)
                         return
                     if path == '/api/agent':
                         self._send_json(gateway.agent_chat_state(), HTTPStatus.OK)
@@ -4335,6 +4373,9 @@ class RoverWebGateway(AgentChatMixin, MaintenanceMixin, Node):
                 try:
                     parsed = urlparse(self.path)
                     payload = self._read_json_body()
+                    if parsed.path == '/api/navigation/settings':
+                        self._send_json(gateway.update_navigation_settings(payload), HTTPStatus.OK)
+                        return
                     if parsed.path == '/api/agent/send':
                         self._send_json(gateway.agent_chat_send(payload), HTTPStatus.OK)
                         return

@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+import yaml
 import rclpy
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
@@ -27,6 +28,7 @@ from rover_web.web_gateway_node import RoverWebGateway
 @pytest.mark.skipif(os.getenv('ROVER_WEB_NAV_INTEGRATION') != '1', reason='opt-in real SLAM/Nav2 test')
 def test_mapping_save_navigation_and_stop(tmp_path):
     rclpy.init(args=['--ros-args', '-p', 'port:=0', '-p', f'maps_root:={tmp_path}/maps/current',
+                     '-p', f'navigation_settings_file:={tmp_path}/navigation.yaml',
                      '-p', f'hackathon_files_root:={tmp_path}/files',
                      '-p', f'plans_directory:={tmp_path}/plans'])
     gateway = RoverWebGateway()
@@ -59,6 +61,8 @@ def test_mapping_save_navigation_and_stop(tmp_path):
 
     try:
         assert api('/api/status')['navigation']['running'] is False
+        api('/api/navigation/settings', {'resolution':0.04, 'allow_reverse':False,
+            'allow_lateral':False, 'forward_speed':0.12, 'angular_speed':0.3})
         with pytest.raises(HTTPError):
             api('/api/mapping/start', {})
         scan_pub = sensor.create_publisher(LaserScan, '/scan_filtered', 10)
@@ -101,6 +105,8 @@ def test_mapping_save_navigation_and_stop(tmp_path):
         wait_for(lambda s: s['prerequisites']['ready'])
         api('/api/mapping/start', {})
         with pytest.raises(HTTPError):
+            api('/api/navigation/settings', {'resolution':0.03})
+        with pytest.raises(HTTPError):
             api('/api/mapping/start', {})
         wait_for(lambda s: s['live_map'] is not None)
         with urlopen(url + '/api/mapping/image') as image:
@@ -109,6 +115,7 @@ def test_mapping_save_navigation_and_stop(tmp_path):
         wait_for(lambda s: s['map_save']['state'] == 'saved', timeout=45)
         assert (tmp_path / 'maps/current/map.yaml').is_file()
         assert (tmp_path / 'maps/current/map.posegraph').is_file()
+        assert yaml.safe_load((tmp_path/'maps/current/map.yaml').read_text())['resolution'] == 0.04
         api('/api/navigation/stop', {})
         wait_for(lambda s: not s['running'] and not s['external']['slam'])
         with pytest.raises(HTTPError):
@@ -119,6 +126,12 @@ def test_mapping_save_navigation_and_stop(tmp_path):
         status = wait_for(lambda s: s['goal_state'] == 'succeeded', timeout=75)
         assert status['phase'] == 'running'
         assert status['map_pose'] is not None
+        effective = gateway._optional_node_parameters('/controller_server',
+            ['FollowPath.min_vel_x', 'FollowPath.max_vel_y', 'FollowPath.max_vel_x', 'FollowPath.max_vel_theta'])
+        assert effective == {'FollowPath.min_vel_x':0.0, 'FollowPath.max_vel_y':0.0,
+                             'FollowPath.max_vel_x':0.12, 'FollowPath.max_vel_theta':0.3}
+        behaviors = gateway._optional_node_parameters('/behavior_server', ['behavior_plugins'])
+        assert 'backup' not in behaviors['behavior_plugins']
         api('/api/navigation/goal', {'goal': {'x': 1, 'y': 0, 'yaw': 0}})
         wait_for(lambda s: s['goal_state'] == 'active' and len(s['planned_path']) > 1)
         api('/api/navigation/cancel', {})

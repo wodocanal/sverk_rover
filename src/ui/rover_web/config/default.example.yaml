@@ -35,6 +35,7 @@ web_gateway_node:
     plans_directory: ~/.local/share/sverh-rover-web/plans
     hackathon_files_root: ~/sverk_rover/hackathon_files
     maps_root: ~/sverk_rover/src/motion/rover_navigation/maps/current
+    navigation_settings_file: ~/.config/sverk-rover/navigation.yaml
     terminal_enabled: true
     terminal_url: ''
     terminal_port: 7681

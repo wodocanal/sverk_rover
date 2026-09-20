@@ -440,11 +440,9 @@ angular.z: 0.00</pre>
                 <label>Название карты
                   <input id="mapping-label" type="text" value="map" maxlength="48" pattern="[A-Za-z0-9_-]+">
                 </label>
-                <label class="check-label navigation-checkbox">
-                  <input id="mapping-occupancy-only" type="checkbox"> Только occupancy map
-                </label>
               </div>
               <p class="status-note" id="mapping-prerequisites">Проверка входных данных SLAM…</p>
+              <p class="status-note">Сохраняются карта для навигации и граф SLAM для продолжения сканирования.</p>
               <div class="button-row">
                 <button id="mapping-start">Начать запись карты</button>
                 <button class="secondary" id="mapping-save" disabled>Сохранить карту</button>
@@ -956,6 +954,44 @@ angular.z: 0.00</pre>
           </article>
         </div>
         <div class="two-column overview-bottom">
+          <article class="panel" id="navigation-settings-panel">
+            <div class="panel-heading-row"><h2>Карта и навигация</h2><button class="secondary" id="navigation-settings-refresh">Перечитать</button></div>
+            <p class="status-note">Изменяйте при выключенных SLAM и Nav2. Настройки сохраняются на ровере и применяются при следующем запуске. Они не меняют скорость ручного управления.</p>
+            <form id="navigation-settings-form">
+              <fieldset id="navigation-settings-fields" disabled>
+                <legend>Сканирование</legend>
+                <label>Размер клетки новой карты, см<input id="nav-setting-resolution" type="number" min="1" max="20" step="0.1" required></label>
+                <p class="status-note">Меньше клетка — больше детализация, расход памяти и нагрузка. Старые карты сохраняют своё разрешение. По умолчанию: 5 см.</p>
+                <h3>Разрешённые движения</h3>
+                <label class="check-label"><input id="nav-setting-allow_reverse" type="checkbox"> Разрешить движение назад</label>
+                <label class="check-label"><input id="nav-setting-allow_lateral" type="checkbox"> Разрешить движение вбок</label>
+                <p id="nav-setting-drive-note" class="status-note"></p>
+                <h3>Максимальные скорости</h3>
+                <div class="form-grid compact-grid">
+                  <label>Вперёд, м/с<input id="nav-setting-forward_speed" type="number" min="0.05" max="0.35" step="0.01" required></label>
+                  <label>Назад, м/с<input id="nav-setting-reverse_speed" type="number" min="0.05" max="0.35" step="0.01" required></label>
+                  <label>Вбок, м/с<input id="nav-setting-lateral_speed" type="number" min="0.05" max="0.35" step="0.01" required></label>
+                  <label>Вращение, рад/с<input id="nav-setting-angular_speed" type="number" min="0.1" max="1.5" step="0.01" required></label>
+                </div>
+                <h3>Ускорение и торможение</h3>
+                <div class="form-grid compact-grid">
+                  <label>Линейное ускорение, м/с²<input id="nav-setting-linear_acceleration" type="number" min="0.05" max="2" step="0.01" required></label>
+                  <label>Линейное торможение, м/с²<input id="nav-setting-linear_deceleration" type="number" min="0.05" max="3" step="0.01" required></label>
+                  <label>Угловое ускорение, рад/с²<input id="nav-setting-angular_acceleration" type="number" min="0.1" max="5" step="0.01" required></label>
+                  <label>Угловое торможение, рад/с²<input id="nav-setting-angular_deceleration" type="number" min="0.1" max="6" step="0.01" required></label>
+                </div>
+                <h3>Достижение цели</h3>
+                <div class="form-grid compact-grid">
+                  <label>Допуск по позиции, см<input id="nav-setting-position_tolerance" type="number" min="2" max="50" step="0.1" required></label>
+                  <label>Допуск по направлению, °<input id="nav-setting-yaw_tolerance" type="number" min="1" max="180" step="0.1" required></label>
+                </div>
+                <p class="status-note">Драйвер моторов дополнительно ограничивает скорости и ускорения. Значения Nav2 не отменяют аппаратные ограничения. Без заднего хода отключается и восстановительный манёвр BackUp.</p>
+                <button type="submit" id="navigation-settings-save">Сохранить настройки навигации</button>
+              </fieldset>
+            </form>
+            <p class="status-note" id="navigation-settings-status" role="status">Загрузка настроек…</p>
+            <p class="maintenance-error" id="navigation-settings-error" role="alert"></p>
+          </article>
           <article class="panel camera-settings-panel">
             <div class="panel-heading-row">
               <div>
@@ -1084,5 +1120,6 @@ angular.z: 0.00</pre>
   <script src="/assets/maintenance.js"></script>
   <script src="/assets/system-services.js"></script>
   <script src="/assets/agent-chat.js"></script>
+  <script src="/assets/navigation-settings.js"></script>
 </body>
 </html>

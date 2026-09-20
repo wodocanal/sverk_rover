@@ -17,6 +17,7 @@ const STORAGE_KEYS = {
   servoEnabled: 'rover_web.servo_enabled',
   audioEnabled: 'rover_web.audio_enabled',
   octolinerEnabled: 'rover_web.octoliner_enabled',
+  manualDriveSpeeds: 'rover_web.manual_drive_speeds',
 };
 
 const PAGE_GROUPS = {
@@ -106,6 +107,7 @@ const LED_STRIP_STATE_TYPE = 'rover_interfaces/msg/LedStripState';
 const OCTOLINER_READING_TYPE = 'rover_interfaces/msg/OctolinerReading';
 
 const state = {
+  manualDriveSpeeds: readManualDriveSpeeds(),
   sessionId: ensureSessionId(),
   page: localStorage.getItem(STORAGE_KEYS.page) || 'overview',
   system: null,
@@ -3024,20 +3026,56 @@ async function connectOctoliner() {
   startOctolinerLoop();
 }
 
+function readManualDriveSpeeds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.manualDriveSpeeds) || '{}');
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+    return Object.fromEntries(['linear_x', 'linear_y', 'angular_z']
+      .filter(key => typeof saved[key] === 'number' && Number.isFinite(saved[key]) && saved[key] >= 0)
+      .map(key => [key, saved[key]]));
+  } catch (_) { return {}; }
+}
+
+function persistManualDriveSpeeds() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.manualDriveSpeeds, JSON.stringify(state.manualDriveSpeeds));
+  } catch (_) { /* Keep the selection in memory when browser storage is unavailable. */ }
+}
+
+function rememberManualDriveSpeed(id) {
+  const key = { 'linear-speed': 'linear_x', 'lateral-speed': 'linear_y', 'angular-speed': 'angular_z' }[id];
+  state.manualDriveSpeeds[key] = Number($(`#${id}`).value);
+  persistManualDriveSpeeds();
+}
+
+function syncManualDriveSpeeds(defaults = {}, limits = {}) {
+  for (const [id, key, defaultSpeed, defaultLimit] of [
+    ['linear-speed', 'linear_x', 0.18, 0.35],
+    ['lateral-speed', 'linear_y', 0.16, 0.35],
+    ['angular-speed', 'angular_z', 0.70, 1.5],
+  ]) {
+    const input = $(`#${id}`);
+    const limit = Number.isFinite(limits[key]) && limits[key] >= 0 ? limits[key] : defaultLimit;
+    const fallback = Number.isFinite(defaults[key]) ? defaults[key] : defaultSpeed;
+    input.min = String(Math.min(0.05, limit));
+    input.max = String(limit);
+    const selected = state.manualDriveSpeeds[key] ?? fallback;
+    input.value = String(Math.max(Number(input.min), Math.min(limit, selected)));
+    if (Object.hasOwn(state.manualDriveSpeeds, key)) {
+      state.manualDriveSpeeds[key] = Number(input.value);
+    }
+  }
+  persistManualDriveSpeeds();
+  updateDriveOutputs();
+  updateDrivePreview(computeDriveCommand());
+}
+
 function refreshDriveConfigFromConfig(config) {
   if (!config) return;
   const defaults = config.drive_defaults || {};
   const limits = config.drive_limits || {};
 
-  $('#linear-speed').max = String(limits.linear_x ?? 0.35);
-  $('#lateral-speed').max = String(limits.linear_y ?? 0.35);
-  $('#angular-speed').max = String(limits.angular_z ?? 1.5);
-
-  $('#linear-speed').value = String(defaults.linear_x ?? 0.18);
-  $('#lateral-speed').value = String(defaults.linear_y ?? 0.16);
-  $('#angular-speed').value = String(defaults.angular_z ?? 0.70);
-
-  updateDriveOutputs();
+  syncManualDriveSpeeds(defaults, limits);
   renderDetailList($('#drive-meta'), [
     { label: 'Command topic', value: config.command_topic || '/cmd_vel' },
     { label: 'Timeout', value: `${formatFloat(config.drive_command_timeout_sec, 2)} s` },
@@ -3116,13 +3154,7 @@ async function applyDriveSettings() {
 async function refreshDriveConfig() {
   try {
     const payload = await api('/api/drive');
-    $('#linear-speed').max = String(payload.limits.linear_x);
-    $('#linear-speed').value = String(payload.defaults.linear_x);
-    $('#lateral-speed').max = String(payload.limits.linear_y);
-    $('#lateral-speed').value = String(payload.defaults.linear_y);
-    $('#angular-speed').max = String(payload.limits.angular_z);
-    $('#angular-speed').value = String(payload.defaults.angular_z);
-    updateDriveOutputs();
+    syncManualDriveSpeeds(payload.defaults, payload.limits);
     renderDetailList($('#drive-meta'), [
       { label: 'Command topic', value: payload.command_topic || '—' },
       { label: 'Timeout', value: `${formatFloat(payload.timeout_sec, 2)} s` },
@@ -3686,7 +3718,7 @@ function renderVisualizationMapSelector() {
   if (!validMaps.length) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = 'Нет карт в текущей папке навигации';
+    option.textContent = 'Нет сохранённых карт';
     select.append(option);
     select.disabled = true;
     visibleToggle.disabled = true;
@@ -3702,7 +3734,8 @@ function renderVisualizationMapSelector() {
   validMaps.forEach((map) => {
     const option = document.createElement('option');
     option.value = map.path;
-    option.textContent = `${map.name} (${map.resolution} м/px)`;
+    const version = map.archived ? ` · ${map.created_at || map.version || map.path}` : '';
+    option.textContent = `${map.archived ? 'Архив' : 'Текущая'} · ${map.name}${version} (${map.resolution} м/px)`;
     option.selected = map.path === state.viz.selectedMap;
     select.append(option);
   });
@@ -3884,10 +3917,9 @@ function renderNavigationRuntime(runtime) {
   $('#mapping-save').disabled = !mapping || Boolean(save.running);
   $('#mapping-stop').disabled = !mapping;
   $('#mapping-label').disabled = Boolean(save.running);
-  $('#mapping-occupancy-only').disabled = Boolean(save.running);
 
   const navigationInputsLocked = navigating && runtime.phase !== 'running';
-  $('#viz-map-select').disabled = navigating || !safeArray(state.viz.maps).some((item) => item.valid);
+  $('#viz-map-select').disabled = running || external || !safeArray(state.viz.maps).some((item) => item.valid);
   $('#navigation-start').disabled = running || external || !prerequisites.ready || !map || !initialPose || !goal;
   $('#navigation-send-goal').disabled = !navigating || runtime.phase !== 'running' || !goal || goalBusy;
   $('#navigation-cancel').disabled = !navigating || !goalBusy;
@@ -4217,6 +4249,7 @@ function shouldIgnoreDriveKeyEvent(target) {
 function bindDrivePage() {
   ['linear-speed', 'lateral-speed', 'angular-speed'].forEach((id) => {
     $(`#${id}`).addEventListener('input', () => {
+      rememberManualDriveSpeed(id);
       updateDriveOutputs();
       updateDrivePreview(computeDriveCommand());
     });
@@ -4382,6 +4415,11 @@ function bindVisualizationPage() {
   });
   $('#viz-map-select').addEventListener('change', (event) => {
     setVisualizationPickMode(null);
+    for (const prefix of ['nav-initial', 'nav-goal']) {
+      $(`#${prefix}-x`).value = '';
+      $(`#${prefix}-y`).value = '';
+      $(`#${prefix}-yaw`).value = '0';
+    }
     state.viz.selectedMap = event.target.value || '';
     localStorage.setItem(STORAGE_KEYS.vizMapSelected, state.viz.selectedMap);
     state.viz.mapImage = null;
@@ -4431,7 +4469,6 @@ function bindVisualizationPage() {
   $('#mapping-save').addEventListener('click', () => {
     navigationRequest('/api/mapping/save', {
       label: $('#mapping-label').value.trim() || 'map',
-      occupancy_only: $('#mapping-occupancy-only').checked,
     }, 'Сохранение карты запущено');
   });
   $('#mapping-stop').addEventListener('click', () => {

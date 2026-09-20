@@ -36,6 +36,7 @@ web_gateway_node:
     hackathon_files_root: ~/sverk_rover/hackathon_files
     maps_root: ~/sverk_rover/src/motion/rover_navigation/maps/current
     navigation_package: rover_navigation
+    navigation_settings_file: ~/.config/sverk-rover/navigation.yaml
     mapping_launch_file: slam.launch.py
     navigation_launch_file: navigation.launch.py
     navigation_scan_topic: /scan_filtered

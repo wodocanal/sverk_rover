@@ -2,7 +2,8 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from rover_navigation.runtime_settings import configure_launch, DEFAULT_SETTINGS_FILE, DEFAULT_DRIVE_TYPE_FILE
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -46,6 +47,9 @@ def generate_launch_description():
             default_value=str(pkg_share / 'maps' / 'current' / 'map.yaml'),
         ),
         DeclareLaunchArgument('use_rviz', default_value='false'),
+        DeclareLaunchArgument('settings_file', default_value=DEFAULT_SETTINGS_FILE),
+        DeclareLaunchArgument('drive_type_file', default_value=DEFAULT_DRIVE_TYPE_FILE),
+        OpaqueFunction(function=configure_launch, kwargs={'mode': 'navigation'}),
         DeclareLaunchArgument(
             'rviz_config',
             default_value=str(description_share / 'rviz' / 'display_navigation.rviz'),

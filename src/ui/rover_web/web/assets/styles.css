@@ -1934,3 +1934,6 @@ textarea {
   .agent-bubble { max-width: 100%; }
   .agent-composer .button-row { align-items: stretch; }
 }
+#navigation-settings-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+#navigation-settings-fields legend { font-weight: 700; margin-bottom: 12px; }
+#navigation-settings-fields:disabled { opacity: 0.65; }
