@@ -1,5 +1,12 @@
 # rover_waveshare_audio
 
+Current rover integration: working settings live in
+[config/audio.yaml](config/audio.yaml); full keeps this component disabled until
+`use_waveshare_audio:=true`. The web visibility checkbox does not start the node.
+For systemd updates preserve the workspace's existing install mode: the
+symlink-install examples below apply only to workspaces using that mode.
+See [operations](../../../docs/operations.md) before rebuilding a deployed rover.
+
 ROS 2 speech input and speech playback bridge for the Waveshare
 `ESP32-S3-AUDIO-Board`.
 

@@ -80,6 +80,29 @@ by the agent and bridge. Do not replace one of them with a different robot ID.
 2. The package's working YAML (or an explicitly selected `config_file`).
 3. Explicit launch arguments and systemd launch/environment overrides.
 
+This is the startup layer, not a universal final precedence rule. A component
+may then load its own persistent overrides. In particular:
+
+| Saved setting | File under the service user's home | Application |
+| --- | --- | --- |
+| Serial roles | `~/.config/rover/devices.json` | Read by discovery before hardware launch |
+| Mecanum/differential | `~/.config/sverk-rover/drive_type` | Shared by base, odometry, web and navigation |
+| Motor/encoder mapping | `~/.config/sverk-rover/motor_calibration.json` | Overrides the four YAML arrays at driver restart |
+| Nav2/SLAM settings | `~/.config/sverk-rover/navigation.yaml` | Applied to a temporary YAML at the next stack launch |
+| MQTT connection | `~/.config/sverk-rover/fleet_connection.json` | Overrides startup connection parameters; reconnect or restart bridge |
+
+The MQTT file can contain a password and is written with mode 0600. Never
+commit it. The web and its consumers must agree on the file path and user.
+Camera/vision changes made through ROS parameter services are runtime changes;
+edit their package YAML for next-start defaults. Browser-local visibility and
+manual speed choices are not shared robot configuration.
+
+`*.example.yaml` files are examples, not runtime fallbacks. The agent and bridge
+standalone launches expose `config_file`, not every YAML field as an argument.
+For model/prompt changes use agent.yaml or the environment described in the
+[agent README](../../../agent/rover_agent_mcp/README.md). Check `--show-args`
+before assuming that a particular launch accepts an override.
+
 Bringup supplies integration values such as discovered serial devices, shared
 topic/frame names, robot geometry and simulation time. These are not separate
 copies of driver tuning parameters. Old, explicitly supplied external
@@ -119,11 +142,16 @@ are no longer runtime defaults.
 Build the entire workspace once after this migration so the new
 `rover_configuration` package and moved config files are installed:
 
+Preserve the existing install mode. The example below uses a regular install;
+add `--symlink-install` only if this workspace already uses that mode. Do not
+mix regular/symlink or isolated/merged artifacts during an ordinary update.
+
 ```bash
 cd ~/sverk_rover
-sudo systemctl stop rover-web rover-bringup
+sudo systemctl stop rover-web
+sudo systemctl stop rover-bringup
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
+colcon build
 ```
 
 Only after a successful build:
@@ -144,6 +172,17 @@ With a symlink install, editing an existing YAML takes effect on the next
 restart. Adding/renaming files or changing package metadata requires a rebuild.
 Old copies may remain in an existing `install/` directory, but no default
 launch in the new code reads the removed bringup paths.
+
+Systemd reads `/etc/default/rover-bringup`; the web additionally reads
+`/etc/default/rover-web`. It does not source `.bashrc`. Match ROS_DOMAIN_ID and
+RMW in diagnostic terminals explicitly. `full` includes camera/vision, but
+vision processing starts disabled. The physical Tkinter display belongs to
+bringup, not rover-web. SLAM/Nav2 started by web belong to the web service and
+stop when it restarts. See the [operations guide](../../../../docs/operations.md).
+
+Documents are served from `docs/`. The compatibility parameter
+`hackathon_files_root` in rover_web now points at `~/sverk_rover/docs`; update
+any explicit old-path overrides. Moving documentation does not change API names.
 
 ## Checks
 

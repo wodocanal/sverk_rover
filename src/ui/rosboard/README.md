@@ -1,4 +1,19 @@
-# ROSboard 
+# ROSboard
+
+## Integration in Sverk Rover
+
+This is a bundled third-party package; the upstream instructions below also
+describe platforms/options beyond this rover. In this workspace use:
+
+```bash
+ros2 launch rosboard rosboard.launch.py
+```
+
+Working configuration: [config/rosboard.yaml](config/rosboard.yaml), port 8888.
+By default `rover-web.service` owns this process; do not launch a second copy
+on the same port. `ROVER_WEB_USE_ROSBOARD=false` disables it in that service.
+ROSboard is an additional ROS-topic viewer, not the main rover operator UI.
+Keep it in a trusted network. Its [upstream license](LICENSE) remains applicable.
 
 ROS node that runs a web server on your robot.
 Run the node, point your web browser at http://your-robot-ip:8888/ and you get nice visualizations.
@@ -15,14 +30,15 @@ You can run it on your desktop too and play a ROS bag.
 
 Also be sure to check out my terminal visualization tool, [ROSshow](https://github.com/dheera/rosshow/).
 
-![screenshot](/screenshots/screenshot5.jpg?raw=true "screenshot")
+![screenshot](screenshots/screenshot5.jpg "screenshot")
 
 ## Prerequisites
 
-```
-sudo pip3 install tornado
-sudo pip3 install simplejpeg  # recommended, but ROSboard can fall back to cv2 or PIL instead
-```
+Install declared ROS/system dependencies with rosdep as described in the
+[workspace README](../../../README.md). Tornado is required; simplejpeg is an
+optional accelerator (OpenCV/PIL fallback exists). If adding Python packages,
+use the environment that executes this node rather than an unrelated virtualenv
+or a blanket sudo pip installation into system Python.
 
 ## Installing it as a ROS package
 

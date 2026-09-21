@@ -11,11 +11,19 @@
 
 ```bash
 cd ~/sverk_rover
+sudo systemctl stop rover-web
+sudo systemctl stop rover-bringup
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-up-to rover_web rover_bringup
+colcon build --packages-up-to rover_web rover_bringup
+# Только после успешной сборки:
 deploy/systemd/install.sh
-sudo systemctl restart rover-bringup rover-web
+sudo systemctl start rover-bringup
+sudo systemctl start rover-web
 ```
+
+Сначала остановите движение и сохраните карту. Пример для обычного install;
+если workspace собран с --symlink-install, сохраняйте этот режим.
+Не смешивайте режимы. [Обновление и резервные копии](operations.md).
 
 Установщик сохраняет существующие `/etc/default/rover-*`. Он устанавливает
 узкое правило Polkit и резервное правило sudoers: пользователю сервисов

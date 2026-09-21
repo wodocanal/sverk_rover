@@ -1,106 +1,25 @@
-# Agent MCP quickstart
+# Быстрый запуск агента
 
-Подробная документация агента теперь лежит здесь:
-
-```text
-src/rover_agent_mcp/README.md
-```
-
-Короткий запуск через Sverk AI:
+Основная документация: [README](README.md). Рабочая конфигурация:
+[config/agent.yaml](config/agent.yaml). Не запускайте второй агент поверх full.
 
 ```bash
-cd ~/sverk_rover_sverk_ai_agent_mcp_fixed/sverk_rover-main
+cd ~/sverk_rover
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
-
-export SVERK_API_KEY="your_sk_key_here"
-export SVERK_MODEL="qwen35"
-export SVERK_BASE_URL="https://ai.sverk.io/v1"
-
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  llm_api_key_env:=SVERK_API_KEY \
-  llm_model:=$SVERK_MODEL \
-  llm_base_url:=$SVERK_BASE_URL \
-  native_tool_mode:=auto
+# OPENAI_API_KEY должен быть уже задан в окружении, не в Git.
+export OPENAI_BASE_URL='https://ai.sverk.io/v1'
+export OPENAI_MODEL='qwen35'
+ros2 launch rover_agent_mcp agent_mcp.launch.py
 ```
 
-Ответы для пользователя:
+Для другого сервера измените URL/model. Для своей полной копии YAML:
+`ros2 launch rover_agent_mcp agent_mcp.launch.py config_file:=/path/to/agent.yaml`.
 
-```bash
-ros2 topic echo /agent/answer
-```
+Пакетный launch не объявляет llm_model/prompt_file/native_tool_mode как CLI
+аргументы. Используйте YAML или OPENAI_MODEL, AGENT_PROMPT_FILE,
+LLM_NATIVE_TOOL_MODE. Для systemd эти переменные задаются в
+/etc/default/rover-bringup. Аппаратные ноды и MQTT-мост этот launch не запускает.
 
-Технический статус:
-
-```bash
-ros2 topic echo /agent/status
-```
-
-Команда:
-
-```bash
-ros2 topic pub --once /agent/text_command std_msgs/msg/String \
-"{data: 'проедь прямо 30 см, поверни направо на 90 градусов и поморгай лентой'}"
-```
-
-Кастомный prompt:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  llm_api_key_env:=SVERK_API_KEY \
-  llm_model:=qwen35 \
-  llm_base_url:=https://ai.sverk.io/v1 \
-  prompt_file:=/home/pi/prompts/friendly.md
-```
-
-## Prompt presets
-
-Основной prompt теперь заканчивает финальные ответы фразой «Бип-буп.».
-
-Пресеты после сборки лежат тут:
-
-```bash
-$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/
-```
-
-Примеры:
-
-```bash
-# веселый режим
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_funny.md
-
-# элегантный режим
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_elegant.md
-
-# ворчливый механик
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_swearing_mechanic.md
-
-# бабка
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_granny.md
-```
-
-
-
-Единые переменные окружения для Sverk или OpenRouter:
-
-```bash
-export OPENAI_BASE_URL="https://ai.sverk.io/v1"              # Sverk
-export OPENAI_MODEL="qwen35"
-export OPENAI_API_KEY="..."
-```
-
-или:
-
-```bash
-export OPENAI_BASE_URL="https://openrouter.ai/api/v1"       # OpenRouter
-export OPENAI_MODEL="deepseek/deepseek-v4-flash"
-export OPENAI_API_KEY="..."
-```
+Наблюдение: `ros2 topic echo /agent/answer` и `ros2 topic echo /agent/status`.
+Веб-чат и настройка внешнего сервера: [руководство](../../../docs/web-agent.md).

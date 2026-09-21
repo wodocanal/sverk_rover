@@ -67,11 +67,13 @@ rm -f install/rover_vision/share/rover_vision/models/best.pt
 rm -f install/rover_vision/share/rover_vision/models/best.yaml
 # Для workspace, собранного с --merge-install:
 rm -f install/share/rover_vision/models/best.pt install/share/rover_vision/models/best.yaml
-colcon build --symlink-install --packages-select rover_vision rover_web
+colcon build --packages-select rover_vision rover_web
 source install/setup.bash
 ```
 
 Используйте тот же режим install, что и при первоначальной сборке workspace.
+Пример выше для обычного install; добавляйте --symlink-install только если
+он уже использовался. [Общая процедура обновления](operations.md).
 После первой установки изменений перезапустите сервисы, запускающие vision
 и web. Далее управляйте обработкой через страницу камеры.
 

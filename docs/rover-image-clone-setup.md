@@ -26,10 +26,15 @@ robot identity.
 Before changing identity or serial-device setup, stop the running rover stack:
 
 ```bash
+sudo systemctl stop rover-web
 sudo systemctl stop rover-bringup
 ```
 
 If the service is not installed yet, this command can fail harmlessly.
+
+First stop motion and save any active SLAM map. Stopping only bringup does not
+necessarily stop web-owned navigation. Stop any manually launched stacks too.
+The standalone web can later be started for Device Manager while bringup remains off.
 
 ## 2. Change Linux Hostname
 
@@ -135,6 +140,11 @@ src/agent/fleet_text_bridge_ros2/config/bridge.yaml
 ```
 
 Usually the server address is shared by all rovers:
+
+Check `~/.config/sverk-rover/fleet_connection.json` as well. Settings saved by
+the web override startup YAML/environment. A cloned image also clones this
+file, potentially including credentials. Change it using Settings -> Server
+connection; do not publish its contents. See [connection settings](web-agent.md).
 
 ```yaml
 fleet_bridge:
@@ -266,6 +276,10 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+This example assumes the cloned workspace already used symlink install. Use
+plain `colcon build` if that was its original mode. Do not mix build modes over
+existing artifacts; see [operations](operations.md).
+
 If only `/etc/default/rover-bringup` or `/etc/default/rover-web` changed,
 rebuilding is not required.
 
@@ -308,7 +322,7 @@ grep -A8 '^robot:' ~/sverk_rover/src/system/rover_description/config/rover_v1.ya
 Check service environment:
 
 ```bash
-grep -E 'ROVER_PROFILE|ROS_DOMAIN_ID|ROVER_LAUNCH_ARGS|FLEET_MQTT' /etc/default/rover-bringup
+sudo grep -E '^(ROVER_PROFILE|ROS_DOMAIN_ID)=' /etc/default/rover-bringup
 ```
 
 Check ROS graph:
@@ -316,9 +330,14 @@ Check ROS graph:
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ~/sverk_rover/install/setup.bash
+# Match the domain configured for this rover; this example is rover-02:
+export ROS_DOMAIN_ID=2
 echo "$ROS_DOMAIN_ID"
 ros2 node list
 ```
+
+Also match RMW_IMPLEMENTATION if overridden. Systemd environment files are not
+automatically imported by SSH shells. Do not dump credentials into diagnostics.
 
 Check agent and fleet bridge logs:
 
@@ -433,6 +452,9 @@ sudo systemctl restart rover-bringup
 sudo systemctl restart rover-web
 ```
 
+Before this sequence, stop motion, web-managed tasks, bringup and any standalone
+serial owners. Never probe ports while the running drivers are using them.
+
 If needed, inspect:
 
 ```bash
@@ -456,6 +478,7 @@ Use this checklist after cloning an image:
 
 ```text
 [ ] Stop rover-bringup service.
+[ ] Save the active map and stop rover-web/manual stacks before maintenance.
 [ ] Set unique Linux hostname.
 [ ] Update /etc/hosts.
 [ ] Set robot.id in rover_v1.yaml.
@@ -463,10 +486,13 @@ Use this checklist after cloning an image:
 [ ] Set robot.serial_number in rover_v1.yaml.
 [ ] Set unique ROS_DOMAIN_ID in /etc/default/rover-bringup.
 [ ] Set MQTT credentials if this rover has unique credentials.
+[ ] Review cloned fleet_connection.json; it overrides YAML/environment.
+[ ] Review drive_type, motor_calibration.json and navigation.yaml for this hardware.
 [ ] Configure ROVER_PROFILE and ROVER_LAUNCH_ARGS.
 [ ] Re-run ros2 run rover_device_manager setup_devices.
 [ ] Rebuild workspace if repository files changed.
 [ ] Restart rover-bringup.
+[ ] Start rover-web with the same ROS domain and verify permissions.
 [ ] Confirm unique robot appears online on the server.
 [ ] Confirm commands and answers are routed to this rover only.
 ```

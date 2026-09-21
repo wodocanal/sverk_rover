@@ -9,6 +9,34 @@ ros2 launch rover_web web.launch.py
 On the rover, `rover-web.service` owns the web UI independently of
 `rover-bringup.service`.
 
+## Operator Features
+
+The main page includes identity and systemd controls. Settings contains motor
+calibration, Device Manager, drive type, map/navigation and MQTT settings.
+The Agent page sends ROS messages and shows replies and commands received from
+the server; it does not start the agent. The camera page controls the vision
+pipeline, displays detections, and offers ArUco/QR switches.
+
+- [Mapping, saved maps and navigation](../../../docs/web-navigation.md).
+- [Hardware setup and limited service permissions](../../../docs/web-hardware-setup.md).
+- [Agent/server connection and persistent settings](../../../docs/web-agent.md).
+- [Vision models and marker recognition](../../../docs/vision-markers.md).
+- [Service ownership, updates and build modes](../../../docs/operations.md).
+
+SLAM/Nav2 are child processes of the web gateway when launched from this UI.
+Closing a browser does not stop them, but restarting rover-web does. Save the
+map and stop movement first. No separate navigation systemd service exists.
+
+The document browser reads `docs/` via the compatibility parameter
+`hackathon_files_root`. Maps default to rover_navigation/maps/current and its
+sibling archive. Manual speed/page-visibility preferences are browser-local;
+drive type, calibration, navigation and MQTT have separate persistent files.
+Camera/vision ROS parameter edits are not automatically saved into package YAML.
+
+This is an operator interface for a trusted network, not an authenticated
+public service. Do not expose the gateway, ttyd or rosboard directly to the
+Internet. Limited systemd permissions do not add HTTP authentication.
+
 ## Peripheral Page Visibility
 
 Settings provides separate checkboxes for servos, voice recognition and Octoliner.
@@ -109,3 +137,6 @@ source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select rover_web
 sudo systemctl restart rover-web
 ```
+
+The build example assumes this workspace already uses symlink install. For a
+regular install omit that flag; never switch modes over existing artifacts.

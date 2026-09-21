@@ -1,318 +1,111 @@
-# Environment-first configuration
-
-In this final package, `FLEET_ROBOT_ID`, server/LLM/MCP and rover interface settings are intended to be exported in `~/.bashrc`. See the root `environment.example.sh`. The prompt presets in `config/` are behavior files, not network/robot identity configuration.
-
 # rover_agent_mcp
 
-`rover_agent_mcp` добавляет к роверу текстового агента и локальный MCP-style JSON-RPC сервер инструментов.
-
-Главная идея:
+Текстовый ROS-агент и локальный MCP-style JSON-RPC сервер разрешённых инструментов.
+MQTT-соединением с внешним сервером занимается отдельный
+[fleet_text_bridge_ros2](../fleet_text_bridge_ros2/README.md).
 
 ```text
-/agent/text_command std_msgs/String
-  -> rover_agent_text_node
-  -> OpenAI-compatible LLM API, например OpenRouter
-  -> native tool calls или JSON-planner fallback
-  -> rover_mcp_server http://127.0.0.1:8765/mcp
-  -> ROS 2 services/topics/actions
-  -> ровер
+/agent/text_command -> rover_agent_text_node -> LLM API
+  -> rover_mcp_server (127.0.0.1:8766/mcp) -> ROS services/topics/actions
+  -> /agent/status и /agent/answer
 ```
 
-LLM не получает raw-доступ к ROS CLI, shell, файлам или произвольным topic/service/action. Она может вызывать только tools, описанные в этом пакете.
+LLM использует перечисленные tools, а не произвольный shell/ROS CLI.
+Движение требует отдельно запущенного оборудования, свежей одометрии и
+маршрутизации /cmd_vel_test через twist_mux. Nav2-tools требуют работающего
+Nav2. Агент сам не запускает аппаратный стек или запись карты.
 
-## Рекомендуемые переменные окружения
+## Конфигурация
 
-Для OpenRouter и других OpenAI-compatible endpoint теперь используются generic `OPENAI_*` переменные:
+Рабочий файл: [config/agent.yaml](config/agent.yaml), секции `mcp_server` и
+`text_agent`. Robot ID берётся ссылкой из rover_description; топики из
+rover_interfaces. `@mcp.url` вычисляется из порта MCP. По умолчанию порт
+**8766**, веб использует 8765.
+
+Standalone launch объявляет **только `config_file`**. Произвольные аргументы
+вида `llm_model:=...`, `prompt_file:=...`, `native_tool_mode:=...` не являются
+поддерживаемой настройкой этого launch. Используйте рабочий YAML, свою полную
+копию YAML через config_file или поддерживаемое окружение.
+
+| Что | Переменная окружения |
+| --- | --- |
+| Модель и endpoint | OPENAI_MODEL, OPENAI_BASE_URL |
+| API-ключ | OPENAI_API_KEY (имя задаёт llm_api_key_env / LLM_API_KEY_ENV) |
+| Robot ID | FLEET_ROBOT_ID, одинаковый у агента и bridge |
+| Prompt | AGENT_PROMPT_FILE |
+| Native tools / planner | LLM_NATIVE_TOOL_MODE: auto, true или false |
+| MCP | MCP_HOST, MCP_PORT, MCP_URL |
+| Таймаут и число раундов | LLM_TIMEOUT_SEC, LLM_MAX_TOOL_ROUNDS |
+
+Для base URL/model есть алиасы OPENROUTER_* и SVERK_*; OPENAI_* имеют
+приоритет. Ключ храните в переменной, которую реально читает llm_api_key_env.
+Не путайте имя переменной с URL или самим ключом.
+
+Для systemd окружение задаётся в /etc/default/rover-bringup, не в .bashrc.
+После изменения перезапустите соответствующий сервис. Изменение Robot ID
+только у одного компонента приводит к отклонению ответов мостом.
+
+## Запуск
+
+После сборки/source workspace, если агент ещё не запущен в full:
 
 ```bash
-export OPENAI_BASE_URL=https://openrouter.ai/api/v1
-export OPENAI_MODEL=deepseek/deepseek-v4-flash
-export OPENAI_API_KEY=sk-or-...
+# OPENAI_API_KEY должен быть безопасно задан в окружении.
+export OPENAI_BASE_URL='https://ai.sverk.io/v1'
+export OPENAI_MODEL='qwen35'
+ros2 launch rover_agent_mcp agent_mcp.launch.py
 ```
 
-Также поддерживаются старые алиасы:
+Это текущие дефолты проекта, не гарантия доступности конкретной модели на сервере.
+Пакетный launch запускает MCP и агента вместе. Полный агентный набор без
+оборудования: `ros2 launch rover_bringup robot.launch.py profile:=agent`.
+Не запускайте их одновременно с тем же набором из full.
 
-```bash
-OPENROUTER_API_KEY / OPENROUTER_MODEL / OPENROUTER_BASE_URL
-SVERK_API_KEY / SVERK_MODEL / SVERK_BASE_URL
-```
+Для изолированного аппаратного запуска перед отдельным агентом отключите в
+bringup `use_agent:=false use_fleet_bridge:=false` и оставьте нужные датчики/mux.
+Не используйте неподдерживаемый `use_foxglove`.
 
-## Проверка только модели без робота
+## ROS-контракт
 
-Отдельных тестовых ROS-ноду/скриптов в пакете нет. Для быстрой проверки LLM используй обычный `curl` к OpenAI-compatible endpoint. Это проверяет только модель и ключ, без `rover_bringup`, MCP и железа.
-
-OpenRouter:
-
-```bash
-export OPENAI_BASE_URL=https://openrouter.ai/api/v1
-export OPENAI_MODEL=deepseek/deepseek-v4-flash
-export OPENAI_API_KEY=sk-or-...
-
-curl -i "$OPENAI_BASE_URL/chat/completions" \
-  -H "Authorization: Bearer $OPENAI_API_KEY" \
-  -H "Content-Type: application/json" \
-  -H "HTTP-Referer: https://sverk-rover.local" \
-  -H "X-Title: sverk-rover-agent" \
-  -d '{
-    "model": "'"$OPENAI_MODEL"'",
-    "messages": [{"role": "user", "content": "Ответь одним словом: работает"}],
-    "temperature": 0.1
-  }'
-```
-
-Sverk/LiteLLM:
-
-```bash
-export OPENAI_BASE_URL=https://ai.sverk.io/v1
-export OPENAI_MODEL=qwen35
-export OPENAI_API_KEY=sk-...
-
-curl -i "$OPENAI_BASE_URL/chat/completions" \
-  -H "Authorization: Bearer $OPENAI_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "'"$OPENAI_MODEL"'",
-    "messages": [{"role": "user", "content": "Ответь одним словом: работает"}],
-    "temperature": 0.1
-  }'
-```
-
-## Запуск агента
-
-Можно запускать агента вообще без LLM-аргументов, если заданы `OPENAI_*`:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py native_tool_mode:=false
-```
-
-Важно: `llm_api_key_env` — это **имя переменной окружения**, а не сам ключ и не base URL. Правильно: `llm_api_key_env:=OPENAI_API_KEY`. Неправильно: `llm_api_key_env:=$OPENAI_BASE_URL`.
-
-
-Сначала подними нужное железо ровера. Для MVP с ездой через `/cmd_vel_test`, лентой и odom:
-
-```bash
-ros2 launch rover_bringup robot.launch.py \
-  use_imu:=false \
-  use_lidar:=false \
-  use_camera:=false \
-  use_vision:=false \
-  use_display:=false \
-  use_led_strip:=true \
-  use_octoliner:=false \
-  use_web:=false \
-  use_rosboard:=false \
-  use_foxglove:=false \
-  use_twist_mux:=true \
-  use_sim_time:=false \
-  discovery_mode:=configured
-```
-
-Для Nav2-команд запускай navigation bringup:
-
-```bash
-ros2 launch rover_bringup navigation.launch.py \
-  use_camera:=false \
-  use_vision:=false \
-  use_display:=false \
-  use_web:=false \
-  use_rosboard:=false \
-  use_foxglove:=false \
-  use_sim_time:=false \
-  discovery_mode:=configured
-```
-
-Затем агент:
-
-```bash
-export OPENAI_BASE_URL=https://openrouter.ai/api/v1
-export OPENAI_MODEL=deepseek/deepseek-v4-flash
-export OPENAI_API_KEY=sk-or-...
-
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  llm_api_key_env:=OPENAI_API_KEY \
-  llm_model:=$OPENAI_MODEL \
-  llm_base_url:=$OPENAI_BASE_URL \
-  native_tool_mode:=auto
-```
-
-Если конкретная модель плохо поддерживает native tool calls, можно принудительно использовать JSON planner:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  llm_api_key_env:=OPENAI_API_KEY \
-  llm_model:=$OPENAI_MODEL \
-  llm_base_url:=$OPENAI_BASE_URL \
-  native_tool_mode:=false
-```
-
-## ROS topics агента
-
-Версия 0.2 совместима с `fleet_text_bridge_ros2`. Параметр `robot_id` задаёт
-идентичность агента:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py robot_id:=rover-01
-```
-
-### `/agent/text_command`
-
-Агент принимает новый fleet-envelope:
+Все три топика используют std_msgs/msg/String:
+`/agent/text_command`, `/agent/status`, `/agent/answer`.
+Вход принимает plain text или JSON-envelope:
 
 ```json
-{"message_id":"...","robot_id":"rover-01","text":"проедь прямо 30 см"}
+{"message_id":"UUID","robot_id":"rover-01","text":"какие инструменты доступны?"}
 ```
 
-`message_id` и `robot_id` не передаются в LLM. Агент обрабатывает только поле
-`text`, а метаданные сохраняет для ответа. Legacy plain text также принимается:
+Статусы и ответы содержат message_id и настроенный robot_id. Несовпадение ID
+во входе не должно использоваться для переключения идентичности агента.
+[Полный контракт](FLEET_PROTOCOL.md), [чат и сообщения сервера](../../../docs/web-agent.md).
 
-```bash
-ros2 topic pub --once /agent/text_command std_msgs/msg/String \
-"{data: 'проедь прямо 30 см'}"
-```
-
-### `/agent/status`
-
-JSON со статусом и корреляционными ID:
-
-```json
-{"message_id":"...","robot_id":"rover-01","status":"running","text":"Команда получена локальным агентом."}
-```
-
-```bash
-ros2 topic echo /agent/status
-```
-
-### `/agent/answer`
-
-Итоговый JSON-ответ:
-
-```json
-{"message_id":"...","robot_id":"rover-01","status":"completed","text":"Готово."}
-```
-
-При ошибке `status` равен `error`.
+Безопасный пример наблюдения и текстового запроса:
 
 ```bash
 ros2 topic echo /agent/answer
+# В другом терминале:
+ros2 topic pub --once /agent/text_command std_msgs/msg/String "{data: 'как тебя зовут?'}"
 ```
 
-Подробности: `FLEET_PROTOCOL.md`.
+Наличие подписчика или успешная ROS-публикация не подтверждают ответ LLM.
+Успешный текстовый ответ также не гарантирует успешность каждого tool_result.
 
-## Prompt customization
+## Prompt и MCP
 
-Агент поддерживает внешний prompt-файл:
+Дефолт: [config/default_system_prompt.md](config/default_system_prompt.md).
+В config сохранены preset_*.md; меняйте стиль, не технические контракты tools.
+Пример перед standalone launch:
 
 ```bash
-prompt_file:=/path/to/default_system_prompt.md
+export AGENT_PROMPT_FILE="$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_funny.md"
+export LLM_NATIVE_TOOL_MODE=false
+ros2 launch rover_agent_mcp agent_mcp.launch.py
 ```
 
-По умолчанию используется:
-
-```text
-share/rover_agent_mcp/config/default_system_prompt.md
-```
-
-В этом файле можно менять стиль общения: дружелюбный, технический, «как пират» и так далее. Важно: кастомизация должна менять стиль ответа, но не должна искажать имена tools и технические параметры.
-
-Пример запуска:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  llm_api_key_env:=OPENAI_API_KEY \
-  llm_model:=$OPENAI_MODEL \
-  llm_base_url:=$OPENAI_BASE_URL \
-  prompt_file:=/home/pi/prompts/friendly.md \
-  native_tool_mode:=auto
-```
-
-
-### Готовые prompt presets
-
-После сборки пакета `.md`-пресеты устанавливаются сюда:
-
-```bash
-$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/
-```
-
-Доступные варианты:
-
-```text
-default_system_prompt.md       основной стиль, коротко и дружелюбно, всегда заканчивает «Бип-буп.»
-preset_funny.md                веселый робот с короткими шутками
-preset_comedian.md             режим маленького стендап-комика
-preset_elegant.md              максимально элегантный и спокойный стиль
-preset_swearing_mechanic.md    ворчливый гаражный механик с мягкой грубой лексикой
-preset_granny.md               добрая ворчливая бабушка
-preset_sarcastic.md            сухой саркастичный робот без токсичности
-preset_pirate.md               добродушный робот-пират
-preset_strict_engineer.md      строгий инженерный стиль без шуток
-```
-
-Пример запуска с пресетом:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_funny.md
-```
-
-Элегантный режим:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_elegant.md
-```
-
-Режим бабки:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_granny.md
-```
-
-Режим ворчливого механика:
-
-```bash
-ros2 launch rover_agent_mcp agent_mcp.launch.py \
-  native_tool_mode:=false \
-  prompt_file:=$(ros2 pkg prefix rover_agent_mcp)/share/rover_agent_mcp/config/preset_swearing_mechanic.md
-```
-
-Важно: presets меняют только стиль финального ответа. Имена tools, topic/service/action и численные параметры не должны искажаться.
-
-## MCP endpoint
-
-Локальный MCP-style сервер слушает:
-
-```text
-http://127.0.0.1:8765/mcp
-```
-
-Поддерживаемые JSON-RPC методы:
-
-```text
-initialize
-tools/list
-tools/call
-```
-
-Список tools:
-
-```bash
-curl -s http://127.0.0.1:8765/mcp \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq
-```
-
-Ручной вызов tool:
-
-```bash
-curl -s http://127.0.0.1:8765/mcp \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"set_led_preset","arguments":{"preset":"zima_blue"}}}' | jq
-```
+MCP endpoint: http://127.0.0.1:8766/mcp. Порт и bind задаются конфигом/окружением.
+Не открывайте инструменты управления ровером в публичную сеть.
+Для проверки перечня tools используйте реализацию
+[rover_mcp_server.py](rover_agent_mcp/rover_mcp_server.py).
 
 ## Tools
 
@@ -468,7 +261,7 @@ run_relative_sequence(steps) -> run_motion_sequence(steps)
 
 #### `get_laser_summary()`
 
-Возвращает краткую сводку по `/scan`: спереди, слева, справа, сзади.
+Возвращает краткую сводку по настроенному scan_topic (по умолчанию `/scan_filtered`): спереди, слева, справа, сзади.
 
 #### `get_system_status()`
 

@@ -1,17 +1,34 @@
 # rover_led_strip
 
-ROS 2 package for controlling an addressable LED strip from the rover and from `rover_web`.
+Адресная LED-лента: эффекты, общее состояние и покадровое управление из ROS/веба.
 
-## Raspberry Pi 5 Python dependencies
-
-On the rover install the Pi 5 NeoPixel stack once:
+## Запуск и конфиг
 
 ```bash
-python3 -m pip install --upgrade Adafruit-Blinka adafruit-circuitpython-pixelbuf Adafruit-Blinka-Raspberry-Pi5-Neopixel
+ros2 launch rover_led_strip led_strip.launch.py
 ```
 
-## Wiring note
+Рабочий файл [config/led_strip.yaml](config/led_strip.yaml):
+**42 светодиода**, led_transport auto, SPI bus 1/device 0, brightness 0.35.
+В full нода запускается. enabled false задаёт исходное состояние эффекта,
+но startup_self_test true выполняет световой тест при старте.
 
-The current config defaults to `GPIO18`, which is the recommended data pin for this project.
+Текущий транспорт **SPI**: допустимы auto и spi. Data подключается к MOSI
+фактически выбранного SPI-контроллера; проверяйте /dev/spidev* и лог ноды.
+Не следуйте старой рекомендации GPIO18 для другого GPIO/NeoPixel backend.
+Совместимый параметр gpio_pin не переключает текущий драйвер на этот backend.
+Пользователю нужны права на SPI и Python-зависимости из package.xml.
+Обеспечьте подходящее питание ленты и общую землю.
 
-Avoid using `GPIO2` for the LED data line when Octoliner or other I2C devices are connected. `GPIO2` is the default I2C SDA pin on Raspberry Pi, so it can conflict with I2C traffic.
+## ROS-интерфейсы
+
+- /led_strip/state: совместимое общее состояние.
+- /led_strip/set_state: rover_interfaces/srv/SetLedStripState.
+- /led/state: массив состояний отдельных светодиодов.
+- /led/set_effect: rover_interfaces/srv/SetLEDEffect.
+- /led/set_leds: rover_interfaces/srv/SetLEDs.
+
+Веб-страница ленты показывает состояние и позволяет задавать отдельные LED
+в сетке по 7 на строку. Сами эффекты исполняются в ноде и не требуют открытого
+браузера. Форматы запросов смотрите через ros2 interface show.
+Не запускайте второй драйвер на ту же ленту. Для постоянных дефолтов меняйте YAML.
