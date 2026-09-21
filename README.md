@@ -6,6 +6,11 @@ and the text agent/server bridge.
 
 ## Repository Layout
 
+Project documentation and reference PDFs are stored in `docs/`. The web
+interface's document browser also reads this directory. Its existing parameter
+name, `hackathon_files_root`, is retained for compatibility and now defaults to
+`~/sverk_rover/docs`. Update any custom override of this path when upgrading.
+
 ```text
 src/
 ├── agent/        # text agent, MCP server and MQTT fleet bridge
@@ -297,6 +302,12 @@ Terminal 2, optional RViz:
 ```bash
 ros2 launch rover_description display_navigation.launch.py
 ```
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+Copyright (c) 2026 Sverk. Third-party components retain their own licenses and
+copyright notices; see the license files in their respective directories.
 
 In RViz set the initial pose with `2D Pose Estimate` before sending a goal. For
 the first Nav2 motor test, lift the wheels off the ground.

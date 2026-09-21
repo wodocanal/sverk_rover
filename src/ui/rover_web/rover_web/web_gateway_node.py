@@ -528,7 +528,7 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
         )
         self.declare_parameter(
             'hackathon_files_root',
-            str(workspace_root / 'hackathon_files'),
+            str(workspace_root / 'docs'),
         )
         self.declare_parameter('maps_root', default_maps_root(workspace_root))
         self.declare_parameter('navigation_package', 'rover_navigation')

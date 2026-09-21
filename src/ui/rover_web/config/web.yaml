@@ -37,7 +37,7 @@ web_gateway_node:
     max_lateral_speed_mps: 0.35
     max_angular_speed_radps: 1.5
     plans_directory: ~/.local/share/sverh-rover-web/plans
-    hackathon_files_root: ~/sverk_rover/hackathon_files
+    hackathon_files_root: ~/sverk_rover/docs
     maps_root: ~/sverk_rover/src/motion/rover_navigation/maps/current
     navigation_package: rover_navigation
     navigation_settings_file: ~/.config/sverk-rover/navigation.yaml
