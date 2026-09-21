@@ -115,6 +115,10 @@ SLAM и Nav2 нельзя запускать одновременно из эт�
 
 ## Обновление на ровере
 
+Для сохранённых целей с именами и запуска Nav2 агентом см.
+[Именованные точки](named-places.md). Редактор находится под картой;
+координаты и направление задаются тем же жестом протягивания.
+
 После переноса новой версии исходников в репозиторий ровера выполните:
 
 ```bash
@@ -122,7 +126,7 @@ cd ~/sverk_rover
 sudo systemctl stop rover-web
 sudo systemctl stop rover-bringup
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-up-to rover_navigation rover_web rover_bringup
+colcon build --packages-up-to rover_navigation rover_web rover_bringup rover_agent_mcp
 # Выполняйте следующие команды только после успешной сборки:
 sudo systemctl start rover-bringup
 sudo systemctl start rover-web
@@ -148,7 +152,9 @@ sudo systemctl status rover-bringup rover-web --no-pager
 Есть opt-in интеграционный тест
 `src/ui/rover_web/test/test_navigation_integration.py`. Он поднимает настоящий
 SLAM и Nav2 с искусственными lidar/odom/TF, проверяет HTTP-запуск, получение
-карты, сохранение, отправку и отмену целей и остановку. Запускайте его только
+карты, сохранение, подготовку именованных точек, запуск Nav2 через ROS-инструмент
+агента, достижение и отмену целей и остановку. Нужен собранный `rover_agent_mcp`.
+Запускайте его только
 в изолированной ROS-среде без подключенного физического робота:
 
 ```bash

@@ -3857,8 +3857,9 @@ function setVisualizationPickMode(mode) {
   $('.visualization-panel').classList.toggle('pick-active', active);
   $('#nav-pick-initial').classList.toggle('active', state.viz.pickMode === 'initial');
   $('#nav-pick-goal').classList.toggle('active', state.viz.pickMode === 'goal');
+  $('#place-pick').classList.toggle('active', state.viz.pickMode === 'place');
   $('#viz-canvas-hint').textContent = active
-    ? `Нажмите и протяните: ${state.viz.pickMode === 'initial' ? 'начальная позиция' : 'цель'} и направление · Esc — отмена`
+    ? `Нажмите и протяните: ${state.viz.pickMode === 'initial' ? 'начальная позиция' : state.viz.pickMode === 'place' ? 'именованная точка' : 'цель'} и направление · Esc — отмена`
     : 'Перетаскивание — сдвиг · колесо / два пальца — масштаб · двойной щелчок — вся карта';
 }
 
@@ -3894,6 +3895,7 @@ function renderNavigationRuntime(runtime) {
     }
   }
   const external = Boolean(runtime?.external?.slam || runtime?.external?.navigation);
+  RoverNamedPlaces.sync();
   const prerequisites = runtime?.prerequisites || {};
   const missingTopics = safeArray(prerequisites.missing_topics);
   const map = currentVisualizationMap();
@@ -4097,6 +4099,7 @@ function renderVisualization() {
   }
 
   const preview = state.viz.posePreview;
+  RoverNamedPlaces.draw(ctx, toScreen);
   const initialPose = preview?.mode === 'initial' ? preview.pose : readNavigationPose('nav-initial');
   const goal = preview?.mode === 'goal' ? preview.pose : readNavigationPose('nav-goal');
   if (initialPose) {
@@ -4403,6 +4406,7 @@ function bindRoutesPage() {
 }
 
 function bindVisualizationPage() {
+  RoverNamedPlaces.bind();
   $('#viz-map-visible').checked = state.viz.mapVisible;
   state.viz.cancelGesture = RoverMapView.bindMapViewport($('#odom-canvas'), state.viz.view,
     renderVisualization, {

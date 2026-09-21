@@ -20,6 +20,7 @@ def launch_setup(context):
         'odom_topic': ('ROVER_ODOM_TOPIC', str),
         'amcl_pose_topic': ('ROVER_AMCL_POSE_TOPIC', str),
         'scan_topic': ('ROVER_SCAN_TOPIC', str),
+        'detections_topic': ('ROVER_DETECTIONS_TOPIC', str),
     })
     mcp = resolve_runtime_references(mcp)
     agent = resolve_runtime_references(config['text_agent'], {

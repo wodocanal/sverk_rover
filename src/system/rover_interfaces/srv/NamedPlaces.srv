@@ -1,0 +1,7 @@
+# Commands: list, navigate, status, cancel. Poses use metres and radians in map.
+string command
+string request_json
+---
+bool success
+string message
+string data_json

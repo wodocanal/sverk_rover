@@ -30,6 +30,7 @@ from rover_configuration import config_path, node_parameters
 from .maintenance import MaintenanceMixin
 from .agent_chat import AgentChatMixin
 from .navigation_settings import NavigationSettingsMixin
+from .named_places import NamedPlacesMixin
 from .server_settings import ServerSettingsMixin
 import cv2
 from diagnostic_msgs.msg import DiagnosticArray
@@ -492,7 +493,7 @@ class ServiceHandle:
     client: Any
 
 
-class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin, Node):
+class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin, Node):
     def __init__(self) -> None:
         super().__init__('web_gateway_node')
 
@@ -809,6 +810,7 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
         self._navigation_goal_state = 'idle'
         self._navigation_goal_message = ''
         self._navigation_goal_handle: Any = None
+        self.init_named_places()
         self._planned_path: list[dict[str, float]] = []
         self._planned_path_frame = ''
         self._planned_path_at = 0.0
@@ -3634,6 +3636,7 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
         map_name = str(request.get('map', '')).strip()
         map_yaml = self._resolve_map_yaml(map_name)
         self._map_metadata_payload(map_yaml)
+        self._places_runtime_map_id = self._places_map_id(map_name)
         initial_pose = self._navigation_pose(request.get('initial_pose'), 'initial_pose')
         goal = self._navigation_pose(request.get('goal'), 'goal')
         command = [
@@ -3949,6 +3952,7 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
                 if self._navigation_initial_pose else None,
                 'goal': dict(self._navigation_goal) if self._navigation_goal else None,
                 'goal_state': self._navigation_goal_state,
+                'generation': self._navigation_generation,
                 'goal_message': self._navigation_goal_message,
                 'planned_path': list(self._planned_path),
                 'planned_path_frame': self._planned_path_frame,
@@ -4224,6 +4228,9 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
                     if path == '/api/maps':
                         self._send_json(gateway.maps_payload(), HTTPStatus.OK)
                         return
+                    if path == '/api/navigation/places':
+                        self._send_json(gateway.named_places_payload(self._required_query(query, 'map')), HTTPStatus.OK)
+                        return
                     if path == '/api/maintenance':
                         self._send_json(gateway.maintenance_status(), HTTPStatus.OK)
                         return
@@ -4383,6 +4390,9 @@ class RoverWebGateway(ServerSettingsMixin, NavigationSettingsMixin, AgentChatMix
                 try:
                     parsed = urlparse(self.path)
                     payload = self._read_json_body()
+                    if parsed.path == '/api/navigation/places':
+                        self._send_json(gateway.update_named_places(payload), HTTPStatus.OK)
+                        return
                     if parsed.path == '/api/navigation/settings':
                         self._send_json(gateway.update_navigation_settings(payload), HTTPStatus.OK)
                         return

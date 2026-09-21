@@ -19,6 +19,8 @@ from rover_interfaces.msg import LedStripState
 from rover_interfaces.srv import SetLedStripState
 
 from rover_agent_mcp.tool_schemas import mcp_tools
+from rover_agent_mcp.named_navigation import NamedNavigationMixin
+from rover_agent_mcp.detection_observer import DetectionObserverMixin
 from rover_agent_mcp.utils import (
     clamp,
     clamp_int,
@@ -32,7 +34,7 @@ from rover_agent_mcp.utils import (
 )
 
 
-class RoverRosBridge(Node):
+class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
     """ROS 2 implementation behind the MCP tools.
 
     This node intentionally exposes only high-level rover capabilities. The LLM
@@ -73,6 +75,8 @@ class RoverRosBridge(Node):
         self._led_client = self.create_client(SetLedStripState, self.led_set_state_service)
         self._cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self._nav_client = ActionClient(self, NavigateToPose, self.nav2_action_name)
+        self.init_named_navigation()
+        self.init_detection_observer()
 
         self._led_state: LedStripState | None = None
         self._last_led_state_time = 0.0
@@ -128,11 +132,14 @@ class RoverRosBridge(Node):
             'run_relative_sequence': self.run_motion_sequence,  # compatibility alias
             'stop_motion': self.stop_motion,
             'navigate_to_pose': self.navigate_to_pose,
+            'list_named_places': self.list_named_places,
+            'navigate_to_named_place': self.navigate_to_named_place,
             'cancel_navigation': self.cancel_navigation,
             'get_navigation_status': self.get_navigation_status,
             'is_navigation_ready': self.is_navigation_ready,
             'get_robot_pose': self.get_robot_pose,
             'get_laser_summary': self.get_laser_summary,
+            'observe_detections': self.observe_detections,
             'get_led_strip_state': self.get_led_strip_state,
             'get_system_status': self.get_system_status,
         }
@@ -249,8 +256,9 @@ class RoverRosBridge(Node):
             'general': ['get_available_tools', 'wait'],
             'led': ['set_led_strip', 'set_led_preset', 'blink_led_strip', 'get_led_strip_state'],
             'relative_motion': ['drive_relative', 'turn_relative', 'run_motion_sequence', 'stop_motion'],
-            'nav2': ['navigate_to_pose', 'cancel_navigation', 'get_navigation_status', 'is_navigation_ready', 'get_robot_pose'],
+            'nav2': ['list_named_places', 'navigate_to_named_place', 'navigate_to_pose', 'cancel_navigation', 'get_navigation_status', 'is_navigation_ready', 'get_robot_pose'],
             'diagnostics': ['get_laser_summary', 'get_system_status'],
+            'vision': ['observe_detections'],
             'compatibility_aliases': ['drive_forward', 'run_relative_sequence'],
         }
         return {
@@ -551,12 +559,14 @@ class RoverRosBridge(Node):
             step_type = aliases.get(step_type, step_type)
             if step_type == 'drive_relative' and 'distance_m' in step and 'forward_m' not in step:
                 step['forward_m'] = step.pop('distance_m')
-            if step_type == 'navigate_to_pose':
+            if step_type in {'navigate_to_pose', 'navigate_to_named_place'}:
                 # In a sequence, a navigation step should block until the action result
                 # arrives, then the next step starts immediately. timeout_s remains only
                 # a maximum guard, not a fixed wait.
                 step.setdefault('wait_until_done', True)
                 step.setdefault('timeout_s', 90.0)
+                if step_type == 'navigate_to_named_place':
+                    step['wait_until_done'] = True
             result = self.call_tool(step_type, step)
             result['step_index'] = index
             result['step_type'] = step_type
@@ -623,6 +633,11 @@ class RoverRosBridge(Node):
         wait_until_done: bool = False,
         timeout_s: float = 60.0,
     ) -> dict[str, Any]:
+        if self._named_navigation_token is not None:
+            status = self.named_navigation_status()
+            if not status.get('success') or status.get('active'):
+                return {'success': False, 'error': 'Check/cancel the named navigation goal before coordinate navigation.'}
+            self._named_navigation_token = None
         if not self._nav_client.wait_for_server(timeout_sec=3.0):
             return {'success': False, 'error': f'Nav2 action server {self.nav2_action_name} is not available.'}
 
@@ -673,6 +688,9 @@ class RoverRosBridge(Node):
         return result_data
 
     def cancel_navigation(self) -> dict[str, Any]:
+        if self._named_navigation_token is not None:
+            result = self._named_places_call('cancel', {'token': self._named_navigation_token})
+            return result
         if self._current_goal_handle is None:
             self._nav_status = {'active': False, 'status': 'idle', 'message': 'No active Nav2 goal.'}
             return {'success': True, 'message': 'No active Nav2 goal to cancel.'}
@@ -684,6 +702,8 @@ class RoverRosBridge(Node):
         return {'success': True, 'message': 'Cancel request sent to Nav2.'}
 
     def get_navigation_status(self) -> dict[str, Any]:
+        if self._named_navigation_token is not None:
+            return self.named_navigation_status()
         status = dict(self._nav_status)
         status['nav2_action_server_ready'] = self._nav_client.server_is_ready()
         status['robot_pose'] = self.get_robot_pose()

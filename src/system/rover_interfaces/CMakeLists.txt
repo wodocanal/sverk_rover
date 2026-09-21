@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WheelCommand.msg"
   "msg/WheelEncoders.msg"
   "srv/GetFrame.srv"
+  "srv/NamedPlaces.srv"
   "srv/CalibrateMotors.srv"
   "srv/SetLEDEffect.srv"
   "srv/SetLEDs.srv"

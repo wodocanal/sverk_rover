@@ -14,8 +14,9 @@ from rover_web.web_gateway_node import RoverWebGateway
 
 def library(root):
     gateway = SimpleNamespace(maps_root=root)
+    gateway._places_map_cache = {}
     for name in ['_map_library_roots', '_map_library_location', '_resolve_map_yaml',
-                 '_resolve_map_image', '_map_metadata_payload', 'maps_payload', 'map_image']:
+                 '_resolve_map_image', '_map_metadata_payload', 'maps_payload', 'map_image', '_places_map_id']:
         setattr(gateway, name, getattr(RoverWebGateway, name).__get__(gateway))
     gateway._map_origin = RoverWebGateway._map_origin
     return gateway

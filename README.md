@@ -18,6 +18,8 @@ ROS 2 Jazzy workspace физического ровера: драйверы об
 - [Конфиги: владельцы, ссылки и приоритеты](src/system/rover_bringup/config/README.md).
 - [Настройка клонированного образа](docs/rover-image-clone-setup.md).
 - [Карты и навигация из веба](docs/web-navigation.md).
+- [Именованные точки и навигация через агента](docs/named-places.md).
+- [Наблюдение объектов и маркеров агентом](docs/agent-vision.md).
 - [Device Manager, моторы и сервисы](docs/web-hardware-setup.md).
 - [Агент и подключение к серверу](docs/web-agent.md).
 - [YOLO, ArUco и QR](docs/vision-markers.md).

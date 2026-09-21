@@ -439,6 +439,27 @@ angular.z: 0.00</pre>
               <div id="viz-empty" class="canvas-empty">Ожидание данных /odom…</div>
               <div class="canvas-legend" id="viz-canvas-hint">Перетаскивание — сдвиг · колесо / два пальца — масштаб · двойной щелчок — вся карта</div>
             </article>
+            <article class="panel named-places-card">
+              <h2>Именованные точки</h2>
+              <p class="status-note">Точки и направление сохраняются для выбранной карты. Агент понимает команды вроде «Доедь до дивана».</p>
+              <div class="form-grid">
+                <label>Сохранённая точка<select id="place-select"><option value="">Новая точка</option></select></label>
+                <label>Название<input id="place-name" maxlength="80" placeholder="Например, диван"></label>
+              </div>
+              <div class="navigation-pose-grid">
+                <label>X, м<input id="nav-place-x" type="number" step="0.01"></label>
+                <label>Y, м<input id="nav-place-y" type="number" step="0.01"></label>
+                <label>Курс, °<input id="nav-place-yaw" type="number" step="1" value="0"></label>
+              </div>
+              <div class="button-row">
+                <button id="place-pick" class="secondary">Указать на карте</button>
+                <button id="place-save">Сохранить</button>
+                <button id="place-go" class="secondary">Ехать к точке</button>
+                <button id="place-delete" class="danger-secondary">Удалить</button>
+                <button id="place-refresh" class="secondary">Обновить точки</button>
+              </div>
+              <p id="places-status" class="status-note" role="status">Выберите сохранённую карту.</p>
+            </article>
             <article class="panel navigation-log-card">
               <h2>SLAM / Nav2</h2>
               <pre class="log-box" id="navigation-log">Процессы не запущены.</pre>
@@ -480,6 +501,7 @@ angular.z: 0.00</pre>
               <div class="button-row compact-actions">
                 <button class="secondary" id="nav-initial-current">Взять текущую</button>
                 <button class="secondary" id="nav-pick-initial">Указать на карте</button>
+                <button class="secondary" id="places-prepare">Подтвердить старт для агента</button>
               </div>
               <h3>Цель</h3>
               <div class="navigation-pose-grid">
@@ -1157,6 +1179,7 @@ angular.z: 0.00</pre>
   <div id="toast-container" class="toast-container"></div>
   <script src="/assets/lidar-view.js"></script>
   <script src="/assets/map-view.js"></script>
+  <script src="/assets/named-places.js"></script>
   <script src="/assets/app.js"></script>
   <script src="/assets/maintenance.js"></script>
   <script src="/assets/system-services.js"></script>

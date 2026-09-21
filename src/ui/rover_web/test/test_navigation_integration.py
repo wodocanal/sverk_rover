@@ -27,15 +27,20 @@ from rover_web.web_gateway_node import RoverWebGateway
 
 @pytest.mark.skipif(os.getenv('ROVER_WEB_NAV_INTEGRATION') != '1', reason='opt-in real SLAM/Nav2 test')
 def test_mapping_save_navigation_and_stop(tmp_path):
+    from rover_agent_mcp.ros_bridge import RoverRosBridge
+
     rclpy.init(args=['--ros-args', '-p', 'port:=0', '-p', f'maps_root:={tmp_path}/maps/current',
+                     '-p', f'named_places_file:={tmp_path}/places.json',
                      '-p', f'navigation_settings_file:={tmp_path}/navigation.yaml',
                      '-p', f'hackathon_files_root:={tmp_path}/files',
                      '-p', f'plans_directory:={tmp_path}/plans'])
     gateway = RoverWebGateway()
     sensor = Node('test_navigation_sensors')
+    agent = RoverRosBridge()
     executor = SingleThreadedExecutor()
     executor.add_node(gateway)
     executor.add_node(sensor)
+    executor.add_node(agent)
     worker = threading.Thread(target=executor.spin, daemon=True)
     worker.start()
     url = f'http://127.0.0.1:{gateway._http_server.server_port}'
@@ -120,21 +125,34 @@ def test_mapping_save_navigation_and_stop(tmp_path):
         wait_for(lambda s: not s['running'] and not s['external']['slam'])
         with pytest.raises(HTTPError):
             api('/api/navigation/start', {'map': 'map.yaml'})
-        api('/api/navigation/start', {'map': 'map.yaml',
-                                     'initial_pose': {'x': 0, 'y': 0, 'yaw': 0},
-                                     'goal': {'x': 0, 'y': 0, 'yaw': 0}})
+        places = api('/api/navigation/places?map=map.yaml')
+        for name, x in [('Старт', 0), ('Диван', 1)]:
+            places = api('/api/navigation/places', {
+                'action': 'save', 'map': 'map.yaml', 'map_id': places['map_id'], 'revision': places['revision'],
+                'point': {'name': name, 'x': x, 'y': 0, 'yaw': 0}})
+        assert agent.list_named_places()['success']
+        refused = agent.navigate_to_named_place('Старт')
+        assert not refused['success']
+        api('/api/navigation/places', {'action': 'prepare', 'map': 'map.yaml',
+                                     'initial_pose': {'x': 0, 'y': 0, 'yaw': 0}})
+        arrival = agent.navigate_to_named_place('Старт')
+        assert arrival['success'] and arrival['completed'], arrival
         status = wait_for(lambda s: s['goal_state'] == 'succeeded', timeout=75)
         assert status['phase'] == 'running'
         assert status['map_pose'] is not None
+        assert gateway._ensure_parameter_client('/controller_server').wait_for_services(timeout_sec=10)
         effective = gateway._optional_node_parameters('/controller_server',
             ['FollowPath.min_vel_x', 'FollowPath.max_vel_y', 'FollowPath.max_vel_x', 'FollowPath.max_vel_theta'])
         assert effective == {'FollowPath.min_vel_x':0.0, 'FollowPath.max_vel_y':0.0,
                              'FollowPath.max_vel_x':0.12, 'FollowPath.max_vel_theta':0.3}
+        assert gateway._ensure_parameter_client('/behavior_server').wait_for_services(timeout_sec=10)
         behaviors = gateway._optional_node_parameters('/behavior_server', ['behavior_plugins'])
         assert 'backup' not in behaviors['behavior_plugins']
-        api('/api/navigation/goal', {'goal': {'x': 1, 'y': 0, 'yaw': 0}})
+        result = agent.navigate_to_named_place('Диван', wait_until_done=False)
+        assert result['success'] and not result['completed'], result
         wait_for(lambda s: s['goal_state'] == 'active' and len(s['planned_path']) > 1)
-        api('/api/navigation/cancel', {})
+        assert agent.get_navigation_status()['active']
+        assert agent.cancel_navigation()['success']
         wait_for(lambda s: s['goal_state'] == 'canceled')
         api('/api/stop', {})
         wait_for(lambda s: not s['running'])
@@ -147,4 +165,5 @@ def test_mapping_save_navigation_and_stop(tmp_path):
         worker.join(timeout=5)
         gateway.destroy_node()
         sensor.destroy_node()
+        agent.destroy_node()
         rclpy.shutdown()

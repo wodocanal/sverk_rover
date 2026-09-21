@@ -2,6 +2,8 @@ web_gateway_node:
   ros__parameters:
     bind_address: 0.0.0.0
     port: 8765
+    named_places_file: ~/.config/sverk-rover/named_places.json
+    named_places_service: /rover/named_places
     command_topic: /cmd_vel
     base_driver_node_name: /base_driver_node
     wheel_odometry_node_name: /wheel_odometry_node

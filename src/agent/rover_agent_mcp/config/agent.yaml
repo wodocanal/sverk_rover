@@ -5,6 +5,8 @@ mcp_server:
   led_set_state_service: package://rover_interfaces/config/topics.yaml#topics.led_set_state
   led_state_topic: package://rover_interfaces/config/topics.yaml#topics.led_state
   nav2_action_name: /navigate_to_pose
+  named_places_service: /rover/named_places
+  detections_topic: package://rover_interfaces/config/topics.yaml#topics.detections
   odom_topic: package://rover_interfaces/config/topics.yaml#topics.odom
   amcl_pose_topic: package://rover_interfaces/config/topics.yaml#topics.amcl_pose
   scan_topic: package://rover_interfaces/config/topics.yaml#topics.scan

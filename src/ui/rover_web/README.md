@@ -18,6 +18,7 @@ the server; it does not start the agent. The camera page controls the vision
 pipeline, displays detections, and offers ArUco/QR switches.
 
 - [Mapping, saved maps and navigation](../../../docs/web-navigation.md).
+- [Named destinations and agent navigation](../../../docs/named-places.md).
 - [Hardware setup and limited service permissions](../../../docs/web-hardware-setup.md).
 - [Agent/server connection and persistent settings](../../../docs/web-agent.md).
 - [Vision models and marker recognition](../../../docs/vision-markers.md).
