@@ -1,0 +1,10 @@
+id: best
+name: Road-sign YOLO (custom)
+description: Fine-tuned Ultralytics YOLO checkpoint for the rover's traffic-sign classes.
+task: detection
+format: ultralytics_pt
+model: best.pt
+input_size: [640, 640]
+swap_rb: true
+confidence_threshold: 0.25
+nms_threshold: 0.45
