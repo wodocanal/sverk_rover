@@ -1,0 +1,10 @@
+id: yolo11n
+name: YOLO11 Nano COCO
+description: Official Ultralytics YOLO11n, 80 general object classes; 320px input for CPU use.
+task: detection
+format: ultralytics_pt
+model: yolo11n.pt
+input_size: [320, 320]
+swap_rb: true
+confidence_threshold: 0.3
+nms_threshold: 0.45

@@ -1,0 +1,169 @@
+"""Opt-in HTTP/SLAM/Nav2 integration test, isolated from physical hardware.
+
+Run in a sourced ROS workspace with ROVER_WEB_NAV_INTEGRATION=1.
+"""
+
+import json
+import math
+import os
+from pathlib import Path
+import threading
+import time
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+import pytest
+import yaml
+import rclpy
+from geometry_msgs.msg import TransformStamped
+from nav_msgs.msg import Odometry
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
+from sensor_msgs.msg import LaserScan
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
+
+from rover_web.web_gateway_node import RoverWebGateway
+
+
+@pytest.mark.skipif(os.getenv('ROVER_WEB_NAV_INTEGRATION') != '1', reason='opt-in real SLAM/Nav2 test')
+def test_mapping_save_navigation_and_stop(tmp_path):
+    from rover_agent_mcp.ros_bridge import RoverRosBridge
+
+    rclpy.init(args=['--ros-args', '-p', 'port:=0', '-p', f'maps_root:={tmp_path}/maps/current',
+                     '-p', f'named_places_file:={tmp_path}/places.json',
+                     '-p', f'navigation_settings_file:={tmp_path}/navigation.yaml',
+                     '-p', f'hackathon_files_root:={tmp_path}/files',
+                     '-p', f'plans_directory:={tmp_path}/plans'])
+    gateway = RoverWebGateway()
+    sensor = Node('test_navigation_sensors')
+    agent = RoverRosBridge()
+    executor = SingleThreadedExecutor()
+    executor.add_node(gateway)
+    executor.add_node(sensor)
+    executor.add_node(agent)
+    worker = threading.Thread(target=executor.spin, daemon=True)
+    worker.start()
+    url = f'http://127.0.0.1:{gateway._http_server.server_port}'
+
+    def api(path, payload=None):
+        request = Request(url + path, data=None if payload is None else json.dumps(payload).encode(),
+                          headers={'Content-Type': 'application/json'})
+        try:
+            with urlopen(request, timeout=10) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            print(path, exc.read().decode())
+            raise
+
+    def wait_for(predicate, timeout=30):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = api('/api/navigation/status')
+            if predicate(status):
+                return status
+            time.sleep(0.2)
+        pytest.fail(json.dumps(status, indent=2))
+
+    try:
+        assert api('/api/status')['navigation']['running'] is False
+        api('/api/navigation/settings', {'resolution':0.04, 'allow_reverse':False,
+            'allow_lateral':False, 'forward_speed':0.12, 'angular_speed':0.3})
+        with pytest.raises(HTTPError):
+            api('/api/mapping/start', {})
+        scan_pub = sensor.create_publisher(LaserScan, '/scan_filtered', 10)
+        odom_pub = sensor.create_publisher(Odometry, '/odom', 10)
+        dynamic = TransformBroadcaster(sensor)
+        static = StaticTransformBroadcaster(sensor)
+        transform = TransformStamped()
+        transform.header.frame_id = 'base_link'
+        transform.child_frame_id = 'laser'
+        transform.transform.rotation.w = 1.0
+        static.sendTransform(transform)
+
+        def tick():
+            stamp = sensor.get_clock().now().to_msg()
+            tf = TransformStamped()
+            tf.header.stamp = stamp
+            tf.header.frame_id = 'odom'
+            tf.child_frame_id = 'base_link'
+            tf.transform.rotation.w = 1.0
+            dynamic.sendTransform(tf)
+            odom = Odometry()
+            odom.header.stamp = stamp
+            odom.header.frame_id = 'odom'
+            odom.child_frame_id = 'base_link'
+            odom.pose.pose.orientation.w = 1.0
+            odom_pub.publish(odom)
+            scan = LaserScan()
+            scan.header.stamp = stamp
+            scan.header.frame_id = 'laser'
+            scan.angle_min = -math.pi
+            scan.angle_increment = math.tau / 360
+            scan.angle_max = scan.angle_min + 359 * scan.angle_increment
+            scan.range_min = 0.05
+            scan.range_max = 10.0
+            scan.ranges = [2.0 / max(abs(math.cos(a)), abs(math.sin(a)))
+                           for a in [scan.angle_min + i * scan.angle_increment for i in range(360)]]
+            scan_pub.publish(scan)
+
+        sensor.create_timer(0.1, tick)
+        wait_for(lambda s: s['prerequisites']['ready'])
+        api('/api/mapping/start', {})
+        with pytest.raises(HTTPError):
+            api('/api/navigation/settings', {'resolution':0.03})
+        with pytest.raises(HTTPError):
+            api('/api/mapping/start', {})
+        wait_for(lambda s: s['live_map'] is not None)
+        with urlopen(url + '/api/mapping/image') as image:
+            assert image.read().startswith(b'\x89PNG')
+        api('/api/mapping/save', {'label': 'test_room'})
+        wait_for(lambda s: s['map_save']['state'] == 'saved', timeout=45)
+        assert (tmp_path / 'maps/current/map.yaml').is_file()
+        assert (tmp_path / 'maps/current/map.posegraph').is_file()
+        assert yaml.safe_load((tmp_path/'maps/current/map.yaml').read_text())['resolution'] == 0.04
+        api('/api/navigation/stop', {})
+        wait_for(lambda s: not s['running'] and not s['external']['slam'])
+        with pytest.raises(HTTPError):
+            api('/api/navigation/start', {'map': 'map.yaml'})
+        places = api('/api/navigation/places?map=map.yaml')
+        for name, x in [('Старт', 0), ('Диван', 1)]:
+            places = api('/api/navigation/places', {
+                'action': 'save', 'map': 'map.yaml', 'map_id': places['map_id'], 'revision': places['revision'],
+                'point': {'name': name, 'x': x, 'y': 0, 'yaw': 0}})
+        assert agent.list_named_places()['success']
+        refused = agent.navigate_to_named_place('Старт')
+        assert not refused['success']
+        api('/api/navigation/places', {'action': 'prepare', 'map': 'map.yaml',
+                                     'initial_pose': {'x': 0, 'y': 0, 'yaw': 0}})
+        arrival = agent.navigate_to_named_place('Старт')
+        assert arrival['success'] and arrival['completed'], arrival
+        status = wait_for(lambda s: s['goal_state'] == 'succeeded', timeout=75)
+        assert status['phase'] == 'running'
+        assert status['map_pose'] is not None
+        assert gateway._ensure_parameter_client('/controller_server').wait_for_services(timeout_sec=10)
+        effective = gateway._optional_node_parameters('/controller_server',
+            ['FollowPath.min_vel_x', 'FollowPath.max_vel_y', 'FollowPath.max_vel_x', 'FollowPath.max_vel_theta'])
+        assert effective == {'FollowPath.min_vel_x':0.0, 'FollowPath.max_vel_y':0.0,
+                             'FollowPath.max_vel_x':0.12, 'FollowPath.max_vel_theta':0.3}
+        assert gateway._ensure_parameter_client('/behavior_server').wait_for_services(timeout_sec=10)
+        behaviors = gateway._optional_node_parameters('/behavior_server', ['behavior_plugins'])
+        assert 'backup' not in behaviors['behavior_plugins']
+        result = agent.navigate_to_named_place('Диван', wait_until_done=False)
+        assert result['success'] and not result['completed'], result
+        wait_for(lambda s: s['goal_state'] == 'active' and len(s['planned_path']) > 1)
+        assert agent.get_navigation_status()['active']
+        assert agent.cancel_navigation()['success']
+        wait_for(lambda s: s['goal_state'] == 'canceled')
+        api('/api/stop', {})
+        wait_for(lambda s: not s['running'])
+    finally:
+        gateway.stop_navigation_runtime()
+        process = gateway._navigation_process
+        if process is not None:
+            process.wait(timeout=15)
+        executor.shutdown(timeout_sec=5)
+        worker.join(timeout=5)
+        gateway.destroy_node()
+        sensor.destroy_node()
+        agent.destroy_node()
+        rclpy.shutdown()

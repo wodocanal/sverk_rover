@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+
+SERVICE_NAMES=(
+  "rover-bringup.service"
+  "rover-web.service"
+)
+RUN_USER="${ROVER_SERVICE_USER:-pi}"
+RUN_GROUP="${ROVER_SERVICE_GROUP:-${RUN_USER}}"
+WORKSPACE="${ROVER_WS:-${REPO_ROOT}}"
+
+if [[ ! "${RUN_USER}" =~ ^[a-z_][a-z0-9_-]*\$?$ ]]; then
+  echo "Invalid service user" >&2
+  exit 1
+fi
+
+if [[ ! -f "${WORKSPACE}/install/setup.bash" ]]; then
+  cat >&2 <<EOF
+Workspace install/setup.bash was not found:
+  ${WORKSPACE}/install/setup.bash
+
+Build the workspace first, or pass the workspace path explicitly:
+  ROVER_WS=/home/pi/sverk_rover ${SCRIPT_DIR}/install.sh
+EOF
+  exit 1
+fi
+
+for service_name in "${SERVICE_NAMES[@]}"; do
+  service_src="${SCRIPT_DIR}/${service_name}"
+  service_dst="/etc/systemd/system/${service_name}"
+
+  tmp_service="$(mktemp)"
+  sed \
+    -e "s|^User=.*|User=${RUN_USER}|" \
+    -e "s|^Group=.*|Group=${RUN_GROUP}|" \
+    -e "s|^WorkingDirectory=.*|WorkingDirectory=${WORKSPACE}|" \
+    "${service_src}" > "${tmp_service}"
+
+  sudo install -m 0644 "${tmp_service}" "${service_dst}"
+  rm -f "${tmp_service}"
+done
+
+for env_name in rover-bringup rover-web; do
+  env_src="${SCRIPT_DIR}/${env_name}.env"
+  env_dst="/etc/default/${env_name}"
+
+  if [[ ! -f "${env_dst}" ]]; then
+    tmp_env="$(mktemp)"
+    sed -e "s|^ROVER_WS=.*|ROVER_WS=${WORKSPACE}|" "${env_src}" > "${tmp_env}"
+    sudo install -m 0640 -o root -g "${RUN_GROUP}" "${tmp_env}" "${env_dst}"
+    rm -f "${tmp_env}"
+  else
+    echo "Keeping existing ${env_dst}"
+  fi
+done
+
+# Allow hardware start/stop and web restart only, never arbitrary units.
+tmp_policy="$(mktemp)"
+sed "s|@ROVER_USER@|${RUN_USER}|g" "${SCRIPT_DIR}/rover-maintenance.rules" > "${tmp_policy}"
+sudo install -d -m 0755 /etc/polkit-1/rules.d
+sudo install -m 0644 "${tmp_policy}" /etc/polkit-1/rules.d/49-rover-maintenance.rules
+rm -f "${tmp_policy}"
+
+sudo systemctl daemon-reload
+sudo env ROVER_SERVICE_USER="${RUN_USER}" bash "${SCRIPT_DIR}/install-service-control.sh"
+for service_name in "${SERVICE_NAMES[@]}"; do
+  sudo systemctl enable "${service_name}"
+done
+
+cat <<EOF
+Installed rover-bringup.service and rover-web.service.
+
+Edit launch settings:
+  sudo nano /etc/default/rover-bringup
+  sudo nano /etc/default/rover-web
+
+Start/stop/status:
+  sudo systemctl start rover-bringup
+  sudo systemctl start rover-web
+  sudo systemctl stop rover-web
+  sudo systemctl stop rover-bringup
+  systemctl status rover-bringup
+  systemctl status rover-web
+
+Logs:
+  journalctl -u rover-bringup -f
+  journalctl -u rover-web -f
+EOF
