@@ -2,11 +2,18 @@
 
 Russian operator/update guide: `docs/vision-markers.md` in the repository root.
 
-## Default: YOLO11n COCO
+## Available models
 
-`yolo11n.pt` and `yolo11n.yaml` replace the previous custom `best.pt`/`best.yaml`.
-This is the official Ultralytics nano detector with 80 COCO classes (person,
+`yolo11n.pt` and `yolo11n.yaml` are the default model. This is the official
+Ultralytics nano detector with 80 COCO classes (person,
 bicycle, car, bottle, chair, etc.), not a model for the old custom classes.
+
+The custom traffic-sign model is available again as `best.pt` with `best.yaml`.
+It is a fine-tuned Ultralytics checkpoint for the rover's traffic-sign classes.
+The class names are embedded in the checkpoint and are loaded by Ultralytics at
+runtime; the manifest does not replace them with the COCO label list. The model
+was restored from the historical rover revision and has SHA-256
+`e609e19448bf5c6f3678012fa7611b8030bd0b8fcc0343ef134a72d9aca47ef9`.
 
 - Source: https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
 - SHA-256: `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`
@@ -20,7 +27,8 @@ Install `requirements.txt` in the Python environment running the ROS node.
 The loader uses `ultralytics.YOLO`; class labels are read from the checkpoint.
 Only load trusted checkpoints. Weights are included, so startup does not require
 an automatic model download. A direct node run and both package configs select
-`yolo11n` by default. Remove any custom launch override `model_name:=best`.
+`yolo11n` by default. Select `best` in the camera page or use
+`model_name:=best` when you need the traffic-sign classes.
 
 Supported runtime formats are `ultralytics_pt` and `opencv_ssd_tf`. Existing SSD
 assets remain as an alternative; old ONNX assets are not selectable because

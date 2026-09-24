@@ -17,8 +17,11 @@ def test_default_pt_manifest_is_selectable():
     assert model.model_format == 'ultralytics_pt'
     assert model.model_path.name == 'yolo11n.pt'
     assert model.input_width == model.input_height == 320
-    assert 'best' not in manifests
-    assert not (Path(__file__).parents[1] / 'models' / 'best.pt').exists()
+    custom = manifests['best']
+    assert custom.valid
+    assert custom.model_format == 'ultralytics_pt'
+    assert custom.model_path.name == 'best.pt'
+    assert custom.input_width == custom.input_height == 640
 
 
 def test_ultralytics_results_become_annotated_detections():
