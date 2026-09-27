@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from rover_agent_mcp.detection_observer import DetectionBuffer, parse_frame
+from rover_agent_mcp.detection_observer import DetectionBuffer, parse_frame, qr_codes_from_observation
 from rover_agent_mcp.tool_schemas import mcp_tools
 
 
@@ -123,6 +123,21 @@ def test_qr_and_aruco_preserve_identity_but_not_invent_confidence():
     assert len(qr['example']['data']) == 512
 
 
+def test_qr_reader_returns_only_decoded_text_with_confirmation_status():
+    box = {'x': 320, 'y': 10, 'width': 30, 'height': 40}
+    decoded = {'kind': 'qr', 'data': 'rover://zone/kitchen', 'bbox': box}
+    unreadable = {'kind': 'qr', 'data': '', 'bbox': box}
+    observation = observe(lambda b: publish_frames(b, [
+        frame(1, [decoded, unreadable]), frame(2, [decoded]), frame(3, [decoded])]))
+    result = qr_codes_from_observation(observation)
+    assert result['success'] and result['state'] == 'decoded'
+    assert result['decoded_qr_codes'] == [{
+        'text': 'rover://zone/kitchen', 'text_truncated': False, 'frames_seen': 3,
+        'observation_ratio': 1.0, 'seen_in_latest_frame': True, 'image_region': 'center',
+    }]
+    assert result['unreadable_qr_groups'] == 1
+
+
 def test_bad_json_never_becomes_empty_success_and_error_hides_payload():
     result = observe(lambda b: b.receive('secret invalid JSON', 100_000_000_000))
     assert not result['success'] and result['last_error']
@@ -151,3 +166,5 @@ def test_tool_argument_bounds(settings):
 def test_tool_schema_is_available():
     tool = next(t for t in mcp_tools() if t['name'] == 'observe_detections')
     assert tool['inputSchema']['properties']['samples']['default'] == 3
+    qr_tool = next(t for t in mcp_tools() if t['name'] == 'read_qr_codes')
+    assert qr_tool['inputSchema']['properties']['samples']['default'] == 3

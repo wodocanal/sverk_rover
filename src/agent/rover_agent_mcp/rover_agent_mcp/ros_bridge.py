@@ -140,6 +140,7 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
             'get_robot_pose': self.get_robot_pose,
             'get_laser_summary': self.get_laser_summary,
             'observe_detections': self.observe_detections,
+            'read_qr_codes': self.read_qr_codes,
             'get_led_strip_state': self.get_led_strip_state,
             'get_system_status': self.get_system_status,
         }
@@ -258,7 +259,7 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
             'relative_motion': ['drive_relative', 'turn_relative', 'run_motion_sequence', 'stop_motion'],
             'nav2': ['list_named_places', 'navigate_to_named_place', 'navigate_to_pose', 'cancel_navigation', 'get_navigation_status', 'is_navigation_ready', 'get_robot_pose'],
             'diagnostics': ['get_laser_summary', 'get_system_status'],
-            'vision': ['observe_detections'],
+            'vision': ['observe_detections', 'read_qr_codes'],
             'compatibility_aliases': ['drive_forward', 'run_relative_sequence'],
         }
         return {

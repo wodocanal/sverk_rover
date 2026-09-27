@@ -31,7 +31,11 @@ def test_vision_publisher_to_agent_tool():
         if mode[0] == 'stale':
             stamp.sec -= 30
         objects = [Detection(99, 'custom-object', 0.9, 10, 10, 30, 30)] if mode[0] == 'objects' else []
-        CameraDetectorNode._publish_detections(serializer, objects, (480, 640, 3), stamp)
+        markers = ([{'kind': 'qr', 'label': 'QR', 'data': 'rover://zone/kitchen',
+                     'decoded': True, 'bbox': {'x': 300, 'y': 10, 'width': 40, 'height': 40}}]
+                   if mode[0] == 'qr' else [])
+        CameraDetectorNode._publish_detections(
+            serializer, objects, (480, 640, 3), stamp, markers=markers)
 
     sensor.create_timer(0.05, tick)
     executor = SingleThreadedExecutor()
@@ -48,6 +52,10 @@ def test_vision_publisher_to_agent_tool():
         assert result['confirmed'][0]['example']['label'] == 'custom-object'
         assert result['confirmed'][0]['frames_seen'] == 3
         assert result['publisher_count'] == 1
+        mode[0] = 'qr'
+        result = agent.call_tool('read_qr_codes', {'samples': 3, 'timeout_s': 3})
+        assert result['success'] and result['state'] == 'decoded', result
+        assert result['decoded_qr_codes'][0]['text'] == 'rover://zone/kitchen'
         mode[0] = 'empty'
         result = agent.call_tool('observe_detections', {'samples': 3, 'timeout_s': 3})
         assert result['success'] and result['state'] == 'empty', result
