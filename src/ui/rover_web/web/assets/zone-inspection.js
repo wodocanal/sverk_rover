@@ -23,7 +23,7 @@ const RoverZoneInspection = (() => {
     try {
       const inspection = await api('/api/navigation/zone_inspection');
       route = inspection.route || [];
-      active = ['starting', 'active'].includes(inspection.state);
+      active = ['starting', 'active', 'approaching'].includes(inspection.state);
       $('#zone-inspection-start').disabled = active || !selectedZone();
       $('#zone-inspection-stop').disabled = !active;
       const position = Number.isInteger(inspection.current_index) ? ` Точка ${inspection.current_index + 1}/${route.length}.` : '';

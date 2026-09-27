@@ -76,6 +76,17 @@ def test_zone_inspection_route_is_clockwise_parallel_and_spaced():
     assert area < 0  # Clockwise in the map coordinate frame.
 
 
+def test_zone_inspection_approach_stays_outside_and_faces_the_zone():
+    corners = [
+        {'x': 0, 'y': 0}, {'x': 2, 'y': 0}, {'x': 2, 'y': 1}, {'x': 0, 'y': 1},
+    ]
+    current = {'x': -0.3, 'y': 0.5, 'yaw': 0}
+    goal = NamedPlacesMixin._zone_inspection_approach_goal(corners, current, 0.3)
+    assert goal['x'] == pytest.approx(-0.18)
+    assert goal['y'] == pytest.approx(0.5)
+    assert goal['yaw'] == pytest.approx(0)
+
+
 def test_non_convex_zone_is_rejected(tmp_path):
     store = NamedPlacesStore(tmp_path / 'places.json')
     with pytest.raises(ValueError, match='convex'):

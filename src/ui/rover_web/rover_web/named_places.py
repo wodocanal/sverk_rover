@@ -162,7 +162,8 @@ class NamedPlacesMixin:
             'id': None, 'state': 'idle',
             'message': 'Choose a no-drive zone to test its inspection route.',
             'zone_name': '', 'map': '', 'route': [], 'current_index': None,
-            'qr_codes': [], 'started_at': None,
+            'qr_codes': [], 'preliminary_qr_codes': [], 'zone_corners': [],
+            'clearance_m': None, 'approach_goal': None, 'started_at': None,
         }
         self._places_service = self.create_service(
             NamedPlaces, str(self.get_parameter('named_places_service').value), self._places_callback)
@@ -426,6 +427,22 @@ class NamedPlacesMixin:
             time.sleep(0.15)
         return []
 
+    @staticmethod
+    def _zone_inspection_approach_goal(zone_corners, current_goal, clearance_m):
+        """Move a little closer along the same camera-facing ray without entering a zone."""
+        center_x = sum(point['x'] for point in zone_corners) / len(zone_corners)
+        center_y = sum(point['y'] for point in zone_corners) / len(zone_corners)
+        dx, dy = center_x - current_goal['x'], center_y - current_goal['y']
+        distance = math.hypot(dx, dy)
+        if distance < 1e-6:
+            return dict(current_goal)
+        # Preserve at least 18 cm from the hard map obstacle. Nav2 retains final
+        # authority and may reject this goal if its inflated costmap needs more room.
+        advance = max(0.0, min(0.15, float(clearance_m) - 0.18))
+        x = current_goal['x'] + dx * advance / distance
+        y = current_goal['y'] + dy * advance / distance
+        return {'x': x, 'y': y, 'yaw': math.atan2(center_y - y, center_x - x)}
+
     def start_zone_inspection(self, request):
         if not isinstance(request, dict):
             raise ValueError('Expected an object')
@@ -439,7 +456,8 @@ class NamedPlacesMixin:
                 raise ValueError('Choose a saved zone for inspection')
             if zone['can_drive']:
                 raise ValueError('Inspection is available only for a no-drive zone')
-            route = self._zone_inspection_route(zone['corners'], request.get('clearance_m', 0.30), request.get('step_m', 0.30))
+            clearance_m = float(request.get('clearance_m', 0.30))
+            route = self._zone_inspection_route(zone['corners'], clearance_m, request.get('step_m', 0.30))
             runtime = self.navigation_status_payload()
             if runtime['running']:
                 if runtime['mode'] != 'navigation' or runtime['phase'] != 'running' or runtime['map'] != map_name:
@@ -457,7 +475,10 @@ class NamedPlacesMixin:
             self._set_zone_inspection(id=inspection_id, state='starting',
                                       message='Starting Nav2 and moving to the inspection contour.',
                                       zone_name=zone['name'], map=map_name, route=route,
-                                      current_index=0, qr_codes=[], started_at=time.time())
+                                      current_index=0, qr_codes=[], preliminary_qr_codes=[],
+                                      zone_corners=[dict(point) for point in zone['corners']],
+                                      clearance_m=clearance_m, approach_goal=None,
+                                      started_at=time.time())
             threading.Thread(target=self._zone_inspection_worker, args=(inspection_id,), name='rover-zone-inspection', daemon=True).start()
             self.record_activity('navigation', 'Zone inspection started', {'zone': zone['name']})
             return self.zone_inspection_payload()
@@ -465,7 +486,7 @@ class NamedPlacesMixin:
     def stop_zone_inspection(self):
         with self._navigation_control_lock:
             status = self.zone_inspection_payload()
-            if status['state'] not in {'starting', 'active'}:
+            if status['state'] not in {'starting', 'active', 'approaching'}:
                 raise RuntimeError('Zone inspection is not running')
             self._set_zone_inspection(state='canceled', message='Inspection canceled by the operator.')
             runtime = self.navigation_status_payload()
@@ -478,15 +499,39 @@ class NamedPlacesMixin:
         index = 0
         while True:
             status = self.zone_inspection_payload()
-            if status['id'] != inspection_id or status['state'] not in {'starting', 'active'}:
+            if status['id'] != inspection_id or status['state'] not in {'starting', 'active', 'approaching'}:
                 return
             runtime = self.navigation_status_payload()
             goal_state = runtime.get('goal_state')
             if goal_state in {'queued', 'sending', 'active'}:
-                self._set_zone_inspection(state='active', current_index=index,
-                                          message=f'Inspecting point {index + 1}/{len(status["route"])}.')
+                if status['state'] != 'approaching':
+                    self._set_zone_inspection(state='active', current_index=index,
+                                              message=f'Inspecting point {index + 1}/{len(status["route"])}.')
                 time.sleep(0.25)
                 continue
+            if status['state'] == 'approaching':
+                if goal_state != 'succeeded':
+                    self._set_zone_inspection(
+                        state='succeeded', current_index=index,
+                        qr_codes=status['preliminary_qr_codes'],
+                        message='QR detected. Safe approach was unavailable; text was read from the inspection contour.',
+                    )
+                    self.record_activity('vision', 'QR approach unavailable', {
+                        'zone': status['zone_name'], 'navigation_goal_state': goal_state,
+                    })
+                    return
+                before_count = self.vision_qr_detections().get('message_count', 0)
+                confirmed = self._zone_inspection_qr_codes(before_count, timeout_sec=3.0)
+                combined = list(dict.fromkeys(status['preliminary_qr_codes'] + confirmed))
+                self._set_zone_inspection(
+                    state='succeeded', current_index=index, qr_codes=combined,
+                    message=('QR approach completed and text was confirmed.' if confirmed
+                             else 'QR approach completed; no additional fresh frame arrived, using the first decoded text.'),
+                )
+                self.record_activity('vision', 'QR read after zone approach', {
+                    'zone': status['zone_name'], 'codes': combined,
+                })
+                return
             if goal_state != 'succeeded':
                 self._set_zone_inspection(state='error', current_index=index,
                                           message=f'Inspection stopped: navigation goal is {goal_state}.')
@@ -494,11 +539,27 @@ class NamedPlacesMixin:
             before_count = self.vision_qr_detections().get('message_count', 0)
             codes = self._zone_inspection_qr_codes(before_count)
             if codes:
-                combined = list(dict.fromkeys(status['qr_codes'] + codes))
-                self._set_zone_inspection(state='succeeded', current_index=index, qr_codes=combined,
-                                          message='QR code found. Inspection completed safely.')
-                self.record_activity('vision', 'QR found during zone inspection', {'zone': status['zone_name'], 'codes': combined})
-                return
+                approach_goal = self._zone_inspection_approach_goal(
+                    status['zone_corners'], status['route'][index], status['clearance_m'])
+                self._set_zone_inspection(
+                    state='approaching', current_index=index, preliminary_qr_codes=codes,
+                    approach_goal=approach_goal,
+                    message='QR detected. Stopping the perimeter and approaching from the camera-facing side.',
+                )
+                try:
+                    self.send_navigation_goal({'goal': approach_goal})
+                except Exception as exc:
+                    self._set_zone_inspection(
+                        state='succeeded', current_index=index, qr_codes=codes,
+                        message=f'QR detected. Could not send a closer safe goal: {exc}',
+                    )
+                    self.record_activity('vision', 'QR found during zone inspection', {
+                        'zone': status['zone_name'], 'codes': codes,
+                    })
+                    return
+                # Stay in the worker: the next iteration waits for the closer
+                # Nav2 goal and performs the confirmation read.
+                continue
             index += 1
             if index >= len(status['route']):
                 self._set_zone_inspection(state='completed', current_index=len(status['route']) - 1,
