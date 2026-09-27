@@ -3950,6 +3950,7 @@ function renderNavigationRuntime(runtime) {
   const external = Boolean(runtime?.external?.slam || runtime?.external?.navigation);
   RoverNamedPlaces.sync();
   RoverNamedZones.sync();
+  RoverZoneInspection.sync();
   const prerequisites = runtime?.prerequisites || {};
   const missingTopics = safeArray(prerequisites.missing_topics);
   const map = currentVisualizationMap();
@@ -4155,6 +4156,7 @@ function renderVisualization() {
   const preview = state.viz.posePreview;
   RoverNamedPlaces.draw(ctx, toScreen);
   RoverNamedZones.draw(ctx, toScreen);
+  RoverZoneInspection.draw(ctx, toScreen);
   const initialPose = preview?.mode === 'initial' ? preview.pose : readNavigationPose('nav-initial');
   const goal = preview?.mode === 'goal' ? preview.pose : readNavigationPose('nav-goal');
   if (initialPose) {
@@ -4463,6 +4465,7 @@ function bindRoutesPage() {
 function bindVisualizationPage() {
   RoverNamedPlaces.bind();
   RoverNamedZones.bind();
+  RoverZoneInspection.bind();
   $('#viz-map-visible').checked = state.viz.mapVisible;
   state.viz.cancelGesture = RoverMapView.bindMapViewport($('#odom-canvas'), state.viz.view,
     renderVisualization, {

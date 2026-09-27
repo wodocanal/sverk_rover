@@ -6,8 +6,18 @@ import cv2
 import numpy as np
 import pytest
 
+from rover_vision import markers as marker_module
 from rover_vision.markers import MarkerDetector
 from rover_vision.camera_detector_node import CameraDetectorNode, Detection
+
+
+DENSE_QR_TEXT = (
+    'Состояние: тяжелое \r\n'
+    'Сознание: в сознании \r\n'
+    'Дыхание: затрудненное \r\n'
+    'Пульс: 118 уд/мин \r\n'
+    'Требуется: неотложная медицинская помощь'
+)
 
 
 def marker_scene():
@@ -23,6 +33,18 @@ def marker_scene():
     qr = cv2.resize(qr, None, fx=7, fy=7, interpolation=cv2.INTER_NEAREST)
     height, width = qr.shape
     scene[60:60+height, 390:390+width] = cv2.cvtColor(qr, cv2.COLOR_GRAY2BGR)
+    return scene
+
+
+def dense_qr_scene():
+    """Reproduce a dense, slightly blurred QR as seen by the rover camera."""
+    qr = cv2.QRCodeEncoder_create().encode(DENSE_QR_TEXT)
+    qr = cv2.copyMakeBorder(qr, 4, 4, 4, 4, cv2.BORDER_CONSTANT, value=255)
+    qr = cv2.resize(qr, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST)
+    qr = cv2.GaussianBlur(qr, (5, 5), 0)
+    height, width = qr.shape
+    scene = np.full((440, 800, 3), 255, np.uint8)
+    scene[80:80+height, 390:390+width] = cv2.cvtColor(qr, cv2.COLOR_GRAY2BGR)
     return scene
 
 
@@ -50,6 +72,13 @@ def test_wrong_dictionary_and_empty_scene():
     assert MarkerDetector(aruco=True, qr=True).detect(np.full((400,400,3),255,np.uint8)) == []
     with pytest.raises(ValueError):
         MarkerDetector(dictionary='invalid')
+
+
+@pytest.mark.skipif(marker_module.zxingcpp is None, reason='zxing-cpp is not installed')
+def test_dense_qr_uses_fallback_when_opencv_only_detects_its_outline():
+    markers = MarkerDetector(qr=True).detect(dense_qr_scene())
+    decoded = [item['data'] for item in markers if item['kind'] == 'qr' and item['decoded']]
+    assert decoded == [DENSE_QR_TEXT]
 
 
 def test_markers_and_objects_share_detection_topic():

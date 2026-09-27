@@ -56,3 +56,11 @@ test('named zones are available from the visualization page', () => {
   assert.match(zones, /save_zone/);
   assert.match(zones, /delete_zone/);
 });
+
+test('manual zone inspection controls and asset are available', () => {
+  assert.match(html, /zone-inspection-start/);
+  assert.match(html, /assets\/zone-inspection\.js/);
+  const inspection = fs.readFileSync(`${__dirname}/../web/assets/zone-inspection.js`, 'utf8');
+  assert.match(inspection, /zone_inspection\/start/);
+  assert.match(inspection, /RoverZoneInspection/);
+});

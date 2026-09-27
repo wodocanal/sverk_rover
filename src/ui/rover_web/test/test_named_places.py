@@ -60,6 +60,30 @@ def test_zone_persistence_and_validation(tmp_path):
     assert store.update('map', 1, delete_zone_id=saved['zones'][0]['id'])['zones'] == []
 
 
+def test_zone_inspection_route_is_clockwise_parallel_and_spaced():
+    route = NamedPlacesMixin._zone_inspection_route([
+        {'x': 0, 'y': 0}, {'x': 2, 'y': 0}, {'x': 2, 'y': 1}, {'x': 0, 'y': 1},
+    ], clearance_m=0.3, step_m=0.25)
+    # The 30 cm offset expands the 2x1 m rectangle to 2.6x1.6 m.
+    assert len(route) == 36
+    assert min(point['x'] for point in route) == pytest.approx(-0.3)
+    assert max(point['x'] for point in route) == pytest.approx(2.3)
+    assert min(point['y'] for point in route) == pytest.approx(-0.3)
+    assert max(point['y'] for point in route) == pytest.approx(1.3)
+    area = sum(route[index]['x'] * route[(index + 1) % len(route)]['y']
+               - route[(index + 1) % len(route)]['x'] * route[index]['y']
+               for index in range(len(route)))
+    assert area < 0  # Clockwise in the map coordinate frame.
+
+
+def test_non_convex_zone_is_rejected(tmp_path):
+    store = NamedPlacesStore(tmp_path / 'places.json')
+    with pytest.raises(ValueError, match='convex'):
+        store.update('map', 0, zone={'name': 'Bad', 'can_drive': False, 'aliases': [], 'corners': [
+            {'x': 0, 'y': 0}, {'x': 1, 'y': 0}, {'x': 0.4, 'y': 0.2}, {'x': 0, 'y': 1},
+        ]})
+
+
 def test_no_drive_zone_creates_navigation_map_copy(gateway):
     payload = gateway.named_places_payload('map.yaml')
     gateway.update_named_places({'action': 'save_zone', 'map': 'map.yaml',

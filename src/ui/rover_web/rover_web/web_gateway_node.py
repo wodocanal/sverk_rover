@@ -4264,6 +4264,9 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                     if path == '/api/navigation/places':
                         self._send_json(gateway.named_places_payload(self._required_query(query, 'map')), HTTPStatus.OK)
                         return
+                    if path == '/api/navigation/zone_inspection':
+                        self._send_json(gateway.zone_inspection_payload(), HTTPStatus.OK)
+                        return
                     if path == '/api/maintenance':
                         self._send_json(gateway.maintenance_status(), HTTPStatus.OK)
                         return
@@ -4428,6 +4431,18 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                     payload = self._read_json_body()
                     if parsed.path == '/api/navigation/places':
                         self._send_json(gateway.update_named_places(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/navigation/zone_inspection/start':
+                        self._send_json(
+                            {'ok': True, 'inspection': gateway.start_zone_inspection(payload)},
+                            HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/navigation/zone_inspection/stop':
+                        self._send_json(
+                            {'ok': True, 'inspection': gateway.stop_zone_inspection()},
+                            HTTPStatus.OK,
+                        )
                         return
                     if parsed.path == '/api/navigation/settings':
                         self._send_json(gateway.update_navigation_settings(payload), HTTPStatus.OK)

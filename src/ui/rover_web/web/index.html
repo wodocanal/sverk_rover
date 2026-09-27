@@ -483,6 +483,21 @@ angular.z: 0.00</pre>
               </div>
               <p id="zones-status" class="status-note" role="status">Выберите сохранённую карту.</p>
             </article>
+            <article class="panel named-places-card">
+              <h2>Ручной тест объезда зоны</h2>
+              <p class="status-note">Ровер построит внешний контур по часовой стрелке, остановится у точек маршрута и после каждой из них проверит свежие QR-данные. Подходят только непроезжаемые выпуклые зоны.</p>
+              <div class="form-grid compact-grid">
+                <label>Зона<select id="zone-inspection-select"><option value="">Выберите зону</option></select></label>
+                <label>Отступ от зоны, м<input id="zone-inspection-clearance" type="number" min="0.10" max="1.50" step="0.05" value="0.30"></label>
+                <label>Шаг проверки QR, м<input id="zone-inspection-step" type="number" min="0.10" max="1.00" step="0.05" value="0.30"></label>
+              </div>
+              <div class="button-row">
+                <button id="zone-inspection-start">Начать тест</button>
+                <button id="zone-inspection-stop" class="danger-secondary">Остановить тест</button>
+              </div>
+              <p id="zone-inspection-status" class="status-note" role="status">Выберите карту и непроезжаемую зону.</p>
+              <p id="zone-inspection-qr" class="status-note"></p>
+            </article>
             <article class="panel navigation-log-card">
               <h2>SLAM / Nav2</h2>
               <pre class="log-box" id="navigation-log">Процессы не запущены.</pre>
@@ -1204,6 +1219,7 @@ angular.z: 0.00</pre>
   <script src="/assets/map-view.js"></script>
   <script src="/assets/named-places.js"></script>
   <script src="/assets/named-zones.js"></script>
+  <script src="/assets/zone-inspection.js"></script>
   <script src="/assets/app.js"></script>
   <script src="/assets/maintenance.js"></script>
   <script src="/assets/system-services.js"></script>
