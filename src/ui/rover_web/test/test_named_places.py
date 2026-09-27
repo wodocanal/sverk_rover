@@ -47,6 +47,33 @@ def test_corrupt_file_is_not_silently_overwritten(tmp_path):
     assert path.read_text() == '{bad'
 
 
+def test_zone_persistence_and_validation(tmp_path):
+    store = NamedPlacesStore(tmp_path / 'places.json')
+    zone = {'name': 'Завал', 'can_drive': False, 'aliases': ['обломки'], 'corners': [
+        {'x': 0, 'y': 0}, {'x': 1, 'y': 0}, {'x': 1, 'y': 1}, {'x': 0, 'y': 1},
+    ]}
+    saved = store.update('map', 0, zone=zone)
+    assert saved['zones'][0]['name'] == 'Завал'
+    assert not saved['zones'][0]['can_drive']
+    with pytest.raises(ValueError, match='exactly four'):
+        store.update('map', 1, zone={**zone, 'name': 'Плохая', 'corners': zone['corners'][:3]})
+    assert store.update('map', 1, delete_zone_id=saved['zones'][0]['id'])['zones'] == []
+
+
+def test_no_drive_zone_creates_navigation_map_copy(gateway):
+    payload = gateway.named_places_payload('map.yaml')
+    gateway.update_named_places({'action': 'save_zone', 'map': 'map.yaml',
+                                 'map_id': payload['map_id'], 'revision': payload['revision'],
+                                 'zone': {'name': 'Завал', 'can_drive': False, 'aliases': [], 'corners': [
+                                     {'x': 0, 'y': 0}, {'x': 0.1, 'y': 0},
+                                     {'x': 0.1, 'y': 0.1}, {'x': 0, 'y': 0.1},
+                                 ]}})
+    generated = gateway.navigation_map_with_zones('map.yaml')
+    assert generated != gateway._resolve_map_yaml.return_value
+    assert generated.exists()
+    assert generated.with_suffix('.pgm').exists()
+
+
 @pytest.fixture
 def gateway(tmp_path):
     node = NamedPlacesMixin()

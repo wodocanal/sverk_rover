@@ -1,6 +1,7 @@
 camera_detector_node:
   ros__parameters:
     enabled: false
+    detect_objects: true
     model_name: yolo11n
     detect_aruco: false
     detect_qr: false
@@ -14,6 +15,7 @@ camera_detector_node:
     publish_compressed: true
     publish_detections: true
     detections_topic: /detections
+    qr_detections_topic: /qr_detections
     confidence_threshold: 0.3
     nms_threshold: 0.45
     max_processing_fps: 10.0

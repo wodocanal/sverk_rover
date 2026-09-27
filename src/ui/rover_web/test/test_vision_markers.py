@@ -18,10 +18,7 @@ from rover_vision.camera_detector_node import CameraDetectorNode
 from rover_web.web_gateway_node import RoverWebGateway
 
 
-def test_real_model_and_marker_controls(tmp_path):
-    pytest.importorskip('ultralytics')
-    import torch
-    torch.set_num_threads(2)
+def test_marker_only_controls_and_qr_topic(tmp_path):
     rclpy.init(args=['--ros-args', '-p', 'port:=0',
         '-p', f'hackathon_files_root:={tmp_path}/files', '-p', f'plans_directory:={tmp_path}/plans'])
     executor = SingleThreadedExecutor()
@@ -49,9 +46,12 @@ def test_real_model_and_marker_controls(tmp_path):
         with pytest.raises(HTTPError):
             api('/api/vision/settings', {'aruco_dictionary':'invalid'})
         assert vision.aruco_dictionary == 'DICT_4X4_50'
-        api('/api/vision/settings', {'detect_aruco':True, 'detect_qr':True, 'aruco_dictionary':'DICT_4X4_50'})
+        api('/api/vision/settings', {
+            'detect_objects': False, 'detect_aruco': True, 'detect_qr': True,
+            'aruco_dictionary': 'DICT_4X4_50',
+        })
         api('/api/vision/settings', {'enabled':True})
-        assert vision._active
+        assert vision._active and vision._detector is None
         frame = np.full((440,800,3),255,np.uint8)
         dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         aruco = cv2.aruco.generateImageMarker(dictionary,17,180) if hasattr(cv2.aruco,'generateImageMarker') \
@@ -63,17 +63,21 @@ def test_real_model_and_marker_controls(tmp_path):
         frame[60:60+qr.shape[0],390:390+qr.shape[1]] = cv2.cvtColor(qr,cv2.COLOR_GRAY2BGR)
         message = Image(height=440,width=800,encoding='bgr8',step=2400,data=frame.tobytes())
         api('/api/vision/detections')  # Register the web's lazy subscription before publishing.
+        api('/api/vision/qr_detections')
         deadline = time.monotonic()+20
         while time.monotonic() < deadline:
             publisher.publish(message)
             time.sleep(.3)
             result = api('/api/vision/detections').get('result')
-            if result and result['marker_count'] == 2 and output:
+            qr_result = api('/api/vision/qr_detections').get('result')
+            if result and result['marker_count'] == 2 and qr_result and output:
                 break
         assert result['marker_count'] == 2
-        assert result['model']['id'] == 'yolo11n'
+        assert result['model']['id'] == 'markers-only'
+        assert result['object_detection_enabled'] is False
         assert any(item.get('data') == 'rover-test-qr' for item in result['detections'])
         assert any(item.get('marker_id') == 17 for item in result['detections'])
+        assert qr_result['codes'][0]['data'] == 'rover-test-qr'
         processed = cv2.imdecode(np.frombuffer(bytes(output[-1].data),np.uint8),cv2.IMREAD_COLOR)
         assert processed.shape == frame.shape and np.any(processed != frame)
         with pytest.raises(HTTPError) as error:

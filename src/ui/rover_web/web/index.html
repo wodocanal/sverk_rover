@@ -246,7 +246,7 @@ ROS State — ноды, топики и сервисы
 
             <article class="panel camera-settings-panel">
               <div class="panel-heading-row camera-vision-toggle-row">
-                <h2>Обработка нейросетью</h2>
+                <h2>Обработка изображения</h2>
                 <button id="camera-vision-toggle" type="button">Включить обработку</button>
               </div>
               <div class="status-note" id="camera-vision-status">Проверяю состояние ноды обработки.</div>
@@ -259,6 +259,7 @@ ROS State — ноды, топики и сервисы
                   <label>Processed raw topic<input id="camera-vision-output-topic" value="/image_processed"></label>
                   <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/image_processed/compressed"></label>
                   <label>Detections topic<input id="camera-vision-detections-topic" value="/detections"></label>
+                  <label>QR data topic<input id="camera-vision-qr-detections-topic" value="/qr_detections"></label>
                   <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="10.0"></label>
                   <label>Confidence<input id="camera-vision-confidence" type="number" min="0.01" max="1" step="0.01" value="0.30"></label>
                   <label>NMS<input id="camera-vision-nms" type="number" min="0.01" max="1" step="0.01" value="0.45"></label>
@@ -267,13 +268,14 @@ ROS State — ноды, топики и сервисы
                   <label class="check-label"><input id="camera-vision-publish-raw" type="checkbox" checked> Публиковать raw</label>
                   <label class="check-label"><input id="camera-vision-publish-compressed" type="checkbox" checked> Публиковать compressed</label>
                   <label class="check-label"><input id="camera-vision-publish-detections" type="checkbox" checked> Публиковать detections</label>
+                  <label class="check-label"><input id="camera-vision-detect-objects" type="checkbox" checked> Распознавать объекты моделью</label>
                   <label class="check-label"><input id="camera-vision-annotate-labels" type="checkbox" checked> Подписи классов</label>
                   <label class="check-label"><input id="camera-vision-annotate-confidence" type="checkbox" checked> Confidence</label>
                   <label class="check-label"><input id="camera-vision-detect-aruco" type="checkbox"> Распознавать ArUco (OpenCV)</label>
                   <label class="check-label"><input id="camera-vision-detect-qr" type="checkbox"> Распознавать QR (OpenCV)</label>
                 </div>
                 <label>Словарь ArUco<select id="camera-vision-aruco-dictionary"><option value="DICT_4X4_50">DICT_4X4_50</option></select></label>
-                <p class="status-note">Словарь должен совпадать с напечатанными маркерами. ID ArUco и содержимое QR появятся в детекциях, рамки — в обработанном потоке. Чтобы изменить параметры, выключите обработку.</p>
+                <p class="status-note">Модель объектов, ArUco и QR работают независимо. Если выключить модель, нода не загружает её веса и может распознавать только QR/ArUco. QR-строки публикуются в отдельный топик и показываются ниже. Чтобы изменить параметры, выключите обработку.</p>
                 <div class="button-row">
                   <button class="secondary" id="camera-vision-refresh">Обновить</button>
                   <button id="camera-vision-apply">Применить</button>
@@ -283,6 +285,10 @@ ROS State — ноды, топики и сервисы
               <div class="vision-detections" id="camera-vision-detections">
                 <div class="vision-detections-heading"><strong>Детекции</strong><span id="camera-vision-detections-meta">Нет сообщений</span></div>
                 <div id="camera-vision-detections-list" class="vision-detections-list">Нода ещё не опубликовала результат.</div>
+              </div>
+              <div class="vision-detections" id="camera-vision-qr-detections">
+                <div class="vision-detections-heading"><strong>Прочитанные QR-коды</strong><span id="camera-vision-qr-detections-meta">Нет сообщений</span></div>
+                <div id="camera-vision-qr-detections-list" class="vision-detections-list">Распознанные QR-строки появятся здесь.</div>
               </div>
               <pre class="message-box hidden" id="camera-vision-details">—</pre>
             </article>
@@ -459,6 +465,23 @@ angular.z: 0.00</pre>
                 <button id="place-refresh" class="secondary">Обновить точки</button>
               </div>
               <p id="places-status" class="status-note" role="status">Выберите сохранённую карту.</p>
+            </article>
+            <article class="panel named-places-card">
+              <h2>Именованные зоны</h2>
+              <p class="status-note">Зона задаётся четырьмя углами. Непроезжаемые зоны Nav2 обходит после следующего запуска навигации.</p>
+              <div class="form-grid">
+                <label>Сохранённая зона<select id="zone-select"><option value="">Новая зона</option></select></label>
+                <label>Название<input id="zone-name" maxlength="80" placeholder="Например, завал"></label>
+                <label>Алиасы через запятую<input id="zone-aliases" maxlength="240" placeholder="обломки, руины"></label>
+              </div>
+              <label class="check-label"><input id="zone-can-drive" type="checkbox"> Разрешить движение внутри зоны</label>
+              <div class="button-row">
+                <button id="zone-pick" class="secondary">Указать 4 угла на карте</button>
+                <button id="zone-save">Сохранить</button>
+                <button id="zone-delete" class="danger-secondary">Удалить</button>
+                <button id="zone-refresh" class="secondary">Обновить зоны</button>
+              </div>
+              <p id="zones-status" class="status-note" role="status">Выберите сохранённую карту.</p>
             </article>
             <article class="panel navigation-log-card">
               <h2>SLAM / Nav2</h2>
@@ -1180,6 +1203,7 @@ angular.z: 0.00</pre>
   <script src="/assets/lidar-view.js"></script>
   <script src="/assets/map-view.js"></script>
   <script src="/assets/named-places.js"></script>
+  <script src="/assets/named-zones.js"></script>
   <script src="/assets/app.js"></script>
   <script src="/assets/maintenance.js"></script>
   <script src="/assets/system-services.js"></script>

@@ -93,6 +93,7 @@ class CameraDetectorNode(Node):
         super().__init__('camera_detector_node')
 
         self.declare_parameter('enabled', False)
+        self.declare_parameter('detect_objects', True)
         self.declare_parameter('model_name', 'yolo11n')
         self.declare_parameter('detect_aruco', False)
         self.declare_parameter('detect_qr', False)
@@ -109,6 +110,7 @@ class CameraDetectorNode(Node):
         self.declare_parameter('publish_compressed', True)
         self.declare_parameter('publish_detections', True)
         self.declare_parameter('detections_topic', '/detections')
+        self.declare_parameter('qr_detections_topic', '/qr_detections')
         self.declare_parameter('confidence_threshold', 0.30)
         self.declare_parameter('nms_threshold', 0.45)
         self.declare_parameter('max_processing_fps', 10.0)
@@ -123,6 +125,7 @@ class CameraDetectorNode(Node):
         self._raw_publisher = None
         self._compressed_publisher = None
         self._detections_publisher = None
+        self._qr_detections_publisher = None
         self._timer = None
 
         self._detector: Any = None
@@ -149,6 +152,7 @@ class CameraDetectorNode(Node):
 
     def _load_parameters(self) -> None:
         self.enabled = bool(self.get_parameter('enabled').value)
+        self.detect_objects = bool(self.get_parameter('detect_objects').value)
         self.model_name = str(self.get_parameter('model_name').value).strip()
         self.detect_aruco = bool(self.get_parameter('detect_aruco').value)
         self.detect_qr = bool(self.get_parameter('detect_qr').value)
@@ -173,6 +177,9 @@ class CameraDetectorNode(Node):
         )
         self.detections_topic = str(
             self.get_parameter('detections_topic').value
+        ).strip()
+        self.qr_detections_topic = str(
+            self.get_parameter('qr_detections_topic').value
         ).strip()
         self.confidence_threshold = float(
             self.get_parameter('confidence_threshold').value
@@ -205,6 +212,8 @@ class CameraDetectorNode(Node):
             raise ValueError('processed_compressed_image_topic must not be empty')
         if not self.detections_topic:
             raise ValueError('detections_topic must not be empty')
+        if not self.qr_detections_topic:
+            raise ValueError('qr_detections_topic must not be empty')
         if not self.frame_id:
             raise ValueError('frame_id must not be empty')
         if (
@@ -236,6 +245,7 @@ class CameraDetectorNode(Node):
     ) -> SetParametersResult:
         candidate = {
             'enabled': self.enabled,
+            'detect_objects': self.detect_objects,
             'model_name': self.model_name,
             'detect_aruco': self.detect_aruco,
             'detect_qr': self.detect_qr,
@@ -249,6 +259,7 @@ class CameraDetectorNode(Node):
             'publish_compressed': self.publish_compressed,
             'publish_detections': self.publish_detections,
             'detections_topic': self.detections_topic,
+            'qr_detections_topic': self.qr_detections_topic,
             'confidence_threshold': self.confidence_threshold,
             'nms_threshold': self.nms_threshold,
             'max_processing_fps': self.max_processing_fps,
@@ -278,6 +289,7 @@ class CameraDetectorNode(Node):
                 raise ValueError('OpenCV build does not include ArUco support')
 
             self.enabled = bool(candidate['enabled'])
+            self.detect_objects = bool(candidate['detect_objects'])
             self.model_name = str(candidate['model_name']).strip()
             self.detect_aruco = bool(candidate['detect_aruco'])
             self.detect_qr = bool(candidate['detect_qr'])
@@ -293,6 +305,7 @@ class CameraDetectorNode(Node):
             self.publish_compressed = bool(candidate['publish_compressed'])
             self.publish_detections = bool(candidate['publish_detections'])
             self.detections_topic = str(candidate['detections_topic']).strip()
+            self.qr_detections_topic = str(candidate['qr_detections_topic']).strip()
             self.confidence_threshold = float(candidate['confidence_threshold'])
             self.nms_threshold = float(candidate['nms_threshold'])
             self.max_processing_fps = float(candidate['max_processing_fps'])
@@ -333,6 +346,9 @@ class CameraDetectorNode(Node):
         if self._detections_publisher is not None:
             self.destroy_publisher(self._detections_publisher)
             self._detections_publisher = None
+        if self._qr_detections_publisher is not None:
+            self.destroy_publisher(self._qr_detections_publisher)
+            self._qr_detections_publisher = None
 
     def _resolve_model_paths(self) -> tuple[str, str, str]:
         weights_path = self._models_directory / FIXED_MODEL_ID / FIXED_MODEL_WEIGHTS
@@ -420,9 +436,11 @@ class CameraDetectorNode(Node):
             try:
                 self._marker_detector = MarkerDetector(aruco=self.detect_aruco, qr=self.detect_qr,
                                                        dictionary=self.aruco_dictionary)
-                self._detector, self._labels, self._model_manifest = self._load_detector()
+                if self.detect_objects:
+                    self._detector, self._labels, self._model_manifest = self._load_detector()
             except Exception as exc:
-                self._last_error = f'Could not load model {self.model_name}: {exc}'
+                component = f'model {self.model_name}' if self.detect_objects else 'marker detector'
+                self._last_error = f'Could not load {component}: {exc}'
                 self._log_status('error', self._last_error)
                 return
 
@@ -450,12 +468,18 @@ class CameraDetectorNode(Node):
                     self.detections_topic,
                     qos_profile_sensor_data,
                 )
+            if self.detect_qr:
+                self._qr_detections_publisher = self.create_publisher(
+                    String,
+                    self.qr_detections_topic,
+                    qos_profile_sensor_data,
+                )
             self._active = True
+            mode = (self._model_manifest.display_name if self._model_manifest else 'markers only')
             self._log_status(
                 'info',
                 'Camera detector enabled: '
-                f'{self._model_manifest.display_name} -> {self.processed_image_topic}, '
-                f'{self.detections_topic} via {self._model_manifest.model_format}',
+                f'{mode} -> {self.processed_image_topic}, {self.detections_topic}',
             )
 
     def _image_callback(self, message: Image) -> None:
@@ -474,7 +498,7 @@ class CameraDetectorNode(Node):
 
     def _should_process_now(self) -> bool:
         # A running vision node is an active sensor: do not wait for web clients.
-        return self._active and self._detector is not None
+        return self._active and (self.detect_objects or self.detect_aruco or self.detect_qr)
 
     def _process_latest_frame(self) -> None:
         if not self._should_process_now():
@@ -492,7 +516,7 @@ class CameraDetectorNode(Node):
             sequence = self._latest_seq
 
         try:
-            annotated, detections = self._run_detection(frame)
+            annotated, detections = self._run_detection(frame) if self.detect_objects else (frame.copy(), [])
             markers = self._marker_detector.detect(frame) if self.detect_aruco or self.detect_qr else []
             MarkerDetector.annotate(annotated, markers, self.line_thickness)
         except Exception as exc:
@@ -502,6 +526,7 @@ class CameraDetectorNode(Node):
 
         self._publish_processed_frame(annotated, stamp)
         self._publish_detections(detections, frame.shape, stamp, markers=markers)
+        self._publish_qr_detections(markers, frame.shape, stamp)
         self._last_processed_seq = sequence
         self._frames_processed += 1
         self._last_error = ''
@@ -663,6 +688,7 @@ class CameraDetectorNode(Node):
 
         height = int(frame_shape[0])
         width = int(frame_shape[1])
+        object_detection_enabled = bool(getattr(self, 'detect_objects', True))
         payload = {
             'stamp': {
                 'sec': int(getattr(stamp, 'sec', 0)),
@@ -670,9 +696,10 @@ class CameraDetectorNode(Node):
             },
             'frame_id': self.frame_id,
             'model': {
-                'id': self.model_name,
-                'name': self._model_manifest.display_name if self._model_manifest else self.model_name,
+                'id': self.model_name if object_detection_enabled else 'markers-only',
+                'name': self._model_manifest.display_name if self._model_manifest else 'Object model disabled',
             },
+            'object_detection_enabled': object_detection_enabled,
             'image': {
                 'width': width,
                 'height': height,
@@ -704,6 +731,40 @@ class CameraDetectorNode(Node):
         message = String()
         message.data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
         self._detections_publisher.publish(message)
+
+    def _publish_qr_detections(
+        self,
+        markers: list[dict],
+        frame_shape: tuple[int, ...],
+        stamp: Any,
+    ) -> None:
+        if self._qr_detections_publisher is None:
+            return
+        codes = [
+            {
+                'data': marker['data'],
+                'bbox': marker['bbox'],
+                'center': marker.get('center'),
+            }
+            for marker in markers
+            if marker.get('kind') == 'qr' and marker.get('decoded') and marker.get('data')
+        ]
+        if not codes:
+            return
+        height, width = frame_shape[:2]
+        payload = {
+            'stamp': {
+                'sec': int(getattr(stamp, 'sec', 0)),
+                'nanosec': int(getattr(stamp, 'nanosec', 0)),
+            },
+            'frame_id': self.frame_id,
+            'image': {'width': int(width), 'height': int(height)},
+            'count': len(codes),
+            'codes': codes,
+        }
+        message = String()
+        message.data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        self._qr_detections_publisher.publish(message)
 
     def _publish_processed_frame(self, frame: np.ndarray, stamp: Any) -> None:
         height, width = frame.shape[:2]

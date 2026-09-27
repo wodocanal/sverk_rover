@@ -1572,9 +1572,10 @@ function setCameraVisionRunning(enabled) {
   [
     '#camera-vision-model', '#camera-vision-input-topic', '#camera-vision-output-topic',
     '#camera-vision-output-compressed-topic', '#camera-vision-detections-topic',
+    '#camera-vision-qr-detections-topic',
     '#camera-vision-fps', '#camera-vision-confidence', '#camera-vision-nms',
     '#camera-vision-publish-raw', '#camera-vision-publish-compressed',
-    '#camera-vision-publish-detections', '#camera-vision-annotate-labels',
+    '#camera-vision-publish-detections', '#camera-vision-detect-objects', '#camera-vision-annotate-labels',
     '#camera-vision-annotate-confidence',
     '#camera-vision-detect-aruco', '#camera-vision-detect-qr', '#camera-vision-aruco-dictionary',
   ].forEach((selector) => { $(selector).disabled = enabled; });
@@ -1591,12 +1592,14 @@ function setCameraVisionSettingsForm(payload = {}) {
   $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/image_processed';
   $('#camera-vision-output-compressed-topic').value = parameters.processed_compressed_image_topic || '/image_processed/compressed';
   $('#camera-vision-detections-topic').value = parameters.detections_topic || '/detections';
+  $('#camera-vision-qr-detections-topic').value = parameters.qr_detections_topic || '/qr_detections';
   $('#camera-vision-fps').value = String(parameters.max_processing_fps ?? 10.0);
   $('#camera-vision-confidence').value = String(parameters.confidence_threshold ?? 0.30);
   $('#camera-vision-nms').value = String(parameters.nms_threshold ?? 0.45);
   $('#camera-vision-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-vision-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
   $('#camera-vision-publish-detections').checked = Boolean(parameters.publish_detections ?? true);
+  $('#camera-vision-detect-objects').checked = Boolean(parameters.detect_objects ?? true);
   $('#camera-vision-annotate-labels').checked = Boolean(parameters.annotate_labels ?? true);
   $('#camera-vision-annotate-confidence').checked = Boolean(parameters.annotate_confidence ?? true);
   $('#camera-vision-detect-aruco').checked = Boolean(parameters.detect_aruco ?? false);
@@ -1662,6 +1665,48 @@ async function refreshCameraVisionDetections() {
   }
 }
 
+function renderCameraVisionQrDetections(payload = {}) {
+  const list = $('#camera-vision-qr-detections-list');
+  const meta = $('#camera-vision-qr-detections-meta');
+  const result = payload.result;
+  if (payload.last_error) {
+    meta.textContent = 'Ошибка чтения';
+    list.textContent = payload.last_error;
+    return;
+  }
+  if (!result) {
+    meta.textContent = 'Ожидание QR';
+    list.textContent = 'Распознанные QR-строки появятся здесь.';
+    return;
+  }
+  const codes = safeArray(result.codes);
+  meta.textContent = `${result.count ?? codes.length} кодов · ${formatAge(payload.age_sec)}`;
+  list.innerHTML = '';
+  codes.forEach((code, index) => {
+    const item = document.createElement('div');
+    item.className = 'vision-detection-row';
+    const label = document.createElement('strong');
+    label.textContent = `QR ${index + 1}`;
+    const details = document.createElement('small');
+    // QR content can look like a URL or instruction; render it only as text.
+    details.textContent = String(code.data || '');
+    item.append(label, details);
+    list.append(item);
+  });
+  if (!codes.length) list.textContent = 'В последнем сообщении нет декодированных QR-кодов.';
+}
+
+async function refreshCameraVisionQrDetections() {
+  try {
+    const payload = await api('/api/vision/qr_detections');
+    renderCameraVisionQrDetections(payload);
+    return payload;
+  } catch (error) {
+    renderCameraVisionQrDetections({ last_error: String(error.message || error) });
+    return null;
+  }
+}
+
 function summarizeCameraVisionDetails(payload = {}) {
   const selected = payload.selected_model || null;
   return pretty({
@@ -1696,7 +1741,9 @@ async function refreshCameraVisionSettings() {
     setCameraVisionSettingsForm(payload);
     $('#camera-vision-details').textContent = summarizeCameraVisionDetails(payload);
     const selected = payload.selected_model;
-    if (payload.parameters?.enabled) {
+    if (payload.parameters?.enabled && !payload.parameters?.detect_objects) {
+      $('#camera-vision-status').textContent = 'Обработка запущена: QR/ArUco без модели объектов. Параметры заблокированы.';
+    } else if (payload.parameters?.enabled) {
       $('#camera-vision-status').textContent = selected?.valid
         ? `Обработка запущена: ${selected.name || selected.id}. Параметры заблокированы.`
         : 'Обработка включена, но модель ещё не готова.';
@@ -1704,6 +1751,7 @@ async function refreshCameraVisionSettings() {
       $('#camera-vision-status').textContent = 'Обработка выключена. Параметры можно изменить перед запуском.';
     }
     refreshCameraVisionDetections();
+    refreshCameraVisionQrDetections();
     return payload;
   } catch (error) {
     $('#camera-vision-status').textContent = String(error.message || error);
@@ -1716,8 +1764,8 @@ async function toggleCameraVision() {
   const enabled = !Boolean(state.cameraVisionSettings?.parameters?.enabled);
   try {
     $('#camera-vision-status').textContent = enabled
-      ? 'Включение обработки нейросетью...'
-      : 'Выключение обработки нейросетью...';
+      ? 'Включение обработки изображения...'
+      : 'Выключение обработки изображения...';
     const payload = await api('/api/vision/settings', {
       method: 'POST',
       body: JSON.stringify({ enabled }),
@@ -1726,7 +1774,7 @@ async function toggleCameraVision() {
     setCameraVisionSettingsForm(payload);
     $('#camera-vision-details').textContent = summarizeCameraVisionDetails(payload);
     $('#camera-vision-status').textContent = enabled
-      ? 'Обработка нейросетью запущена.'
+      ? 'Обработка изображения запущена.'
       : 'Обработка нейросетью остановлена. Параметры доступны.';
     await Promise.all([
       refreshRosGraph(),
@@ -1748,9 +1796,11 @@ function cameraVisionSettingsPayloadFromForm() {
     processed_image_topic: $('#camera-vision-output-topic').value.trim(),
     processed_compressed_image_topic: $('#camera-vision-output-compressed-topic').value.trim(),
     detections_topic: $('#camera-vision-detections-topic').value.trim(),
+    qr_detections_topic: $('#camera-vision-qr-detections-topic').value.trim(),
     publish_raw: $('#camera-vision-publish-raw').checked,
     publish_compressed: $('#camera-vision-publish-compressed').checked,
     publish_detections: $('#camera-vision-publish-detections').checked,
+    detect_objects: $('#camera-vision-detect-objects').checked,
     confidence_threshold: Number($('#camera-vision-confidence').value || '0.25'),
     nms_threshold: Number($('#camera-vision-nms').value || '0.45'),
     max_processing_fps: Number($('#camera-vision-fps').value || '8'),
@@ -3858,8 +3908,11 @@ function setVisualizationPickMode(mode) {
   $('#nav-pick-initial').classList.toggle('active', state.viz.pickMode === 'initial');
   $('#nav-pick-goal').classList.toggle('active', state.viz.pickMode === 'goal');
   $('#place-pick').classList.toggle('active', state.viz.pickMode === 'place');
+  $('#zone-pick').classList.toggle('active', state.viz.pickMode === 'zone');
   $('#viz-canvas-hint').textContent = active
-    ? `Нажмите и протяните: ${state.viz.pickMode === 'initial' ? 'начальная позиция' : state.viz.pickMode === 'place' ? 'именованная точка' : 'цель'} и направление · Esc — отмена`
+    ? state.viz.pickMode === 'zone'
+      ? 'Нажимайте на карту: выберите 4 угла зоны · Esc — отмена'
+      : `Нажмите и протяните: ${state.viz.pickMode === 'initial' ? 'начальная позиция' : state.viz.pickMode === 'place' ? 'именованная точка' : 'цель'} и направление · Esc — отмена`
     : 'Перетаскивание — сдвиг · колесо / два пальца — масштаб · двойной щелчок — вся карта';
 }
 
@@ -3896,6 +3949,7 @@ function renderNavigationRuntime(runtime) {
   }
   const external = Boolean(runtime?.external?.slam || runtime?.external?.navigation);
   RoverNamedPlaces.sync();
+  RoverNamedZones.sync();
   const prerequisites = runtime?.prerequisites || {};
   const missingTopics = safeArray(prerequisites.missing_topics);
   const map = currentVisualizationMap();
@@ -4100,6 +4154,7 @@ function renderVisualization() {
 
   const preview = state.viz.posePreview;
   RoverNamedPlaces.draw(ctx, toScreen);
+  RoverNamedZones.draw(ctx, toScreen);
   const initialPose = preview?.mode === 'initial' ? preview.pose : readNavigationPose('nav-initial');
   const goal = preview?.mode === 'goal' ? preview.pose : readNavigationPose('nav-goal');
   if (initialPose) {
@@ -4407,13 +4462,15 @@ function bindRoutesPage() {
 
 function bindVisualizationPage() {
   RoverNamedPlaces.bind();
+  RoverNamedZones.bind();
   $('#viz-map-visible').checked = state.viz.mapVisible;
   state.viz.cancelGesture = RoverMapView.bindMapViewport($('#odom-canvas'), state.viz.view,
     renderVisualization, {
       mode: () => state.viz.pickMode,
-      yaw: mode => Number($(`#nav-${mode}-yaw`).value) * Math.PI / 180,
+      yaw: mode => mode === 'zone' ? 0 : Number($(`#nav-${mode}-yaw`).value) * Math.PI / 180,
       preview: value => { state.viz.posePreview = value; },
       commit: (mode, pose) => {
+        if (mode === 'zone') { RoverNamedZones.addCorner(pose); return; }
         writeNavigationPose(`nav-${mode}`, pose);
         setVisualizationPickMode(null);
       },
@@ -4795,6 +4852,7 @@ function refreshPeriodicData() {
   }
   if (state.page === 'camera') {
     refreshCameraVisionDetections();
+    refreshCameraVisionQrDetections();
   }
   if (state.page === 'lights' && state.selectedLedStripTopic && state.selectedLedStripType && !state.ledStripTimer) {
     connectLedStrip();

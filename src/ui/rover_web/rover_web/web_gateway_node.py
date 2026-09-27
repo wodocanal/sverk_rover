@@ -146,7 +146,7 @@ CAMERA_PARAMETER_NAMES = [
     'rotate',
 ]
 VISION_PARAMETER_NAMES = [
-    'detect_aruco', 'detect_qr', 'aruco_dictionary',
+    'detect_objects', 'detect_aruco', 'detect_qr', 'aruco_dictionary',
     'enabled',
     'model_name',
     'models_directory',
@@ -158,6 +158,7 @@ VISION_PARAMETER_NAMES = [
     'publish_compressed',
     'publish_detections',
     'detections_topic',
+    'qr_detections_topic',
     'confidence_threshold',
     'nms_threshold',
     'max_processing_fps',
@@ -167,7 +168,7 @@ VISION_PARAMETER_NAMES = [
     'jpeg_quality',
 ]
 VISION_RUNTIME_PARAMETER_NAMES = {
-    'detect_aruco', 'detect_qr', 'aruco_dictionary',
+    'detect_objects', 'detect_aruco', 'detect_qr', 'aruco_dictionary',
     'enabled',
     'model_name',
     'models_directory',
@@ -179,6 +180,7 @@ VISION_RUNTIME_PARAMETER_NAMES = {
     'publish_compressed',
     'publish_detections',
     'detections_topic',
+    'qr_detections_topic',
     'confidence_threshold',
     'nms_threshold',
     'max_processing_fps',
@@ -2577,6 +2579,35 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             'result': payload,
         }
 
+    def vision_qr_detections(self) -> dict[str, Any]:
+        parameters = self._vision_parameter_values()
+        topic = normalize_topic_name(str(parameters.get('qr_detections_topic') or '/qr_detections'))
+        watch = self._ensure_topic_watch(topic, 'std_msgs/msg/String')
+        with self._lock:
+            raw_message = watch.raw_message
+            message_count = watch.message_count
+            age_sec = age_seconds(watch.last_updated_monotonic)
+            last_error = watch.last_error
+        payload: dict[str, Any] | None = None
+        parse_error = None
+        if raw_message is not None:
+            try:
+                candidate = json.loads(str(raw_message.data))
+                if isinstance(candidate, dict):
+                    payload = candidate
+                else:
+                    parse_error = 'QR payload is not a JSON object'
+            except (TypeError, ValueError, AttributeError) as exc:
+                parse_error = f'{type(exc).__name__}: {exc}'
+        return {
+            'ok': True,
+            'topic': topic,
+            'message_count': message_count,
+            'age_sec': age_sec,
+            'last_error': last_error or parse_error,
+            'result': payload,
+        }
+
     def lidar_settings(self) -> dict[str, Any]:
         parameters = self._lidar_parameter_values()
         return {
@@ -2810,7 +2841,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                 continue
             value = payload[name]
             if name in {
-                'detect_aruco', 'detect_qr',
+                'detect_objects', 'detect_aruco', 'detect_qr',
                 'enabled',
                 'publish_raw',
                 'publish_compressed',
@@ -3637,6 +3668,8 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         map_yaml = self._resolve_map_yaml(map_name)
         self._map_metadata_payload(map_yaml)
         self._places_runtime_map_id = self._places_map_id(map_name)
+        zone_map_builder = getattr(self, 'navigation_map_with_zones', None)
+        navigation_map_yaml = zone_map_builder(map_name) if zone_map_builder else map_yaml
         initial_pose = self._navigation_pose(request.get('initial_pose'), 'initial_pose')
         goal = self._navigation_pose(request.get('goal'), 'goal')
         command = [
@@ -3644,7 +3677,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             'launch',
             self.navigation_package,
             self.navigation_launch_file,
-            f'map:={map_yaml}',
+            f'map:={navigation_map_yaml}',
             'use_rviz:=false',
             f'settings_file:={self.navigation_settings_file}',
             f'drive_type_file:={self.drive_type_file}',
@@ -4303,6 +4336,9 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                         return
                     if path == '/api/vision/detections':
                         self._send_json(gateway.vision_detections(), HTTPStatus.OK)
+                        return
+                    if path == '/api/vision/qr_detections':
+                        self._send_json(gateway.vision_qr_detections(), HTTPStatus.OK)
                         return
                     if path == '/api/lidar/settings':
                         self._send_json(gateway.lidar_settings(), HTTPStatus.OK)
