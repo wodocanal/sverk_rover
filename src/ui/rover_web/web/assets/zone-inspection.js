@@ -5,6 +5,14 @@ const RoverZoneInspection = (() => {
   let active = false;
 
   function select() { return $('#zone-inspection-select'); }
+  function target() { return $('#zone-inspection-target'); }
+  function direction() { return localStorage.getItem('rover_web.inspection_direction') || 'clockwise'; }
+  function logLine(item) {
+    const details = [];
+    if (item.classification) details.push(`VLM: ${item.classification}`);
+    if (item.attempt) details.push(`попытка ${item.attempt}`);
+    return `${new Date(item.at * 1000).toLocaleTimeString()} ${item.message}${details.length ? ` (${details.join(', ')})` : ''}`;
+  }
   function selectedZone() { return places?.zones?.find(zone => zone.id === select().value); }
   function renderOptions() {
     const current = select().value;
@@ -24,20 +32,23 @@ const RoverZoneInspection = (() => {
       const inspection = await api('/api/navigation/zone_inspection');
       route = inspection.route || [];
       active = ['starting', 'active', 'scanning'].includes(inspection.state);
-      $('#zone-inspection-start').disabled = active || !selectedZone();
+      $('#zone-inspection-start').disabled = active || !selectedZone() || !target().value;
       $('#zone-inspection-stop').disabled = !active;
       const position = Number.isInteger(inspection.current_index) ? ` Точка ${inspection.current_index + 1}/${route.length}.` : '';
       $('#zone-inspection-status').textContent = `${inspection.message || 'Ожидание.'}${position}`;
       $('#zone-inspection-qr').textContent = inspection.qr_codes?.length ? `QR: ${inspection.qr_codes.join(', ')}` : '';
+      $('#zone-inspection-log').textContent = inspection.log?.length
+        ? inspection.log.map(logLine).join('\n')
+        : 'Журнал обьезда появится после запуска.';
       renderVisualization();
     } catch (_) { /* The static UI can be opened before its backend has been rebuilt. */ }
   }
   async function start() {
-    if (!selectedZone()) return showToast('Выберите непроезжаемую зону.', 'error');
+    if (!selectedZone() || !target().value) return showToast('Выберите зону и искомый класс препятствия.', 'error');
     try {
       const response = await api('/api/navigation/zone_inspection/start', {method: 'POST', body: JSON.stringify({
-        map: state.viz.selectedMap, zone_id: selectedZone().id,
-        clearance_m: Number($('#zone-inspection-clearance').value), step_m: Number($('#zone-inspection-step').value),
+        map: state.viz.selectedMap, zone_id: selectedZone().id, target_obstacle: target().value,
+        direction: direction(),
       })});
       route = response.inspection.route || []; active = true;
       showToast('Тест объезда зоны запущен.'); await poll();
@@ -51,6 +62,7 @@ const RoverZoneInspection = (() => {
     $('#zone-inspection-start').addEventListener('click', start);
     $('#zone-inspection-stop').addEventListener('click', stop);
     select().addEventListener('change', poll);
+    target().addEventListener('change', poll);
     setInterval(poll, 1000);
   }
   function sync() { refresh(); }

@@ -24,6 +24,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.request import urlopen
 
 from ament_index_python.packages import get_package_share_directory
 from rover_configuration import config_path, node_parameters
@@ -36,7 +37,7 @@ import cv2
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from lifecycle_msgs.srv import GetState
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import FollowWaypoints, NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavigationPath
 import numpy as np
 import rclpy
@@ -64,7 +65,7 @@ from rover_vision.model_registry import (
 )
 from rover_vision.markers import ARUCO_DICTIONARIES
 from sensor_msgs.msg import CompressedImage, Image, Imu, LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Empty, String
 import yaml
 
 
@@ -551,6 +552,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         self.declare_parameter('wheel_odometry_node_name', '/wheel_odometry_node')
         self.declare_parameter('drive_type_file', DEFAULT_DRIVE_TYPE_FILE)
         self.declare_parameter('camera_node_name', '/usb_camera_node')
+        self.declare_parameter('camera_media_url', 'http://127.0.0.1:8091')
         self.declare_parameter('vision_node_name', '/camera_detector_node')
         self.declare_parameter('lidar_node_name', '/sllidar_node')
         self.declare_parameter('led_strip_node_name', '/led_strip_node')
@@ -582,6 +584,8 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         self.declare_parameter('wheel_odom_topic', '/wheel/odometry')
         self.declare_parameter('imu_topic', '/imu/data')
         self.declare_parameter('diagnostics_topic', '/diagnostics')
+        self.declare_parameter('road_state_topic', '/road/state')
+        self.declare_parameter('road_state_max_age_sec', 2.0)
         self.declare_parameter('runtime_dir', '/tmp/rover_devices')
         self.declare_parameter('activity_limit', 1000)
         self.declare_parameter('stop_hold_sec', 0.75)
@@ -615,6 +619,12 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                 else default_maps_root(workspace_root)
             )
         self.maps_root = Path(configured_maps_root).expanduser().resolve()
+        self.road_state_topic = normalize_topic_name(
+            str(self.get_parameter('road_state_topic').value) or '/road/state'
+        )
+        self.road_state_max_age_sec = max(
+            0.1, float(self.get_parameter('road_state_max_age_sec').value)
+        )
         self.navigation_package = str(
             self.get_parameter('navigation_package').value
         ).strip() or 'rover_navigation'
@@ -799,6 +809,9 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         self._motion_log: deque[str] = deque(maxlen=500)
         self._motion_return_code: int | None = None
         self._navigation_process: subprocess.Popen[str] | None = None
+        # ``ros2 launch`` can exit before every child process has shut down.
+        # Keep its process group so that a later stop can also clean up Nav2.
+        self._navigation_process_group_id: int | None = None
         self._navigation_generation = 0
         self._navigation_mode: str | None = None
         self._navigation_phase = 'idle'
@@ -812,6 +825,8 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         self._navigation_goal_state = 'idle'
         self._navigation_goal_message = ''
         self._navigation_goal_handle: Any = None
+        self._navigation_waypoints: list[dict[str, float]] = []
+        self._navigation_waypoint_index: int | None = None
         self.init_named_places()
         self._planned_path: list[dict[str, float]] = []
         self._planned_path_frame = ''
@@ -857,6 +872,16 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             NavigateToPose,
             '/navigate_to_pose',
         )
+        self.navigation_waypoints_action_client = ActionClient(
+            self,
+            FollowWaypoints,
+            '/follow_waypoints',
+        )
+        self.zone_inspection_continue_publisher = self.create_publisher(
+            Empty,
+            '/zone_inspection/continue',
+            10,
+        )
         self.navigation_tf = Buffer()
         self.navigation_tf_listener = TransformListener(self.navigation_tf, self)
         self.create_subscription(
@@ -901,6 +926,8 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             self._voice_status_callback,
             10,
         )
+        # Start collecting clearance state before the first inspection waypoint.
+        self._ensure_topic_watch(self.road_state_topic, 'std_msgs/msg/String')
         self.create_timer(0.05, self._drive_output_timer)
         self.create_timer(1.0, self._maintenance_timer)
 
@@ -2539,10 +2566,10 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             'aruco_dictionaries': list(ARUCO_DICTIONARIES),
             'runtime_parameters': sorted(VISION_RUNTIME_PARAMETER_NAMES),
             'notes': {
-                'input_topic': 'Для обработки должен поступать raw image topic.',
+                'input_topic': 'Последний кадр передаётся детектору напрямую в процессе камеры.',
                 'processed_topics': (
-                    'Новые image topics появятся в ROS graph, когда обработка включена '
-                    'и модель успешно загружена.'
+                    'Видео доступно по HTTP без image-топиков. Рамки рисуются в браузере '
+                    'на соответствующем кадре; в ROS передаются detections и qr_detections.'
                 ),
                 'models_directory': (
                     'В директории models ожидаются manifest-файлы YAML и соответствующие веса.'
@@ -2606,6 +2633,75 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             'age_sec': age_sec,
             'last_error': last_error or parse_error,
             'result': payload,
+        }
+
+    def publish_diagnostics_qr_detection(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Publish a decoded QR result through the same topic used by the camera."""
+        if not isinstance(request, dict):
+            raise ValueError('Expected an object')
+        text = str(request.get('text') or '').strip()
+        if not text:
+            raise ValueError('Enter QR text before publishing')
+        if len(text) > 1024:
+            raise ValueError('QR text must not exceed 1024 characters')
+
+        topic = '/qr_detections'
+        try:
+            parameters = self._vision_parameter_values()
+            topic = normalize_topic_name(
+                str(parameters.get('qr_detections_topic') or topic)
+            )
+        except RuntimeError:
+            # The diagnostic tool must remain useful while camera inference is off.
+            pass
+        stamp = self.get_clock().now().to_msg()
+        payload = {
+            'stamp': {'sec': int(stamp.sec), 'nanosec': int(stamp.nanosec)},
+            'frame_id': 'camera_optical_frame',
+            'image': {'width': 0, 'height': 0},
+            'count': 1,
+            'codes': [{'data': text, 'bbox': [0, 0, 0, 0], 'center': [0, 0]}],
+        }
+        handle = self._ensure_publisher(topic, DETECTIONS_TYPE)
+        message = handle.msg_class()
+        message.data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        handle.publisher.publish(message)
+
+        inspection = self.zone_inspection_payload()
+        if inspection.get('state') in {
+                'starting', 'active', 'scanning', 'approaching_qr',
+                'blocked_scanning', 'blocked_turning', 'vlm_analyzing',
+                'alternate_qr_moving'}:
+            # A diagnostic QR follows the same success and return pipeline as camera input.
+            self._set_zone_inspection(return_wait_sec=5.0)
+        self.record_activity('vision', 'QR detection received', {
+            'topic': topic, 'codes': [text],
+        })
+        return {'ok': True, 'topic': topic, 'result': payload}
+
+    def road_state(self) -> dict[str, Any]:
+        """Return the latest clearance state without making it a motion trigger."""
+        watch = self._ensure_topic_watch(self.road_state_topic, 'std_msgs/msg/String')
+        with self._lock:
+            raw_message = watch.raw_message
+            message_count = watch.message_count
+            age_sec = age_seconds(watch.last_updated_monotonic)
+            last_error = watch.last_error
+        raw_value = str(getattr(raw_message, 'data', '') or '').strip()
+        state = raw_value.lower()
+        if raw_value.startswith('{'):
+            try:
+                payload = json.loads(raw_value)
+                state = str(payload.get('state') or '').strip().lower()
+            except (TypeError, ValueError, AttributeError):
+                state = ''
+        return {
+            'topic': self.road_state_topic,
+            'state': state if state in {'blocked', 'clear', 'unknown'} else 'unknown',
+            'age_sec': age_sec,
+            'message_count': message_count,
+            'fresh': age_sec is not None and age_sec <= self.road_state_max_age_sec,
+            'last_error': last_error,
         }
 
     def lidar_settings(self) -> dict[str, Any]:
@@ -2804,13 +2900,13 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             )
 
         response = self._wait_for_future(
-            client.set_parameters(updates),
+            client.set_parameters_atomically(updates),
             timeout_sec=3.0,
             label='camera parameter update',
         )
         failures = [
             result.reason.strip() or 'parameter update rejected'
-            for result in response.results
+            for result in [response.result]
             if not result.successful
         ]
         if failures:
@@ -2867,13 +2963,13 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             )
 
         response = self._wait_for_future(
-            client.set_parameters(updates),
+            client.set_parameters_atomically(updates),
             timeout_sec=15.0,
             label='vision parameter update',
         )
         failures = [
             result.reason.strip() or 'parameter update rejected'
-            for result in response.results
+            for result in [response.result]
             if not result.successful
         ]
         if failures:
@@ -3537,6 +3633,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         with self._lock:
             self._navigation_generation += 1
             self._navigation_process = process
+            self._navigation_process_group_id = process.pid
             self._navigation_mode = mode
             self._navigation_phase = 'starting'
             self._navigation_started_at = time.time()
@@ -3671,7 +3768,15 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         zone_map_builder = getattr(self, 'navigation_map_with_zones', None)
         navigation_map_yaml = zone_map_builder(map_name) if zone_map_builder else map_yaml
         initial_pose = self._navigation_pose(request.get('initial_pose'), 'initial_pose')
-        goal = self._navigation_pose(request.get('goal'), 'goal')
+        raw_waypoints = request.get('waypoints')
+        waypoints = None
+        if raw_waypoints is not None:
+            if not isinstance(raw_waypoints, list) or not raw_waypoints:
+                raise ValueError('waypoints must be a non-empty list')
+            waypoints = [self._navigation_pose(item, 'waypoint') for item in raw_waypoints]
+            goal = waypoints[0]
+        else:
+            goal = self._navigation_pose(request.get('goal'), 'goal')
         command = [
             shutil.which('ros2') or 'ros2',
             'launch',
@@ -3690,12 +3795,14 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         with self._lock:
             self._navigation_initial_pose = initial_pose
             self._navigation_goal = goal
+            self._navigation_waypoints = list(waypoints or [])
+            self._navigation_waypoint_index = 0 if waypoints else None
             self._navigation_goal_state = 'queued'
             self._navigation_goal_message = 'Waiting for Nav2 to become ready'
             generation = self._navigation_generation
         threading.Thread(
             target=self._initialize_navigation,
-            args=(initial_pose, goal, generation),
+            args=(initial_pose, goal, generation, waypoints),
             name='rover-navigation-startup',
             daemon=True,
         ).start()
@@ -3719,6 +3826,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         initial_pose: dict[str, float],
         goal: dict[str, float],
         generation: int,
+        waypoints: list[dict[str, float]] | None = None,
     ) -> None:
         deadline = time.monotonic() + 60.0
         pose_sent_at = 0.0
@@ -3737,7 +3845,9 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                     pose_sent_at = time.monotonic()
                 with self._lock:
                     localized = self._localized_pose_at >= pose_sent_at
-                if (localized and self.navigation_action_client.server_is_ready()
+                action_ready = (self.navigation_waypoints_action_client.server_is_ready()
+                                if waypoints else self.navigation_action_client.server_is_ready())
+                if (localized and action_ready
                         and all(self._lifecycle_active(name) for name in (
                             '/bt_navigator', '/controller_server', '/planner_server',
                         ))):
@@ -3755,7 +3865,10 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             if self._navigation_generation != generation:
                 return
             self._navigation_phase = 'running'
-        self._send_navigation_goal_worker(goal, generation)
+        if waypoints:
+            self._send_navigation_waypoints_worker(waypoints, generation)
+        else:
+            self._send_navigation_goal_worker(goal, generation)
 
     def _pose_stamped(self, pose: dict[str, float]) -> PoseStamped:
         message = PoseStamped()
@@ -3803,6 +3916,112 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             daemon=True,
         ).start()
         return self.navigation_status_payload()
+
+    @navigation_operation
+    def send_navigation_waypoints(self, request: dict[str, Any]) -> dict[str, Any]:
+        raw_waypoints = request.get('waypoints')
+        if not isinstance(raw_waypoints, list) or not raw_waypoints:
+            raise ValueError('waypoints must be a non-empty list')
+        waypoints = [self._navigation_pose(item, 'waypoint') for item in raw_waypoints]
+        with self._lock:
+            process = self._navigation_process
+            if (
+                self._navigation_mode != 'navigation'
+                or process is None
+                or process.poll() is not None
+                or self._navigation_phase != 'running'
+            ):
+                raise RuntimeError('Navigation must be running before sending waypoints')
+            if self._navigation_goal_state in {'queued', 'sending', 'active', 'canceling'}:
+                raise RuntimeError('Cancel the active navigation goal first')
+            self._navigation_generation += 1
+            self._navigation_goal = waypoints[0]
+            self._navigation_waypoints = list(waypoints)
+            self._navigation_waypoint_index = 0
+            self._navigation_goal_state = 'queued'
+            self._navigation_goal_message = 'Waypoint route queued'
+            generation = self._navigation_generation
+        threading.Thread(
+            target=self._send_navigation_waypoints_worker,
+            args=(waypoints, generation),
+            name='rover-navigation-waypoints',
+            daemon=True,
+        ).start()
+        return self.navigation_status_payload()
+
+    def _waypoint_feedback(self, feedback_message: Any, generation: int) -> None:
+        try:
+            index = int(feedback_message.feedback.current_waypoint)
+        except Exception:
+            return
+        with self._lock:
+            if self._navigation_generation != generation:
+                return
+            self._navigation_waypoint_index = index
+            self._navigation_goal_message = (
+                f'Navigating waypoint {index + 1}/{len(self._navigation_waypoints)}'
+            )
+
+    def _send_navigation_waypoints_worker(
+        self,
+        waypoints: list[dict[str, float]],
+        generation: int,
+    ) -> None:
+        future = None
+        try:
+            with self._lock:
+                if self._navigation_generation != generation:
+                    return
+                self._navigation_goal_state = 'sending'
+                self._navigation_goal_message = 'Sending waypoint route to Nav2'
+            goal_message = FollowWaypoints.Goal()
+            goal_message.poses = [self._pose_stamped(pose) for pose in waypoints]
+            goal_message.number_of_loops = 0
+            goal_message.goal_index = 0
+            future = self.navigation_waypoints_action_client.send_goal_async(
+                goal_message,
+                feedback_callback=lambda feedback: self._waypoint_feedback(feedback, generation),
+            )
+            goal_handle = self._wait_for_future(
+                future,
+                timeout_sec=10.0,
+                label='FollowWaypoints goal acceptance',
+            )
+            if goal_handle is None or not goal_handle.accepted:
+                with self._lock:
+                    if self._navigation_generation == generation:
+                        self._navigation_goal_state = 'rejected'
+                        self._navigation_goal_message = 'Nav2 rejected the waypoint route'
+                return
+            with self._lock:
+                if self._navigation_generation != generation:
+                    goal_handle.cancel_goal_async()
+                    return
+                self._navigation_goal_handle = goal_handle
+                self._navigation_goal_state = 'active'
+                self._navigation_goal_message = f'Navigating waypoint 1/{len(waypoints)}'
+            goal_handle.get_result_async().add_done_callback(
+                lambda completed: self._navigation_goal_result(completed, generation)
+            )
+        except Exception as exc:
+            if future is not None:
+                future.add_done_callback(lambda completed: self._cancel_late_navigation_goal(completed))
+            with self._lock:
+                if self._navigation_generation == generation:
+                    self._navigation_goal_state = 'error'
+                    self._navigation_goal_message = str(exc)
+
+    @staticmethod
+    def _cancel_late_navigation_goal(completed: Any) -> None:
+        try:
+            handle = completed.result()
+            if handle is not None and handle.accepted:
+                handle.cancel_goal_async()
+        except Exception:
+            pass
+
+    def release_zone_inspection_waypoint(self) -> None:
+        self.zone_inspection_continue_publisher.publish(Empty())
 
     def _send_navigation_goal_worker(
         self,
@@ -3865,10 +4084,15 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         }
         try:
             wrapped_result = future.result()
+            missed_waypoints = list(getattr(wrapped_result.result, 'missed_waypoints', []))
             state, message = labels.get(
                 int(wrapped_result.status),
                 ('finished', f'Goal finished with status {wrapped_result.status}'),
             )
+            if missed_waypoints:
+                indexes = ', '.join(str(item.index + 1) for item in missed_waypoints)
+                state = 'aborted'
+                message = f'Nav2 could not reach waypoint(s): {indexes}'
         except Exception as exc:
             state, message = 'error', str(exc)
         with self._lock:
@@ -3897,6 +4121,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
     def stop_navigation_runtime(self) -> dict[str, Any]:
         with self._lock:
             process = self._navigation_process
+            process_group_id = self._navigation_process_group_id
             save_process = self._map_save_process
             mode = self._navigation_mode
             goal_handle = self._navigation_goal_handle
@@ -3910,13 +4135,22 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                 pass
         if process is not None and process.poll() is None:
             try:
-                os.killpg(process.pid, signal.SIGINT)
+                os.killpg(process_group_id or process.pid, signal.SIGINT)
             except ProcessLookupError:
                 pass
             threading.Thread(
                 target=self._ensure_navigation_stopped,
-                args=(process,),
+                args=(process, process_group_id),
                 name='rover-navigation-stop',
+                daemon=True,
+            ).start()
+        elif process_group_id is not None:
+            # The launch wrapper may have exited while its Nav2 children are
+            # still alive. They belong to this web-owned process group.
+            threading.Thread(
+                target=self._ensure_navigation_stopped,
+                args=(None, process_group_id),
+                name='rover-navigation-orphan-stop',
                 daemon=True,
             ).start()
         if save_process is not None and save_process.poll() is None:
@@ -3927,19 +4161,28 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         self.request_stop('navigation', {'reason': f'{mode or "navigation"} stopped'})
         return self.navigation_status_payload()
 
-    @staticmethod
-    def _ensure_navigation_stopped(process: subprocess.Popen[str]) -> None:
-        try:
-            process.wait(timeout=8.0)
-        except subprocess.TimeoutExpired:
+    def _ensure_navigation_stopped(
+        self,
+        process: subprocess.Popen[str] | None,
+        process_group_id: int | None,
+    ) -> None:
+        if process is not None:
             try:
-                os.killpg(process.pid, signal.SIGTERM)
-                process.wait(timeout=3.0)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                process.wait(timeout=8.0)
+            except subprocess.TimeoutExpired:
+                pass
+        if process_group_id is not None:
+            # ``ros2 launch`` has had a chance to handle SIGINT. Escalate only
+            # if its children, which share the process group, remain alive.
+            try:
+                os.killpg(process_group_id, signal.SIGTERM)
+                time.sleep(1.0)
+                os.killpg(process_group_id, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        with self._lock:
+            if self._navigation_process_group_id == process_group_id:
+                self._navigation_process_group_id = None
 
     def navigation_status_payload(self) -> dict[str, Any]:
         prerequisites = self._navigation_prerequisites()
@@ -3984,6 +4227,8 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                 'initial_pose': dict(self._navigation_initial_pose)
                 if self._navigation_initial_pose else None,
                 'goal': dict(self._navigation_goal) if self._navigation_goal else None,
+                'waypoint_index': self._navigation_waypoint_index,
+                'waypoint_count': len(self._navigation_waypoints),
                 'goal_state': self._navigation_goal_state,
                 'generation': self._navigation_generation,
                 'goal_message': self._navigation_goal_message,
@@ -4355,6 +4600,18 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                     if path == '/api/camera/settings':
                         self._send_json(gateway.camera_settings(), HTTPStatus.OK)
                         return
+                    if path.startswith('/api/camera/media/'):
+                        resource = path.rsplit('/', 1)[-1]
+                        mode = self._optional_query(query, 'mode') or 'live'
+                        if resource not in ('packet', 'frame', 'status') or mode not in ('live', 'processed'):
+                            raise ValueError('Invalid camera media request')
+                        base = str(gateway.get_parameter('camera_media_url').value).rstrip('/')
+                        with urlopen(f'{base}/{resource}?mode={mode}', timeout=1.5) as response:
+                            data = response.read(16 * 1024 * 1024 + 1)
+                            if len(data) > 16 * 1024 * 1024:
+                                raise ValueError('Camera frame too large')
+                            self._send_bytes(data, response.headers.get_content_type(), HTTPStatus.OK)
+                        return
                     if path == '/api/camera/status':
                         topic = self._required_query(query, 'topic')
                         type_name = self._optional_query(query, 'type')
@@ -4442,6 +4699,11 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                         self._send_json(
                             {'ok': True, 'inspection': gateway.stop_zone_inspection()},
                             HTTPStatus.OK,
+                        )
+                        return
+                    if parsed.path == '/api/diagnostics/qr_detection':
+                        self._send_json(
+                            gateway.publish_diagnostics_qr_detection(payload), HTTPStatus.OK,
                         )
                         return
                     if parsed.path == '/api/navigation/settings':

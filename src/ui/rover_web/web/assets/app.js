@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   audioEnabled: 'rover_web.audio_enabled',
   octolinerEnabled: 'rover_web.octoliner_enabled',
   manualDriveSpeeds: 'rover_web.manual_drive_speeds',
+  inspectionDirection: 'rover_web.inspection_direction',
 };
 
 const PAGE_GROUPS = {
@@ -1474,16 +1475,10 @@ async function callSelectedService() {
 
 function renderCameraTopics() {
   const select = $('#camera-topic-select');
-  const topics = safeArray(state.rosGraph?.image_topics).slice().sort((left, right) => {
-    const leftType = safeArray(left.types)[0] || '';
-    const rightType = safeArray(right.types)[0] || '';
-    const leftCompressed = leftType.includes('CompressedImage') || left.name?.endsWith('/compressed');
-    const rightCompressed = rightType.includes('CompressedImage') || right.name?.endsWith('/compressed');
-    if (leftCompressed !== rightCompressed) {
-      return leftCompressed ? -1 : 1;
-    }
-    return String(left.name || '').localeCompare(String(right.name || ''));
-  });
+  const topics = [
+    { name: 'live', label: 'Камера · прямой поток', types: ['direct'] },
+    { name: 'processed', label: 'Обработка · кадр с детекциями', types: ['direct'] },
+  ];
   select.innerHTML = '';
   if (!topics.length) {
     const option = document.createElement('option');
@@ -1510,7 +1505,7 @@ function renderCameraTopics() {
     const option = document.createElement('option');
     option.value = item.name;
     option.dataset.type = safeArray(item.types)[0] || '';
-    option.textContent = `${item.name} (${safeArray(item.types)[0] || 'unknown'})`;
+    option.textContent = item.label;
     option.selected = item.name === state.selectedCameraTopic;
     select.append(option);
   });
@@ -1522,13 +1517,13 @@ function setCameraSettingsForm(parameters = {}) {
   $('#camera-setting-image-topic').value = parameters.image_topic || '/image_raw';
   $('#camera-setting-compressed-topic').value = parameters.compressed_image_topic || '/image_raw/compressed';
   $('#camera-setting-width').value = String(parameters.width ?? 1280);
-  $('#camera-setting-height').value = String(parameters.height ?? 720);
+  $('#camera-setting-height').value = String(parameters.height ?? 1024);
   $('#camera-setting-fps').value = String(parameters.fps ?? 30);
-  $('#camera-setting-jpeg-quality').value = String(parameters.jpeg_quality ?? 85);
+  $('#camera-setting-jpeg-quality').value = String(parameters.jpeg_quality ?? 95);
   $('#camera-setting-use-mjpeg').checked = Boolean(parameters.use_mjpeg ?? true);
   $('#camera-setting-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-setting-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
-  $('#camera-setting-rotate').value = String(parameters.rotate ?? 180);
+  $('#camera-setting-rotate').value = String(parameters.rotate ?? 0);
 }
 
 function renderCameraVisionModels(models = [], selectedModelName = '') {
@@ -1797,8 +1792,8 @@ function cameraVisionSettingsPayloadFromForm() {
     processed_compressed_image_topic: $('#camera-vision-output-compressed-topic').value.trim(),
     detections_topic: $('#camera-vision-detections-topic').value.trim(),
     qr_detections_topic: $('#camera-vision-qr-detections-topic').value.trim(),
-    publish_raw: $('#camera-vision-publish-raw').checked,
-    publish_compressed: $('#camera-vision-publish-compressed').checked,
+    publish_raw: false,
+    publish_compressed: false,
     publish_detections: $('#camera-vision-publish-detections').checked,
     detect_objects: $('#camera-vision-detect-objects').checked,
     confidence_threshold: Number($('#camera-vision-confidence').value || '0.25'),
@@ -1836,27 +1831,11 @@ async function applyCameraVisionSettings() {
 }
 
 async function openProcessedCameraStream() {
-  const parameters = state.cameraVisionSettings?.parameters || cameraVisionSettingsPayloadFromForm();
-  const targetTopic = parameters.publish_compressed
-    ? parameters.processed_compressed_image_topic
-    : parameters.processed_image_topic;
-  if (!targetTopic) {
-    showToast('Не задан topic для обработанного потока', 'error');
-    return;
-  }
-  await refreshRosGraph();
-  const topic = safeArray(state.rosGraph?.image_topics).find((item) => item.name === targetTopic);
-  if (!topic) {
-    showToast('Обработанный поток пока не появился в ROS graph', 'error');
-    $('#camera-vision-status').textContent = 'Обработанный image topic пока недоступен.';
-    renderCameraTopics();
-    return;
-  }
-  state.selectedCameraTopic = topic.name;
-  state.selectedCameraType = safeArray(topic.types)[0] || null;
+  state.selectedCameraTopic = 'processed';
+  state.selectedCameraType = 'direct';
   renderCameraTopics();
-  $('#camera-topic-select').value = topic.name;
-  $('#camera-vision-status').textContent = `Открыт обработанный поток: ${topic.name}`;
+  $('#camera-topic-select').value = 'processed';
+  $('#camera-vision-status').textContent = 'Кадр и рамки соответствуют одной итерации распознавания.';
   await connectCamera();
 }
 
@@ -1983,13 +1962,13 @@ function cameraSettingsPayloadFromForm() {
     image_topic: $('#camera-setting-image-topic').value.trim(),
     compressed_image_topic: $('#camera-setting-compressed-topic').value.trim(),
     width: Number($('#camera-setting-width').value || '1280'),
-    height: Number($('#camera-setting-height').value || '720'),
+    height: Number($('#camera-setting-height').value || '1024'),
     fps: Number($('#camera-setting-fps').value || '30'),
-    jpeg_quality: Number($('#camera-setting-jpeg-quality').value || '85'),
+    jpeg_quality: Number($('#camera-setting-jpeg-quality').value || '95'),
     use_mjpeg: $('#camera-setting-use-mjpeg').checked,
-    publish_raw: $('#camera-setting-publish-raw').checked,
-    publish_compressed: $('#camera-setting-publish-compressed').checked,
-    rotate: Number($('#camera-setting-rotate').value || '180'),
+    publish_raw: false,
+    publish_compressed: false,
+    rotate: Number($('#camera-setting-rotate').value || '0'),
   };
 }
 
@@ -2021,7 +2000,7 @@ function applyCameraPreset(width, height, fps) {
 async function refreshCameraStatus() {
   if (!state.selectedCameraTopic || !state.selectedCameraType) return;
   try {
-    const info = await api(`/api/camera/status?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}`);
+    const info = await api(`/api/camera/media/status?mode=${encodeURIComponent(state.selectedCameraTopic)}`);
     return info;
   } catch (error) {
     return null;
@@ -2034,7 +2013,7 @@ function startCameraLoop() {
     return;
   }
   const generation = state.cameraGeneration;
-  const url = `/api/camera/frame?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}`;
+  const url = `/api/camera/media/packet?mode=${encodeURIComponent(state.selectedCameraTopic)}`;
   const nextFrame = async () => {
     if (generation !== state.cameraGeneration) return;
     if (document.hidden) {
@@ -2048,13 +2027,23 @@ function startCameraLoop() {
     try {
       const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
       if (!response.ok) throw new Error(`Camera HTTP ${response.status}`);
-      frameUrl = URL.createObjectURL(await response.blob());
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength < 4) throw new Error('Incomplete camera packet');
+      const metadataSize = new DataView(bytes).getUint32(0);
+      if (metadataSize > bytes.byteLength - 4) throw new Error('Invalid camera packet');
+      const metadata = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 4, metadataSize)));
+      frameUrl = URL.createObjectURL(new Blob([bytes.slice(4 + metadataSize)], { type: 'image/jpeg' }));
       const decoded = new Image();
       decoded.src = frameUrl;
       await decoded.decode();
       if (generation !== state.cameraGeneration || controller.signal.aborted) return;
       const previous = state.cameraUrl;
-      $('#camera-frame').src = frameUrl;
+      const canvas = $('#camera-frame');
+      canvas.width = decoded.naturalWidth;
+      canvas.height = decoded.naturalHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(decoded, 0, 0);
+      drawCameraDetections(context, metadata.result);
       state.cameraUrl = frameUrl;
       frameUrl = null;
       if (previous) URL.revokeObjectURL(previous);
@@ -2067,11 +2056,32 @@ function startCameraLoop() {
       if (generation === state.cameraGeneration) {
         state.cameraRequest = null;
         // Request only after decoding the preceding frame: never queue video.
-        state.cameraTimer = window.setTimeout(nextFrame, 33);
+        state.cameraTimer = window.setTimeout(nextFrame, 10);
       }
     }
   };
   state.cameraTimer = window.setTimeout(nextFrame, 0);
+}
+
+function drawCameraDetections(context, result) {
+  const settings = state.cameraVisionSettings?.parameters || {};
+  context.lineWidth = Math.max(2, context.canvas.width / 450);
+  context.font = `${Math.max(16, context.canvas.width / 55)}px sans-serif`;
+  for (const detection of safeArray(result?.detections)) {
+    const box = detection.bbox;
+    if (!box) continue;
+    const candidate = detection.kind === 'qr' && !detection.decoded;
+    context.strokeStyle = context.fillStyle = candidate ? '#e9ae31' : '#00bbef';
+    context.setLineDash(candidate ? [8, 6] : []);
+    context.strokeRect(box.x, box.y, box.width, box.height);
+    if (settings.annotate_labels !== false) {
+      const label = candidate ? 'QR? (не расшифрован)' : String(detection.data || detection.label || detection.kind || '');
+      const score = settings.annotate_confidence !== false && detection.confidence != null
+        ? ` ${Math.round(detection.confidence * 100)}%` : '';
+      context.fillText(label.slice(0, 120) + score, box.x, Math.max(22, box.y - 7));
+    }
+  }
+  context.setLineDash([]);
 }
 
 function stopCameraLoop() {
@@ -2082,7 +2092,8 @@ function stopCameraLoop() {
     window.clearTimeout(state.cameraTimer);
     state.cameraTimer = null;
   }
-  $('#camera-frame').src = '';
+  const canvas = $('#camera-frame');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   if (state.cameraUrl) URL.revokeObjectURL(state.cameraUrl);
   state.cameraUrl = null;
 }
@@ -3908,10 +3919,13 @@ function setVisualizationPickMode(mode) {
   $('#nav-pick-initial').classList.toggle('active', state.viz.pickMode === 'initial');
   $('#nav-pick-goal').classList.toggle('active', state.viz.pickMode === 'goal');
   $('#place-pick').classList.toggle('active', state.viz.pickMode === 'place');
+  $('#grid-pick').classList.toggle('active', state.viz.pickMode === 'grid');
   $('#zone-pick').classList.toggle('active', state.viz.pickMode === 'zone');
   $('#viz-canvas-hint').textContent = active
-    ? state.viz.pickMode === 'zone'
-      ? 'Нажимайте на карту: выберите 4 угла зоны · Esc — отмена'
+    ? state.viz.pickMode === 'grid'
+      ? 'Укажите углы поля: левый верхний, правый верхний, правый нижний, левый нижний · Esc — отмена'
+      : state.viz.pickMode === 'zone'
+      ? 'Нажимайте на малые клетки сетки, чтобы добавить или убрать их из зоны · Esc — отмена'
       : `Нажмите и протяните: ${state.viz.pickMode === 'initial' ? 'начальная позиция' : state.viz.pickMode === 'place' ? 'именованная точка' : 'цель'} и направление · Esc — отмена`
     : 'Перетаскивание — сдвиг · колесо / два пальца — масштаб · двойной щелчок — вся карта';
 }
@@ -4293,6 +4307,7 @@ function bindCameraPage() {
   $('#camera-vision-apply').addEventListener('click', applyCameraVisionSettings);
   $('#camera-vision-open-processed').addEventListener('click', openProcessedCameraStream);
   $('#camera-preset-720p').addEventListener('click', () => applyCameraPreset(1280, 720, 30));
+  $('#camera-preset-native').addEventListener('click', () => applyCameraPreset(1280, 1024, 30));
   $('#camera-preset-1080p').addEventListener('click', () => applyCameraPreset(1920, 1080, 30));
   $('#camera-preset-vga').addEventListener('click', () => applyCameraPreset(640, 480, 30));
   $('#camera-frame').addEventListener('load', () => {
@@ -4470,10 +4485,11 @@ function bindVisualizationPage() {
   state.viz.cancelGesture = RoverMapView.bindMapViewport($('#odom-canvas'), state.viz.view,
     renderVisualization, {
       mode: () => state.viz.pickMode,
-      yaw: mode => mode === 'zone' ? 0 : Number($(`#nav-${mode}-yaw`).value) * Math.PI / 180,
+      yaw: mode => ['grid', 'zone'].includes(mode) ? 0 : Number($(`#nav-${mode}-yaw`).value) * Math.PI / 180,
       preview: value => { state.viz.posePreview = value; },
       commit: (mode, pose) => {
-        if (mode === 'zone') { RoverNamedZones.addCorner(pose); return; }
+        if (mode === 'grid') { RoverNamedZones.addGridCorner(pose); return; }
+        if (mode === 'zone') { RoverNamedZones.toggleCell(pose); return; }
         writeNavigationPose(`nav-${mode}`, pose);
         setVisualizationPickMode(null);
       },
@@ -4827,6 +4843,30 @@ function bindTerminalPage() {
 function bindDiagnosticsPage() {
   $('#diagnostics-refresh').addEventListener('click', async () => {
     await Promise.all([refreshSystem(), refreshStatus(), refreshActivity()]);
+  });
+  const direction = $('#diagnostic-inspection-direction');
+  direction.value = localStorage.getItem(STORAGE_KEYS.inspectionDirection) || 'clockwise';
+  direction.addEventListener('change', () => {
+    localStorage.setItem(STORAGE_KEYS.inspectionDirection, direction.value);
+    $('#diagnostic-qr-status').textContent = 'Направление сохранено и будет применено к следующему ручному обьезду зоны.';
+  });
+  $('#diagnostic-qr-publish').addEventListener('click', async () => {
+    const text = $('#diagnostic-qr-text').value.trim();
+    if (!text) return showToast('Введите текст QR.', 'error');
+    const button = $('#diagnostic-qr-publish');
+    button.disabled = true;
+    try {
+      const result = await api('/api/diagnostics/qr_detection', {
+        method: 'POST', body: JSON.stringify({text}),
+      });
+      $('#diagnostic-qr-status').textContent = `QR опубликован в ${result.topic}.`;
+      showToast('QR опубликован. Обьезд завершит поиск и вернётся на старт.');
+    } catch (error) {
+      $('#diagnostic-qr-status').textContent = error.message;
+      showToast(error.message, 'error');
+    } finally {
+      button.disabled = false;
+    }
   });
 }
 

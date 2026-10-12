@@ -1,5 +1,6 @@
 """Expand real ROS launch descriptions without executing hardware processes."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -82,6 +83,14 @@ class PackageLaunchTests(unittest.TestCase):
         self.assertFalse(profile['components']['nav2'])
         self.assertFalse(profile['components']['slam'])
 
+    def test_path_clearance_follows_camera_profile_setting(self):
+        full = expand('rover_bringup', 'robot.launch.py', {'profile': 'full'})
+        self.assertIn('path_clearance_node', full)
+        without_camera = expand('rover_bringup', 'robot.launch.py', {
+            'profile': 'full', 'use_camera': 'false',
+        })
+        self.assertNotIn('path_clearance_node', without_camera)
+
     def test_main_and_standalone_use_same_calibration(self):
         main = expand('rover_bringup', 'robot.launch.py', {'profile': 'full'})
         for package, filename, name in (
@@ -90,7 +99,6 @@ class PackageLaunchTests(unittest.TestCase):
             ('rover_imu', 'imu.launch.py', 'yahboom_imu_node'),
             ('rover_camera', 'camera.launch.py', 'usb_camera_node'),
             ('rover_led_strip', 'led_strip.launch.py', 'led_strip_node'),
-            ('rover_vision', 'vision.launch.py', 'camera_detector_node'),
         ):
             with self.subTest(package=package):
                 standalone = expand(package, filename)[name]
@@ -99,6 +107,24 @@ class PackageLaunchTests(unittest.TestCase):
                 }) if name not in main else main
                 for key, value in standalone.items():
                     self.assertEqual(combined[name][key], value, (name, key))
+
+        # Direct video embeds the detector in usb_camera_node rather than
+        # starting a second node. The embedded parameters must still be the
+        # package-owned vision defaults.
+        self.assertNotIn('camera_detector_node', main)
+        embedded_vision = json.loads(
+            main['usb_camera_node']['vision_parameters_json']
+        )
+        expected_vision = node_parameters(
+            config_path('rover_vision', 'vision.yaml'),
+            'camera_detector_node',
+        )
+        expected_vision.update({
+            'frame_id': main['usb_camera_node']['frame_id'],
+            'detections_topic': '/detections',
+            'use_sim_time': False,
+        })
+        self.assertEqual(embedded_vision, expected_vision)
 
     def test_shared_geometry_and_encoders_are_typed(self):
         base = node_parameters(config_path('rover_base_driver', 'base.yaml'), 'base_driver_node')
@@ -163,6 +189,7 @@ class PackageLaunchTests(unittest.TestCase):
             ('rover_display', 'display.launch.py'),
             ('rover_description', 'description.launch.py'),
             ('rover_wheel_odometry', 'localization.launch.py'),
+            ('rover_vision', 'path_clearance.launch.py'),
         ):
             with self.subTest(package=package):
                 self.assertTrue(expand(package, filename))

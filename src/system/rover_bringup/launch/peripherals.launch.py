@@ -1,9 +1,12 @@
 from __future__ import annotations
+import json
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 from rover_configuration import config_path
 
 from rover_bringup.configuration import (
@@ -82,6 +85,10 @@ def launch_setup(context):
     use_vision = override_bool(
         LaunchConfiguration('use_vision').perform(context),
         as_bool(defaults.get('use_vision', True)),
+    )
+    use_path_clearance = override_bool(
+        LaunchConfiguration('use_path_clearance').perform(context),
+        as_bool(defaults.get('use_path_clearance', False)),
     )
     use_led_strip = override_bool(
         LaunchConfiguration('use_led_strip').perform(context),
@@ -213,6 +220,12 @@ def launch_setup(context):
             camera_params.get('frame_id', 'camera_optical_frame'),
         )
         camera_params['use_sim_time'] = use_sim_time
+        camera_params['direct_video'] = True
+        camera_params['use_vision'] = use_vision
+        vision_params['frame_id'] = camera_params['frame_id']
+        vision_params['detections_topic'] = topics.get('detections', '/detections')
+        vision_params['use_sim_time'] = use_sim_time
+        camera_params['vision_parameters_json'] = json.dumps(vision_params)
         actions.append(Node(
             package='rover_camera',
             executable='usb_camera_node',
@@ -227,42 +240,21 @@ def launch_setup(context):
             parameters=[camera_params],
         ))
 
-    if use_camera and use_vision:
-        vision_params['input_topic'] = topics.get(
-            'image_raw',
-            vision_params.get('input_topic', camera_params['image_topic']),
-        )
-        vision_params['frame_id'] = frames.get(
-            'camera',
-            vision_params.get('frame_id', camera_params['frame_id']),
-        )
-        vision_params['processed_image_topic'] = topics.get(
-            'image_processed',
-            vision_params.get('processed_image_topic', '/image_processed'),
-        )
-        vision_params['processed_compressed_image_topic'] = topics.get(
-            'image_processed_compressed',
-            vision_params.get(
-                'processed_compressed_image_topic',
-                '/image_processed/compressed',
-            ),
-        )
-        vision_params['detections_topic'] = topics.get(
-            'detections',
-            vision_params.get('detections_topic', '/detections'),
-        )
-        vision_params['use_sim_time'] = use_sim_time
-        actions.append(Node(
-            package='rover_vision',
-            executable='camera_detector_node',
-            name='camera_detector_node',
-            output='screen',
-            additional_env={
-                # Keep cv2 on the same NumPy ABI as the system package.
-                'PYTHONNOUSERSITE': '1',
-            },
-            parameters=[vision_params],
-        ))
+    if use_path_clearance:
+        if not use_camera:
+            actions.append(LogInfo(
+                msg=(
+                    '[WARN] Path-clearance observer is disabled because it '
+                    'requires the direct camera stream.'
+                )
+            ))
+        else:
+            actions.append(IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(PathJoinSubstitution([
+                    FindPackageShare('rover_vision'), 'launch',
+                    'path_clearance.launch.py',
+                ])),
+            ))
 
     if use_led_strip:
         led_strip_params['frame_id'] = frames.get(
@@ -340,6 +332,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_lidar', default_value=empty_default),
         DeclareLaunchArgument('use_camera', default_value=empty_default),
         DeclareLaunchArgument('use_vision', default_value=empty_default),
+        DeclareLaunchArgument('use_path_clearance', default_value=empty_default),
         DeclareLaunchArgument('use_led_strip', default_value=empty_default),
         DeclareLaunchArgument('use_octoliner', default_value=empty_default),
         DeclareLaunchArgument('use_waveshare_audio', default_value=empty_default),

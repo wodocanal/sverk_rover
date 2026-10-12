@@ -42,6 +42,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_detector_node = rover_vision.camera_detector_node:main',
+            'path_clearance_node = rover_vision.path_clearance_node:main',
         ],
     },
 )

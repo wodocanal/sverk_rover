@@ -18,6 +18,7 @@ components:
   waveshare_audio: false
   camera: false
   vision: false
+  path_clearance: false
 
   agent: true
   fleet_bridge: true

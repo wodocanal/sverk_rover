@@ -4,6 +4,8 @@ web_gateway_node:
     port: 8765
     named_places_file: ~/.config/sverk-rover/named_places.json
     named_places_service: /rover/named_places
+    robot_grid_pose_topic: package://rover_interfaces/config/topics.yaml#topics.robot_grid_pose
+    robot_grid_pose_publish_hz: 5.0
     command_topic: /cmd_vel
     base_driver_node_name: /base_driver_node
     wheel_odometry_node_name: /wheel_odometry_node

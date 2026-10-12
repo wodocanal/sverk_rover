@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import threading
+import time
 from typing import Any, Optional
 
 import cv2
@@ -89,8 +90,13 @@ def load_labels_file(path: str) -> list[str]:
 
 
 class CameraDetectorNode(Node):
-    def __init__(self) -> None:
-        super().__init__('camera_detector_node')
+    def __init__(self, *, frame_source=None, result_sink=None, **kwargs) -> None:
+        super().__init__('camera_detector_node', **kwargs)
+        self._frame_source = frame_source
+        self._result_sink = result_sink
+        self._result_packet = None
+        self._worker_stop = threading.Event()
+        self._worker = None
 
         self.declare_parameter('enabled', False)
         self.declare_parameter('detect_objects', True)
@@ -149,6 +155,10 @@ class CameraDetectorNode(Node):
         self.add_on_set_parameters_callback(self._handle_parameter_update)
         self._configure_timer()
         self._reconfigure_pipeline(initial=True)
+        if self._frame_source is not None:
+            self._worker = threading.Thread(target=self._processing_loop, daemon=True,
+                                            name='camera-detection')
+            self._worker.start()
 
     def _load_parameters(self) -> None:
         self.enabled = bool(self.get_parameter('enabled').value)
@@ -243,6 +253,10 @@ class CameraDetectorNode(Node):
         self,
         parameters: list[Parameter],
     ) -> SetParametersResult:
+        with self._config_lock:
+            return self._apply_parameter_update(parameters)
+
+    def _apply_parameter_update(self, parameters: list[Parameter]) -> SetParametersResult:
         candidate = {
             'enabled': self.enabled,
             'detect_objects': self.detect_objects,
@@ -326,12 +340,22 @@ class CameraDetectorNode(Node):
         return SetParametersResult(successful=True)
 
     def _configure_timer(self) -> None:
+        if self._frame_source is not None:
+            return
         if self._timer is not None:
             self.destroy_timer(self._timer)
         self._timer = self.create_timer(
             max(1.0 / self.max_processing_fps, 0.001),
             self._process_latest_frame,
         )
+
+    def _processing_loop(self):
+        while not self._worker_stop.is_set():
+            started = time.monotonic()
+            with self._config_lock:
+                self._process_latest_frame()
+                period = 1.0 / self.max_processing_fps
+            self._worker_stop.wait(max(0.01, period - (time.monotonic() - started)))
 
     def _destroy_io(self) -> None:
         if self._subscription is not None:
@@ -420,6 +444,8 @@ class CameraDetectorNode(Node):
 
     def _reconfigure_pipeline(self, *, initial: bool = False) -> None:
         with self._config_lock:
+            if self._result_sink is not None:
+                self._result_sink.clear()
             self._destroy_io()
             self._detector = None
             self._marker_detector = None
@@ -444,19 +470,19 @@ class CameraDetectorNode(Node):
                 self._log_status('error', self._last_error)
                 return
 
-            self._subscription = self.create_subscription(
+            self._subscription = None if self._frame_source else self.create_subscription(
                 Image,
                 self.input_topic,
                 self._image_callback,
                 qos_profile_sensor_data,
             )
-            if self.publish_raw:
+            if self.publish_raw and not self._frame_source:
                 self._raw_publisher = self.create_publisher(
                     Image,
                     self.processed_image_topic,
                     qos_profile_sensor_data,
                 )
-            if self.publish_compressed:
+            if self.publish_compressed and not self._frame_source:
                 self._compressed_publisher = self.create_publisher(
                     CompressedImage,
                     self.processed_compressed_image_topic,
@@ -504,6 +530,21 @@ class CameraDetectorNode(Node):
         if not self._should_process_now():
             return
 
+        if self._frame_source is not None:
+            packet = self._frame_source()
+            if packet is None or packet.sequence == self._last_processed_seq:
+                return
+            frame = cv2.imdecode(np.frombuffer(packet.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                self._last_error = 'Could not decode camera JPEG'
+                return
+            with self._frame_lock:
+                self._latest_frame = frame
+                self._latest_stamp = packet.stamp
+                self._latest_seq = packet.sequence
+                self._result_packet = packet
+                self._frames_received += 1
+
         with self._frame_lock:
             if (
                 self._latest_seq <= 0
@@ -516,9 +557,10 @@ class CameraDetectorNode(Node):
             sequence = self._latest_seq
 
         try:
-            annotated, detections = self._run_detection(frame) if self.detect_objects else (frame.copy(), [])
+            annotated, detections = self._run_detection(frame) if self.detect_objects else (frame, [])
             markers = self._marker_detector.detect(frame) if self.detect_aruco or self.detect_qr else []
-            MarkerDetector.annotate(annotated, markers, self.line_thickness)
+            if self._frame_source is None:
+                MarkerDetector.annotate(annotated, markers, self.line_thickness)
         except Exception as exc:
             self._last_error = str(exc)
             self.get_logger().warning(f'Inference failed: {exc}')
@@ -622,6 +664,8 @@ class CameraDetectorNode(Node):
         frame: np.ndarray,
         detections: list[Detection],
     ) -> np.ndarray:
+        if self._frame_source is not None:
+            return frame
         annotated = frame.copy()
         for detection in detections:
             color = self._color_for_class(detection.class_id)
@@ -683,7 +727,7 @@ class CameraDetectorNode(Node):
         stamp: Any,
         *, markers: list[dict] | None = None,
     ) -> None:
-        if self._detections_publisher is None:
+        if self._detections_publisher is None and self._result_sink is None:
             return
 
         height = int(frame_shape[0])
@@ -728,9 +772,12 @@ class CameraDetectorNode(Node):
             ] + (markers or []),
         }
 
-        message = String()
-        message.data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
-        self._detections_publisher.publish(message)
+        if self._result_sink is not None and self._result_packet is not None:
+            self._result_sink.publish(self._result_packet, payload)
+        if self._detections_publisher is not None:
+            message = String()
+            message.data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+            self._detections_publisher.publish(message)
 
     def _publish_qr_detections(
         self,
@@ -790,6 +837,9 @@ class CameraDetectorNode(Node):
             self._compressed_publisher.publish(message)
 
     def close(self) -> None:
+        self._worker_stop.set()
+        if self._worker is not None:
+            self._worker.join()
         self._destroy_io()
         if self._timer is not None:
             self.destroy_timer(self._timer)

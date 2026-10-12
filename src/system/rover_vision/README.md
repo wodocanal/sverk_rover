@@ -1,16 +1,16 @@
 # rover_vision
 
 Обработка кадров камеры: детектор объектов YOLO, альтернативный OpenCV SSD,
-опциональные ArUco/QR и публикация размеченного видео.
+опциональные ArUco/QR и публикация результатов. В штатном запуске детектор
+работает внутри процесса камеры, без передачи изображений через ROS.
 
 ## Запуск и конфиг
 
 ```bash
-ros2 launch rover_vision vision.launch.py
-ros2 launch rover_vision vision.launch.py enabled:=true
+ros2 launch rover_camera camera.launch.py
 ```
 
-Нужен работающий источник изображений. Конфиг:
+Это запускает камеру и встроенный детектор; второй процесс камеры не нужен. Конфиг:
 [config/vision.yaml](config/vision.yaml). В full нода запускается, но
 `enabled: false`: кнопку включения обработки предоставляет веб.
 
@@ -35,15 +35,31 @@ Launch использует `PYTHONNOUSERSITE=1`: установка тольк�
 
 | Направление | По умолчанию |
 | --- | --- |
-| Вход | `/image_raw`, sensor_msgs/Image |
-| Видео | `/image_processed`, sensor_msgs/Image |
-| JPEG | `/image_processed/compressed`, sensor_msgs/CompressedImage |
+| Вход | Последний JPEG из памяти процесса камеры |
+| Видео | HTTP камеры, веб-рамки на canvas |
 | Детекции | `/detections`, std_msgs/String с JSON |
+| Прочитанные QR | `/qr_detections`, std_msgs/String с JSON |
 
 `kind` различает object/aruco/qr, доступны bbox и подписи; рамки рисуются на
-обработанном видео. Это 2D-детекция, не оценка расстояния/позы маркера.
+исходном кадре в браузере, без повторного JPEG-кодирования. Это 2D-детекция,
+не оценка расстояния/позы маркера. Кадр и результаты связаны номером и timestamp.
 Общие настройки: confidence/NMS, частота обработки, качество JPEG, словарь
 ArUco, флаги `detect_aruco` и `detect_qr`.
 
 [Полный операторский гайд](../../../docs/vision-markers.md).
 [Форматы и лицензии моделей](models/README.md). MIT корня не заменяет лицензии весов.
+
+## Проверка свободного пути
+
+`ros2 launch rover_vision path_clearance.launch.py` запускает отдельный
+наблюдатель `/road/state`: он получает свежий JPEG по camera_media_url,
+пропускает повторные кадры и сообщает unavailable при потере камеры.
+Он не управляет движением. Конфиг: config/path_clearance.yaml.
+При отсутствии модели первые calibration_frames кадров калибруют свободный
+коридор: перед запуском убедитесь, что выбранная область действительно свободна.
+Отладочный image-топик выключен по умолчанию. В профилях `full`, `hardware` и
+`navigation` наблюдатель запускается вместе с камерой; отключить его можно через
+`use_path_clearance:=false`. В профилях без камеры он выключен.
+
+`vision.launch.py` и отдельный camera_detector_node оставлены как legacy-режим
+для ROS image-источника. Не запускайте их вместе со встроенным детектором камеры.

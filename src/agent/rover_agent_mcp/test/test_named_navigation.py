@@ -55,8 +55,30 @@ def test_lost_service_does_not_report_arrival():
 
 def test_schema_has_named_tools():
     tools = {t['name']: t for t in mcp_tools()}
-    assert 'list_named_places' in tools
-    assert tools['navigate_to_named_place']['inputSchema']['properties']['wait_until_done']['default']
-    steps = tools['run_motion_sequence']['inputSchema']['properties']['steps']['items']['properties']
-    assert 'navigate_to_named_place' in steps['type']['enum']
-    assert 'name' in steps
+    assert set(tools) == {'list_search_areas', 'search_static_obstacle'}
+    search = tools['search_static_obstacle']['inputSchema']['properties']
+    assert search['wait_at_qr_sec']['default'] == 5
+    assert 'building_debris' in search['target_obstacle']['enum']
+
+
+def test_search_waits_for_qr_and_uses_inspection_return(monkeypatch):
+    node = agent()
+    node._named_places_call = Mock(side_effect=[
+        {'success': True, 'inspection': {'state': 'starting'}},
+        {'success': True, 'inspection': {'state': 'waiting_to_return'}},
+        {'success': True, 'inspection': {
+            'state': 'returned', 'completion_state': 'succeeded',
+            'qr_codes': ['victim-17'],
+        }},
+    ])
+    sleep = Mock()
+    monkeypatch.setattr('rover_agent_mcp.named_navigation.time.sleep', sleep)
+
+    result = node.search_static_obstacle('желтый дом', 'building_debris')
+
+    assert result['success']
+    assert result['qr_codes'] == ['victim-17']
+    assert result['return_to_start']['completed']
+    assert node._named_places_call.call_args_list[0].args == ('start_inspection', {
+        'name': 'желтый дом', 'target_obstacle': 'building_debris', 'return_wait_sec': 5.0,
+    })

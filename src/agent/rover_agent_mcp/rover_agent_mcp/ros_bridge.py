@@ -120,29 +120,8 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         args = dict(arguments or {})
         tool_map = {
-            'get_available_tools': self.get_available_tools,
-            'wait': self.wait,
-            'set_led_strip': self.set_led_strip,
-            'set_led_preset': self.set_led_preset,
-            'blink_led_strip': self.blink_led_strip,
-            'drive_relative': self.drive_relative,
-            'drive_forward': self.drive_forward,  # compatibility alias
-            'turn_relative': self.turn_relative,
-            'run_motion_sequence': self.run_motion_sequence,
-            'run_relative_sequence': self.run_motion_sequence,  # compatibility alias
-            'stop_motion': self.stop_motion,
-            'navigate_to_pose': self.navigate_to_pose,
-            'list_named_places': self.list_named_places,
-            'navigate_to_named_place': self.navigate_to_named_place,
-            'cancel_navigation': self.cancel_navigation,
-            'get_navigation_status': self.get_navigation_status,
-            'is_navigation_ready': self.is_navigation_ready,
-            'get_robot_pose': self.get_robot_pose,
-            'get_laser_summary': self.get_laser_summary,
-            'observe_detections': self.observe_detections,
-            'read_qr_codes': self.read_qr_codes,
-            'get_led_strip_state': self.get_led_strip_state,
-            'get_system_status': self.get_system_status,
+            'list_search_areas': self.list_search_areas,
+            'search_static_obstacle': self.search_static_obstacle,
         }
         if name not in tool_map:
             return {'success': False, 'error': f'Unknown tool: {name}'}

@@ -118,6 +118,9 @@ def launch_setup(context):
     use_lidar = flag(context, profile_config, 'use_lidar', 'lidar', True)
     use_camera = flag(context, profile_config, 'use_camera', 'camera', True)
     use_vision = flag(context, profile_config, 'use_vision', 'vision', True)
+    use_path_clearance = flag(
+        context, profile_config, 'use_path_clearance', 'path_clearance', False
+    )
     use_display = flag(context, profile_config, 'use_display', 'display', False)
     use_led_strip = flag(
         context, profile_config, 'use_led_strip', 'led_strip', True
@@ -398,6 +401,7 @@ def launch_setup(context):
         use_lidar
         or use_camera
         or use_vision
+        or use_path_clearance
         or use_led_strip
         or use_octoliner
         or use_waveshare_audio
@@ -408,6 +412,7 @@ def launch_setup(context):
             'use_lidar': as_launch_bool(use_lidar),
             'use_camera': as_launch_bool(use_camera),
             'use_vision': as_launch_bool(use_vision),
+            'use_path_clearance': as_launch_bool(use_path_clearance),
             'use_led_strip': as_launch_bool(use_led_strip),
             'use_octoliner': as_launch_bool(use_octoliner),
             'use_waveshare_audio': as_launch_bool(use_waveshare_audio),
@@ -731,6 +736,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_lidar', default_value=empty_default),
         DeclareLaunchArgument('use_camera', default_value=empty_default),
         DeclareLaunchArgument('use_vision', default_value=empty_default),
+        DeclareLaunchArgument('use_path_clearance', default_value=empty_default),
         DeclareLaunchArgument('use_display', default_value=empty_default),
         DeclareLaunchArgument(
             'display_panel_mode',

@@ -1,0 +1,15 @@
+path_clearance_node:
+  ros__parameters:
+    camera_media_url: http://127.0.0.1:8091
+    result_topic: /road/state
+    debug_topic: /path_clearance/debug/compressed
+    model_path: ~/.config/sverk-rover/path_clearance_model.npz
+    # Four normalized image points: top-left, top-right, bottom-right, bottom-left.
+    roi_points: [0.44, 0.52, 0.56, 0.52, 0.64, 0.90, 0.36, 0.90]
+    calibration_frames: 20
+    force_recalibration: false
+    max_processing_fps: 5.0
+    publish_debug_image: false
+    blocked_fraction_threshold: 0.10
+    component_fraction_threshold: 0.025
+    width_fraction_threshold: 0.55

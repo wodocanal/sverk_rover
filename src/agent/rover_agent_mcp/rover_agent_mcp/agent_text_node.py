@@ -240,6 +240,52 @@ class AgentTextNode(Node):
             ),
         )
 
+    @staticmethod
+    def _search_result_reply(result: dict[str, Any]) -> str | None:
+        """Turn the one allowed search tool result into a truthful human report."""
+        for call in result.get('tool_results') or []:
+            if call.get('name') != 'search_static_obstacle':
+                continue
+            arguments = call.get('arguments') or {}
+            outcome = call.get('result') or {}
+            area = str(arguments.get('static_obstacle') or 'выбранной зоны')
+            target = str(arguments.get('target_obstacle') or 'any')
+            target_names = {
+                'traffic_accident': 'ДТП',
+                'fuel_truck': 'топливозаправщик',
+                'fallen_tree': 'упавшее дерево',
+                'building_debris': 'обломки здания',
+                'any': 'динамическое препятствие',
+            }
+            lines = [
+                f'Понял задачу: пострадавшего нужно искать около зоны «{area}».',
+                f'Запустил объезд этой зоны и поиск QR рядом с целью: {target_names.get(target, target)}.',
+            ]
+            inspection = outcome.get('inspection') or {}
+            obstacle = inspection.get('target_obstacle_cell') or {}
+            if obstacle.get('class'):
+                lines.append(
+                    f'VLM подтвердил цель: {target_names.get(str(obstacle["class"]), obstacle["class"])}. '
+                    'Проверил доступные стороны препятствия, не заезжая в его клетку.'
+                )
+            qr_codes = outcome.get('qr_codes') or inspection.get('qr_codes') or []
+            if qr_codes:
+                lines.append(f'QR с данными найден: {", ".join(str(code) for code in qr_codes)}.')
+                lines.append(f'Подождал у QR {float(outcome.get("waited_at_qr_sec", 5.0)):g} секунд.')
+            else:
+                lines.append('QR с декодированным текстом не найден.')
+            returned = outcome.get('return_to_start') or {}
+            if returned.get('success'):
+                lines.append('Вернулся в точку «старт».')
+            elif qr_codes:
+                lines.append('QR найден, но вернуться в точку «старт» не удалось.')
+            else:
+                detail = str(outcome.get('error') or inspection.get('message') or '').strip()
+                if detail:
+                    lines.append(f'Поиск завершился без результата: {detail}')
+            return '\n'.join(lines)
+        return None
+
     def _on_text_command(self, msg: String) -> None:
         try:
             context = parse_command_payload(msg.data, self.robot_id)
@@ -302,7 +348,7 @@ class AgentTextNode(Node):
             result = host.run_command(command, mcp)
             self.get_logger().info(f'Agent result: {json_dumps(result)}')
 
-            reply = str(result.get('reply') or 'Готово.').strip()
+            reply = self._search_result_reply(result) or str(result.get('reply') or 'Готово.').strip()
             self._publish_status(
                 context,
                 status='running',

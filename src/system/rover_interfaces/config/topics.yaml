@@ -13,6 +13,8 @@ topics:
   image_processed: /image_processed
   image_processed_compressed: /image_processed/compressed
   detections: /detections
+  road_state: /road/state
+  robot_grid_pose: /rover/grid_pose
   imu_data: /imu/data
   imu_mag: /imu/mag
   imu_euler: /imu/euler

@@ -7,11 +7,22 @@ from unittest.mock import Mock
 
 import pytest
 
-from rover_web.named_places import NamedPlacesMixin, NamedPlacesStore
+from rover_web.named_places import (
+    GRID_MAJOR_CELLS, NamedPlacesMixin, NamedPlacesStore, grid_cell_corners,
+    grid_cell_at_point, grid_major_center, inspection_corners, inspection_grid_route,
+    major_grid_detour, vlm_obstacle_label,
+)
 
 
 def point(name='Диван', **changes):
     return {'name': name, 'x': 1.0, 'y': 2.0, 'yaw': 0.5, **changes}
+
+
+def field_grid():
+    return {'corners': [
+        {'x': 0.0, 'y': 1.0}, {'x': 1.0, 'y': 1.0},
+        {'x': 1.0, 'y': 0.0}, {'x': 0.0, 'y': 0.0},
+    ]}
 
 
 def test_store_persistence_rename_conflict_delete(tmp_path):
@@ -49,50 +60,188 @@ def test_corrupt_file_is_not_silently_overwritten(tmp_path):
 
 def test_zone_persistence_and_validation(tmp_path):
     store = NamedPlacesStore(tmp_path / 'places.json')
-    zone = {'name': 'Завал', 'can_drive': False, 'aliases': ['обломки'], 'corners': [
-        {'x': 0, 'y': 0}, {'x': 1, 'y': 0}, {'x': 1, 'y': 1}, {'x': 0, 'y': 1},
-    ]}
-    saved = store.update('map', 0, zone=zone)
+    calibrated = store.update('map', 0, grid=field_grid())
+    assert calibrated['grid']['rows'] == 10
+    assert calibrated['grid']['columns'] == 10
+    zone = {'name': 'Завал', 'can_drive': False, 'aliases': ['обломки'],
+            'cells': [{'row': 2, 'column': 3}, {'row': 2, 'column': 4}]}
+    saved = store.update('map', 1, zone=zone)
     assert saved['zones'][0]['name'] == 'Завал'
     assert not saved['zones'][0]['can_drive']
-    with pytest.raises(ValueError, match='exactly four'):
-        store.update('map', 1, zone={**zone, 'name': 'Плохая', 'corners': zone['corners'][:3]})
-    assert store.update('map', 1, delete_zone_id=saved['zones'][0]['id'])['zones'] == []
+    assert saved['zones'][0]['cells'] == zone['cells']
+    with pytest.raises(ValueError, match='inside'):
+        store.update('map', 2, zone={**zone, 'name': 'Плохая', 'cells': [{'row': 10, 'column': 0}]})
+    with pytest.raises(ValueError, match='changing'):
+        store.update('map', 2, grid={'corners': [
+            {'x': 0.1, 'y': 1.0}, {'x': 1.0, 'y': 1.0},
+            {'x': 1.0, 'y': 0.0}, {'x': 0.0, 'y': 0.0},
+        ]})
+    assert store.update('map', 2, delete_zone_id=saved['zones'][0]['id'])['zones'] == []
 
 
-def test_zone_inspection_route_is_clockwise_parallel_and_spaced():
-    route = NamedPlacesMixin._zone_inspection_route([
-        {'x': 0, 'y': 0}, {'x': 2, 'y': 0}, {'x': 2, 'y': 1}, {'x': 0, 'y': 1},
-    ], clearance_m=0.3, step_m=0.25)
-    # The 30 cm offset expands the 2x1 m rectangle to 2.6x1.6 m.
-    assert len(route) == 36
-    assert min(point['x'] for point in route) == pytest.approx(-0.3)
-    assert max(point['x'] for point in route) == pytest.approx(2.3)
-    assert min(point['y'] for point in route) == pytest.approx(-0.3)
-    assert max(point['y'] for point in route) == pytest.approx(1.3)
+def test_grid_cells_are_bilinear_and_inspection_requires_rectangle(tmp_path):
+    store = NamedPlacesStore(tmp_path / 'places.json')
+    saved = store.update('map', 0, grid=field_grid())
+    corners = grid_cell_corners(saved['grid'], 0, 0)
+    assert corners[0]['x'] == pytest.approx(0.0)
+    assert corners[0]['y'] == pytest.approx(1.0)
+    assert corners[2]['x'] == pytest.approx(0.1)
+    assert corners[2]['y'] == pytest.approx(0.9)
+    rectangle = {'cells': [{'row': 1, 'column': 1}, {'row': 1, 'column': 2}]}
+    inspection = inspection_corners(rectangle, saved['grid'])
+    assert inspection[2]['x'] == pytest.approx(0.3)
+    assert inspection[2]['y'] == pytest.approx(0.8)
+    with pytest.raises(ValueError, match='solid rectangular'):
+        inspection_corners({'cells': [{'row': 1, 'column': 1}, {'row': 2, 'column': 2}]}, saved['grid'])
+
+
+def test_grid_cell_at_point_reports_small_and_large_cell_coordinates():
+    cell = grid_cell_at_point(field_grid(), 0.26, 0.74)
+
+    assert cell['row'] == 2
+    assert cell['column'] == 2
+    assert cell['row_number'] == 3
+    assert cell['column_number'] == 3
+    assert cell['major_row'] == 1
+    assert cell['major_column'] == 1
+    assert cell['center'] == pytest.approx({'x': 0.25, 'y': 0.75})
+
+
+@pytest.mark.parametrize(('obstacle_class', 'label'), [
+    ('traffic_accident', 'ДТП'),
+    ('fuel_truck', 'бензовоз'),
+    ('fallen_tree', 'упавшее дерево'),
+    ('building_debris', 'обломки здания'),
+    ('any', 'любое препятствие'),
+])
+def test_vlm_obstacle_labels_are_operator_friendly(obstacle_class, label):
+    assert vlm_obstacle_label(obstacle_class) == label
+
+
+def test_zone_inspection_route_uses_neighbour_large_cell_centers_and_nearest_start(tmp_path):
+    store = NamedPlacesStore(tmp_path / 'places.json')
+    grid = store.update('map', 0, grid=field_grid())['grid']
+    zone = {'cells': [
+        {'row': 2, 'column': 4}, {'row': 2, 'column': 5},
+        {'row': 3, 'column': 4}, {'row': 3, 'column': 5},
+    ]}
+    route = inspection_grid_route(zone, grid, {'x': 0.69, 'y': 0.89})
+    expected_cells = {
+        (0, 1), (0, 2), (0, 3), (1, 1),
+        (1, 3), (2, 1), (2, 2), (2, 3),
+    }
+    assert len(route) == len(expected_cells)
+    assert {(item['major_row'], item['major_column']) for item in route} == expected_cells
+    assert (route[0]['major_row'], route[0]['major_column']) == (0, 3)
+    assert route[0]['x'] == pytest.approx(0.7)
+    assert route[0]['y'] == pytest.approx(0.9)
+    assert route[0]['yaw'] == pytest.approx(-math.pi / 2)
     area = sum(route[index]['x'] * route[(index + 1) % len(route)]['y']
                - route[(index + 1) % len(route)]['x'] * route[index]['y']
                for index in range(len(route)))
     assert area < 0  # Clockwise in the map coordinate frame.
-    assert route[0]['yaw'] == pytest.approx(0)  # Tangential heading, not the zone center.
 
 
-def test_non_convex_zone_is_rejected(tmp_path):
+def test_zone_inspection_route_can_run_counterclockwise(tmp_path):
     store = NamedPlacesStore(tmp_path / 'places.json')
-    with pytest.raises(ValueError, match='convex'):
-        store.update('map', 0, zone={'name': 'Bad', 'can_drive': False, 'aliases': [], 'corners': [
-            {'x': 0, 'y': 0}, {'x': 1, 'y': 0}, {'x': 0.4, 'y': 0.2}, {'x': 0, 'y': 1},
-        ]})
+    grid = store.update('map', 0, grid=field_grid())['grid']
+    zone = {'cells': [
+        {'row': 2, 'column': 4}, {'row': 2, 'column': 5},
+        {'row': 3, 'column': 4}, {'row': 3, 'column': 5},
+    ]}
+    route = inspection_grid_route(
+        zone, grid, {'x': 0.69, 'y': 0.89}, 'counterclockwise',
+    )
+    area = sum(route[index]['x'] * route[(index + 1) % len(route)]['y']
+               - route[(index + 1) % len(route)]['x'] * route[index]['y']
+               for index in range(len(route)))
+    assert area > 0
+
+
+def test_zone_inspection_rejects_edge_without_a_complete_neighbour_ring(tmp_path):
+    store = NamedPlacesStore(tmp_path / 'places.json')
+    grid = store.update('map', 0, grid=field_grid())['grid']
+    with pytest.raises(ValueError, match='one free large grid cell'):
+        inspection_grid_route({'cells': [{'row': 0, 'column': 4}]}, grid, {'x': 0.5, 'y': 0.5})
+
+
+def test_major_grid_detour_avoids_confirmed_obstacle_cell():
+    grid = {'corners': [
+        {'x': 0.0, 'y': 0.0}, {'x': 5.0, 'y': 0.0},
+        {'x': 5.0, 'y': 5.0}, {'x': 0.0, 'y': 5.0},
+    ]}
+    route = major_grid_detour(
+        grid,
+        grid_major_center(grid, 2, 1),
+        grid_major_center(grid, 2, 3),
+        {(2, 2)},
+    )
+
+    assert (route[0]['major_row'], route[0]['major_column']) == (2, 1)
+    assert (route[-1]['major_row'], route[-1]['major_column']) == (2, 3)
+    assert (2, 2) not in {(point['major_row'], point['major_column']) for point in route}
+    assert all(0 <= point['major_row'] < GRID_MAJOR_CELLS for point in route)
+
+
+def test_vlm_classification_reads_nested_observation_event_type():
+    response = json.dumps({
+        'timestamp': 1790605965.4068267,
+        'latency_sec': 14.96,
+        'observation': {'event_type': 'traffic_accident', 'confidence': 0.9},
+    })
+
+    assert NamedPlacesMixin._vlm_classification(response) == 'traffic_accident'
+    assert NamedPlacesMixin._vlm_classification('{"observation": {"event_type": "none"}}') == 'none'
+
+
+def test_vlm_classification_accepts_all_supported_event_types():
+    for event_type in ('traffic_accident', 'fuel_truck', 'fallen_tree', 'building_debris'):
+        assert NamedPlacesMixin._vlm_classification(
+            json.dumps({'observation': {'event_type': event_type}})
+        ) == event_type
+
+
+def test_target_qr_candidates_reach_other_sides_without_entering_obstacle_cell():
+    grid = {'corners': [
+        {'x': 0.0, 'y': 0.0}, {'x': 5.0, 'y': 0.0},
+        {'x': 5.0, 'y': 5.0}, {'x': 0.0, 'y': 5.0},
+    ]}
+    obstacle = {**grid_major_center(grid, 2, 2), 'class': 'traffic_accident'}
+    current_side = grid_major_center(grid, 2, 1)
+
+    candidates = NamedPlacesMixin._target_qr_candidates(
+        None, grid, {(2, 2)}, current_side, obstacle
+    )
+
+    cells = {(item['major_row'], item['major_column']) for item in candidates}
+    assert cells == {(1, 2), (2, 3), (3, 2)}
+    for candidate in candidates:
+        expected_yaw = math.atan2(
+            obstacle['y'] - candidate['y'], obstacle['x'] - candidate['x']
+        )
+        assert candidate['yaw'] == pytest.approx(expected_yaw)
+
+
+def test_zone_requires_grid_cells(tmp_path):
+    store = NamedPlacesStore(tmp_path / 'places.json')
+    with pytest.raises(ValueError, match='Stretch'):
+        store.update('map', 0, zone={'name': 'Bad', 'can_drive': False, 'aliases': [],
+                                     'cells': [{'row': 0, 'column': 0}]})
 
 
 def test_no_drive_zone_creates_navigation_map_copy(gateway):
     payload = gateway.named_places_payload('map.yaml')
+    gateway.update_named_places({'action': 'save_grid', 'map': 'map.yaml',
+                                 'map_id': payload['map_id'], 'revision': payload['revision'],
+                                 'grid': {'corners': [
+                                     {'x': 0, 'y': 0.1}, {'x': 0.1, 'y': 0.1},
+                                     {'x': 0.1, 'y': 0}, {'x': 0, 'y': 0},
+                                 ]}})
+    payload = gateway.named_places_payload('map.yaml')
     gateway.update_named_places({'action': 'save_zone', 'map': 'map.yaml',
                                  'map_id': payload['map_id'], 'revision': payload['revision'],
-                                 'zone': {'name': 'Завал', 'can_drive': False, 'aliases': [], 'corners': [
-                                     {'x': 0, 'y': 0}, {'x': 0.1, 'y': 0},
-                                     {'x': 0.1, 'y': 0.1}, {'x': 0, 'y': 0.1},
-                                 ]}})
+                                 'zone': {'name': 'Завал', 'can_drive': False, 'aliases': [],
+                                          'cells': [{'row': 0, 'column': 0}]}})
     generated = gateway.navigation_map_with_zones('map.yaml')
     assert generated != gateway._resolve_map_yaml.return_value
     assert generated.exists()

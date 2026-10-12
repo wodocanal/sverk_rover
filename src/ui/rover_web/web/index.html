@@ -239,7 +239,7 @@ ROS State — ноды, топики и сервисы
             <article class="panel camera-source-panel">
               <h2>Источник изображения</h2>
               <div class="camera-source-row">
-                <select id="camera-topic-select" aria-label="Image topic"></select>
+                <select id="camera-topic-select" aria-label="Видеопоток"></select>
                 <button id="camera-connect">Подключить</button>
               </div>
             </article>
@@ -255,9 +255,9 @@ ROS State — ноды, топики и сервисы
                   <label>Модель
                     <select id="camera-vision-model"></select>
                   </label>
-                  <label>Input topic<input id="camera-vision-input-topic" value="/image_raw"></label>
-                  <label>Processed raw topic<input id="camera-vision-output-topic" value="/image_processed"></label>
-                  <label>Processed compressed topic<input id="camera-vision-output-compressed-topic" value="/image_processed/compressed"></label>
+                  <input id="camera-vision-input-topic" type="hidden" value="/image_raw">
+                  <input id="camera-vision-output-topic" type="hidden" value="/image_processed">
+                  <input id="camera-vision-output-compressed-topic" type="hidden" value="/image_processed/compressed">
                   <label>Detections topic<input id="camera-vision-detections-topic" value="/detections"></label>
                   <label>QR data topic<input id="camera-vision-qr-detections-topic" value="/qr_detections"></label>
                   <label>FPS лимит<input id="camera-vision-fps" type="number" min="0.5" max="60" step="0.5" value="10.0"></label>
@@ -265,8 +265,8 @@ ROS State — ноды, топики и сервисы
                   <label>NMS<input id="camera-vision-nms" type="number" min="0.01" max="1" step="0.01" value="0.45"></label>
                 </div>
                 <div class="inline-form camera-setting-flags">
-                  <label class="check-label"><input id="camera-vision-publish-raw" type="checkbox" checked> Публиковать raw</label>
-                  <label class="check-label"><input id="camera-vision-publish-compressed" type="checkbox" checked> Публиковать compressed</label>
+                  <input id="camera-vision-publish-raw" type="checkbox" hidden>
+                  <input id="camera-vision-publish-compressed" type="checkbox" hidden>
                   <label class="check-label"><input id="camera-vision-publish-detections" type="checkbox" checked> Публиковать detections</label>
                   <label class="check-label"><input id="camera-vision-detect-objects" type="checkbox" checked> Распознавать объекты моделью</label>
                   <label class="check-label"><input id="camera-vision-annotate-labels" type="checkbox" checked> Подписи классов</label>
@@ -297,7 +297,7 @@ ROS State — ноды, топики и сервисы
           <article class="panel camera-preview-panel">
             <h2>Поток изображения</h2>
             <div class="camera-frame-wrap">
-              <img id="camera-frame" alt="Camera stream preview">
+              <canvas id="camera-frame" aria-label="Камера и результаты распознавания"></canvas>
               <div class="camera-empty" id="camera-empty">Изображение ещё не получено.</div>
             </div>
           </article>
@@ -468,7 +468,12 @@ angular.z: 0.00</pre>
             </article>
             <article class="panel named-places-card">
               <h2>Именованные зоны</h2>
-              <p class="status-note">Зона задаётся четырьмя углами. Непроезжаемые зоны Nav2 обходит после следующего запуска навигации.</p>
+              <p class="status-note">Сначала натяните сетку поля четырьмя углами. Она содержит 5×5 больших клеток, каждая разделена на 2×2 малые. Зона состоит из выбранных малых клеток.</p>
+              <div class="button-row">
+                <button id="grid-pick" class="secondary">Натянуть сетку на поле</button>
+                <button id="grid-save">Сохранить сетку</button>
+                <button id="grid-clear" class="danger-secondary">Удалить сетку</button>
+              </div>
               <div class="form-grid">
                 <label>Сохранённая зона<select id="zone-select"><option value="">Новая зона</option></select></label>
                 <label>Название<input id="zone-name" maxlength="80" placeholder="Например, завал"></label>
@@ -476,7 +481,7 @@ angular.z: 0.00</pre>
               </div>
               <label class="check-label"><input id="zone-can-drive" type="checkbox"> Разрешить движение внутри зоны</label>
               <div class="button-row">
-                <button id="zone-pick" class="secondary">Указать 4 угла на карте</button>
+                <button id="zone-pick" class="secondary">Выбрать малые клетки на карте</button>
                 <button id="zone-save">Сохранить</button>
                 <button id="zone-delete" class="danger-secondary">Удалить</button>
                 <button id="zone-refresh" class="secondary">Обновить зоны</button>
@@ -485,11 +490,16 @@ angular.z: 0.00</pre>
             </article>
             <article class="panel named-places-card">
               <h2>Ручной тест объезда зоны</h2>
-              <p class="status-note">Ровер построит внешний контур по часовой стрелке, остановится у точек маршрута и после каждой из них проверит свежие QR-данные. Подходят только непроезжаемые выпуклые зоны.</p>
+              <p class="status-note">Ровер обойдёт зону в выбранном на странице диагностики направлении через центры соседних больших клеток. Первой будет ближайшая к текущему положению клетка контура. Для теста выберите непроезжаемую прямоугольную группу клеток с хотя бы одной свободной большой клеткой вокруг.</p>
               <div class="form-grid compact-grid">
                 <label>Зона<select id="zone-inspection-select"><option value="">Выберите зону</option></select></label>
-                <label>Отступ от зоны, м<input id="zone-inspection-clearance" type="number" min="0.10" max="1.50" step="0.05" value="0.30"></label>
-                <label>Шаг проверки QR, м<input id="zone-inspection-step" type="number" min="0.10" max="1.00" step="0.05" value="0.30"></label>
+                <label>Искомое препятствие<select id="zone-inspection-target">
+                  <option value="">Выберите класс</option>
+                  <option value="traffic_accident">ДТП</option>
+                  <option value="fuel_truck">Топливозаправщик</option>
+                  <option value="fallen_tree">Упавшее дерево</option>
+                  <option value="building_debris">Обломки здания</option>
+                </select></label>
               </div>
               <div class="button-row">
                 <button id="zone-inspection-start">Начать тест</button>
@@ -497,6 +507,7 @@ angular.z: 0.00</pre>
               </div>
               <p id="zone-inspection-status" class="status-note" role="status">Выберите карту и непроезжаемую зону.</p>
               <p id="zone-inspection-qr" class="status-note"></p>
+              <pre id="zone-inspection-log" class="log-box">Журнал обьезда появится после запуска.</pre>
             </article>
             <article class="panel navigation-log-card">
               <h2>SLAM / Nav2</h2>
@@ -858,6 +869,23 @@ angular.z: 0.00</pre>
           <article class="health-card"><span>EKF /odom</span><strong class="status-value" id="diagnostic-odom-status">—</strong><small id="diagnostic-odom-detail">Нет данных</small></article>
           <article class="health-card"><span>/diagnostics</span><strong class="status-value" id="diagnostic-topic-status">—</strong><small id="diagnostic-topic-detail">Нет данных</small></article>
         </div>
+        <article class="panel diagnostic-qr-control">
+          <div class="panel-heading-row">
+            <div>
+              <h2>QR и обьезд</h2>
+              <p class="status-note">Отправьте распознанный текст QR: активный обьезд завершит поиск, подождёт 5 секунд и вернётся в точку «старт».</p>
+            </div>
+          </div>
+          <div class="diagnostic-qr-form">
+            <label>Текст QR<input id="diagnostic-qr-text" maxlength="1024" placeholder="Текст, зашифрованный в QR" autocomplete="off"></label>
+            <label>Направление обьезда<select id="diagnostic-inspection-direction">
+              <option value="clockwise">По часовой стрелке</option>
+              <option value="counterclockwise">Против часовой стрелки</option>
+            </select></label>
+            <button id="diagnostic-qr-publish">Опубликовать QR</button>
+          </div>
+          <p id="diagnostic-qr-status" class="status-note" role="status">Направление применяется к следующему ручному обьезду зоны.</p>
+        </article>
         <div class="card-grid ros-cards">
           <article class="metric-card"><span>Нод</span><strong id="ros-nodes-count">—</strong><small>шт</small></article>
           <article class="metric-card"><span>Топиков</span><strong id="ros-topics-count">—</strong><small>шт</small></article>
@@ -1103,28 +1131,30 @@ angular.z: 0.00</pre>
             <div class="form-grid compact-grid">
               <label>Device<input id="camera-setting-device" value="/dev/video0"></label>
               <label>Frame ID<input id="camera-setting-frame-id" value="camera_optical_frame"></label>
-              <label>Raw topic<input id="camera-setting-image-topic" value="/image_raw"></label>
-              <label>Compressed topic<input id="camera-setting-compressed-topic" value="/image_raw/compressed"></label>
+              <input id="camera-setting-image-topic" type="hidden" value="/image_raw">
+              <input id="camera-setting-compressed-topic" type="hidden" value="/image_raw/compressed">
               <label>Ширина<input id="camera-setting-width" type="number" min="160" step="1" value="1280"></label>
-              <label>Высота<input id="camera-setting-height" type="number" min="120" step="1" value="720"></label>
+              <label>Высота<input id="camera-setting-height" type="number" min="120" step="1" value="1024"></label>
               <label>FPS<input id="camera-setting-fps" type="number" min="1" max="120" step="1" value="30"></label>
-              <label>JPEG quality<input id="camera-setting-jpeg-quality" type="number" min="10" max="100" step="1" value="85"></label>
+              <label>JPEG quality (только для программного кодирования)<input id="camera-setting-jpeg-quality" type="number" min="10" max="100" step="1" value="95"></label>
               <label>Поворот
                 <select id="camera-setting-rotate">
-                  <option value="0">0°</option>
+                  <option value="0" selected>0°</option>
                   <option value="90">90°</option>
-                  <option value="180" selected>180°</option>
+                  <option value="180">180°</option>
                   <option value="270">270°</option>
                 </select>
               </label>
             </div>
             <div class="inline-form camera-setting-flags">
               <label class="check-label"><input id="camera-setting-use-mjpeg" type="checkbox" checked> MJPEG</label>
-              <label class="check-label"><input id="camera-setting-publish-raw" type="checkbox" checked> Raw topic</label>
-              <label class="check-label"><input id="camera-setting-publish-compressed" type="checkbox" checked> Compressed topic</label>
+              <input id="camera-setting-publish-raw" type="checkbox" hidden>
+              <input id="camera-setting-publish-compressed" type="checkbox" hidden>
             </div>
+            <p class="status-note">Видео передаётся напрямую по HTTP, без image-топиков ROS. При MJPEG и повороте 0° сохраняется исходный JPEG камеры. В ROS публикуются только результаты распознавания.</p>
             <div class="button-row">
               <button id="camera-settings-apply">Применить</button>
+              <button class="secondary" id="camera-preset-native">1280×1024</button>
               <button class="secondary" id="camera-preset-720p">720p</button>
               <button class="secondary" id="camera-preset-1080p">1080p</button>
               <button class="secondary" id="camera-preset-vga">VGA</button>

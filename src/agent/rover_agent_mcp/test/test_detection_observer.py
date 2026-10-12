@@ -163,8 +163,7 @@ def test_tool_argument_bounds(settings):
         DetectionBuffer().observe(**defaults)
 
 
-def test_tool_schema_is_available():
-    tool = next(t for t in mcp_tools() if t['name'] == 'observe_detections')
-    assert tool['inputSchema']['properties']['samples']['default'] == 3
-    qr_tool = next(t for t in mcp_tools() if t['name'] == 'read_qr_codes')
-    assert qr_tool['inputSchema']['properties']['samples']['default'] == 3
+def test_detector_tools_are_not_exposed_to_the_search_agent():
+    names = {tool['name'] for tool in mcp_tools()}
+    assert 'observe_detections' not in names
+    assert 'read_qr_codes' not in names

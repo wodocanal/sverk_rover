@@ -23,6 +23,9 @@ Nav2 публикует в `/cmd_vel_nav`; нужен twist_mux или экви�
 маршрутизация к драйверу. Standalone пакет не запускает моторы/mux.
 Nav2 включает map_server, AMCL, planner/controller/smoother, behavior server,
 BT navigator, waypoint follower и lifecycle managers.
+`waypoint_follower` использует `/follow_waypoints`: веб передаёт им один маршрут
+объезда зоны, а штатный `InputAtWaypoint` удерживает ровер на каждой клетке до
+сообщения `/zone_inspection/continue` от веб-сервиса после QR-осмотра.
 SLAM запускает async_slam_toolbox_node с lifecycle manager.
 
 [config/nav2.yaml](config/nav2.yaml), [config/slam_toolbox.yaml](config/slam_toolbox.yaml).

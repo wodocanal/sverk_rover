@@ -82,7 +82,7 @@ def test_dense_qr_uses_fallback_when_opencv_only_detects_its_outline():
 
 
 def test_markers_and_objects_share_detection_topic():
-    node = SimpleNamespace(_detections_publisher=Mock(), frame_id='camera_optical_frame',
+    node = SimpleNamespace(_detections_publisher=Mock(), _result_sink=None, frame_id='camera_optical_frame',
                            model_name='yolo11n', _model_manifest=None)
     markers = MarkerDetector(aruco=True, qr=True).detect(marker_scene())
     CameraDetectorNode._publish_detections(node, [Detection(0,'person',.9,0,0,30,40)],

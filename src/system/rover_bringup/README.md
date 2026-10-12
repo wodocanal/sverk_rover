@@ -14,7 +14,7 @@ ros2 launch rover_bringup robot.launch.py --show-args
 ```
 
 Рабочие профили: [config/profiles](config/profiles). `full` включает оборудование,
-локализацию, камеру/vision, ленту, UI, агента и MQTT. Nav2/SLAM выключены и
+локализацию, камеру/vision, наблюдатель свободного пути, ленту, UI, агента и MQTT. Nav2/SLAM выключены и
 запускаются из веба. Vision-нода включена в состав, но её обработка по умолчанию
 выключена в собственном конфиге. Octoliner/аудио в full выключены.
 

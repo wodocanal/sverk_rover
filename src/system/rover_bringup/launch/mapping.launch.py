@@ -19,6 +19,7 @@ def generate_launch_description():
     use_lidar = LaunchConfiguration('use_lidar')
     use_camera = LaunchConfiguration('use_camera')
     use_vision = LaunchConfiguration('use_vision')
+    use_path_clearance = LaunchConfiguration('use_path_clearance')
     use_display = LaunchConfiguration('use_display')
     use_led_strip = LaunchConfiguration('use_led_strip')
     use_octoliner = LaunchConfiguration('use_octoliner')
@@ -49,6 +50,7 @@ def generate_launch_description():
             'use_lidar': use_lidar,
             'use_camera': use_camera,
             'use_vision': use_vision,
+            'use_path_clearance': use_path_clearance,
             'use_display': use_display,
             'use_led_strip': use_led_strip,
             'use_octoliner': use_octoliner,
@@ -77,6 +79,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_lidar', default_value=''),
         DeclareLaunchArgument('use_camera', default_value=''),
         DeclareLaunchArgument('use_vision', default_value=''),
+        DeclareLaunchArgument('use_path_clearance', default_value=''),
         DeclareLaunchArgument('use_display', default_value=''),
         DeclareLaunchArgument('use_led_strip', default_value=''),
         DeclareLaunchArgument('use_octoliner', default_value=''),

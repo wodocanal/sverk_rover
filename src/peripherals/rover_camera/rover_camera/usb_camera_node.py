@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import threading
 import time
 from typing import Optional
@@ -14,6 +15,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rover_interfaces.srv import GetFrame
 from sensor_msgs.msg import CompressedImage, Image
+from rover_camera.media import Frame, MediaServer
 
 
 def as_capture_source(device: str) -> str | int:
@@ -35,15 +37,23 @@ class UsbCameraNode(Node):
         )
         self.declare_parameter('frame_id', 'camera_optical_frame')
         self.declare_parameter('width', 1280)
-        self.declare_parameter('height', 720)
+        self.declare_parameter('height', 1024)
         self.declare_parameter('fps', 30.0)
         self.declare_parameter('use_mjpeg', True)
         self.declare_parameter('publish_raw', True)
         self.declare_parameter('publish_compressed', True)
-        self.declare_parameter('jpeg_quality', 85)
+        self.declare_parameter('jpeg_quality', 95)
         self.declare_parameter('reconnect_interval_sec', 2.0)
         self.declare_parameter('get_frame_service', 'get_frame')
         self.declare_parameter('rotate', 0)
+        self.declare_parameter('direct_video', True)
+        # The camera stream is intended for operator devices on the rover LAN.
+        self.declare_parameter('media_host', '0.0.0.0')
+        self.declare_parameter('media_port', 8091)
+        self.declare_parameter('use_vision', True)
+        self.declare_parameter('vision_parameters_json', '')
+        self.direct_video = bool(self.get_parameter('direct_video').value)
+        self.media = None
 
         self._config_lock = threading.RLock()
         self.capture_lock = threading.RLock()
@@ -85,6 +95,12 @@ class UsbCameraNode(Node):
         self._configure_timer()
         self._configure_services()
         self.add_on_set_parameters_callback(self._handle_parameter_update)
+
+        if self.direct_video:
+            self.media = MediaServer(
+                self.latest_packet, str(self.get_parameter('media_host').value),
+                int(self.get_parameter('media_port').value),
+            )
 
         self.capture_thread = threading.Thread(
             target=self._capture_loop,
@@ -132,7 +148,7 @@ class UsbCameraNode(Node):
             or self.reconnect_interval <= 0.0
         ):
             raise ValueError('reconnect_interval_sec must be finite and positive')
-        if not self.publish_raw and not self.publish_compressed:
+        if not self.direct_video and not self.publish_raw and not self.publish_compressed:
             raise ValueError(
                 'At least one of publish_raw or publish_compressed must be true'
             )
@@ -142,6 +158,8 @@ class UsbCameraNode(Node):
             raise ValueError('rotate must be one of 0, 90, 180, 270')
 
     def _configure_publishers(self) -> None:
+        if self.direct_video:
+            return
         if self.raw_publisher is not None:
             self.destroy_publisher(self.raw_publisher)
             self.raw_publisher = None
@@ -163,6 +181,8 @@ class UsbCameraNode(Node):
             )
 
     def _configure_timer(self) -> None:
+        if self.direct_video:
+            return
         if self.publish_timer is not None:
             self.destroy_timer(self.publish_timer)
             self.publish_timer = None
@@ -229,7 +249,7 @@ class UsbCameraNode(Node):
                 raise ValueError(
                     'reconnect_interval_sec must be finite and positive'
                 )
-            if not publish_raw and not publish_compressed:
+            if not self.direct_video and not publish_raw and not publish_compressed:
                 raise ValueError(
                     'At least one of publish_raw or publish_compressed must be true'
                 )
@@ -344,6 +364,10 @@ class UsbCameraNode(Node):
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
             capture.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
             capture.set(cv2.CAP_PROP_FPS, float(self.fps))
+            # V4L2 can return the original MJPEG packet. Preserve it for the
+            # compressed topic instead of introducing another JPEG generation.
+            if self.use_mjpeg and backend == cv2.CAP_V4L2:
+                capture.set(cv2.CAP_PROP_CONVERT_RGB, 0)
 
             with self.capture_lock:
                 if self.capture is not None:
@@ -401,7 +425,10 @@ class UsbCameraNode(Node):
                     self.shutdown_event.wait(0.05)
                 continue
 
-            ok, frame = capture.read()
+            with self.capture_lock:
+                if capture is not self.capture:
+                    continue
+                ok, frame = capture.read()
             if not ok or frame is None:
                 self.read_failures += 1
                 self._warn_throttled(
@@ -411,7 +438,27 @@ class UsbCameraNode(Node):
                 self.shutdown_event.wait(0.05)
                 continue
 
-            if len(frame.shape) != 3 or frame.shape[2] != 3:
+            original_jpeg = None
+            if frame.ndim == 2 and frame.dtype == np.uint8:
+                packet = frame.reshape(-1)
+                if packet.size > 3 and bytes(packet[:2]) == b'\xff\xd8':
+                    original_jpeg = packet.tobytes()
+                    if self.direct_video and self.rotate == 0:
+                        # No decode on the live path. Only the detector decodes
+                        # the latest selected packet, at its own processing rate.
+                        with self.frame_lock:
+                            self.latest_frame = None
+                            self.latest_compressed = original_jpeg
+                            self.latest_frame_seq += 1
+                            self.latest_header_stamp = self.get_clock().now().to_msg()
+                            self.latest_width = self.actual_width
+                            self.latest_height = self.actual_height
+                            self.latest_capture_monotonic = time.monotonic()
+                            self.frames_captured += 1
+                        continue
+                    frame = cv2.imdecode(packet, cv2.IMREAD_COLOR)
+            if frame is None or len(frame.shape) != 3 or frame.shape[2] != 3:
+                capture.set(cv2.CAP_PROP_CONVERT_RGB, 1)
                 self._warn_throttled(
                     'Camera returned a non-BGR frame; skipping this image'
                 )
@@ -421,10 +468,14 @@ class UsbCameraNode(Node):
             current_rotate = self.rotate
             if current_rotate != 0:
                 frame = self._rotate_frame(frame, current_rotate)
+                original_jpeg = None
+
+            if self.direct_video and original_jpeg is None:
+                original_jpeg = self._encode_frame(frame)
 
             with self.frame_lock:
                 self.latest_frame = frame
-                self.latest_compressed = None
+                self.latest_compressed = original_jpeg
                 self.latest_frame_seq += 1
                 self.latest_header_stamp = self.get_clock().now().to_msg()
                 self.latest_width = int(frame.shape[1])
@@ -454,16 +505,18 @@ class UsbCameraNode(Node):
                 raw_frame = None if self.latest_frame is None else self.latest_frame.copy()
 
             frame_to_encode = None
+            compressed_frame = None
             if (
                 self.publish_compressed
                 and self.compressed_publisher is not None
                 and self.compressed_publisher.get_subscription_count() > 0
                 and sequence != self.last_published_seq_compressed
             ):
-                frame_to_encode = self.latest_frame
+                compressed_frame = getattr(self, 'latest_compressed', None)
+                if compressed_frame is None:
+                    frame_to_encode = self.latest_frame
 
         # Encoding must not stop capture from draining the camera's input queue.
-        compressed_frame = None
         if frame_to_encode is not None:
             try:
                 compressed_frame = self._encode_frame(frame_to_encode)
@@ -514,7 +567,7 @@ class UsbCameraNode(Node):
                 else float('inf')
             )
 
-        if latest_frame is None or stamp is None or width <= 0 or height <= 0:
+        if (latest_frame is None and latest_compressed is None) or stamp is None or width <= 0 or height <= 0:
             response.success = False
             response.message = 'No camera frame is available yet'
             response.age_sec = float('inf')
@@ -540,7 +593,17 @@ class UsbCameraNode(Node):
         response.age_sec = float(age_sec)
         return response
 
+    def latest_packet(self):
+        with self.frame_lock:
+            if self.latest_compressed is None or self.latest_header_stamp is None:
+                return None
+            return Frame(self.latest_compressed, self.latest_frame_seq,
+                         self.latest_header_stamp, self.latest_width, self.latest_height,
+                         self.latest_capture_monotonic)
+
     def close(self) -> None:
+        if self.media is not None:
+            self.media.close()
         self.shutdown_event.set()
         self._request_reopen(force=True)
         if hasattr(self, 'capture_thread') and self.capture_thread.is_alive():
@@ -550,12 +613,34 @@ class UsbCameraNode(Node):
 def main(args: Optional[list[str]] = None) -> None:
     rclpy.init(args=args)
     node: Optional[UsbCameraNode] = None
+    detector = None
+    executor = None
     try:
         node = UsbCameraNode()
-        rclpy.spin(node)
+        from rclpy.executors import MultiThreadedExecutor
+        executor = MultiThreadedExecutor(num_threads=2)
+        executor.add_node(node)
+        if node.direct_video and node.get_parameter('use_vision').value:
+            from rover_configuration import config_path, node_parameters
+            from rover_vision.camera_detector_node import CameraDetectorNode
+            config = node_parameters(config_path('rover_vision', 'vision.yaml'), 'camera_detector_node')
+            config.update(json.loads(node.get_parameter('vision_parameters_json').value or '{}'))
+            config['publish_raw'] = config['publish_compressed'] = False
+            detector = CameraDetectorNode(
+                frame_source=lambda: node.media.latest(), result_sink=node.media,
+                parameter_overrides=[Parameter(name, value=value) for name, value in config.items()],
+                use_global_arguments=False,
+            )
+            executor.add_node(detector)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        if executor is not None:
+            executor.shutdown()
+        if detector is not None:
+            detector.close()
+            detector.destroy_node()
         if node is not None:
             node.close()
             node.destroy_node()

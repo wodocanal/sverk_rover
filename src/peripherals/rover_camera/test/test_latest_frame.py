@@ -5,11 +5,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
+import pytest
 from builtin_interfaces.msg import Time
 from rover_camera.usb_camera_node import UsbCameraNode
 
 
-def test_publish_uses_latest_frame_without_holding_capture_lock():
+@pytest.mark.parametrize('passthrough', [False, True])
+def test_publish_uses_latest_frame_without_holding_capture_lock(passthrough):
     first = np.zeros((2, 3, 3), dtype=np.uint8)
     newest = np.ones_like(first)
     publisher = Mock()
@@ -40,6 +42,14 @@ def test_publish_uses_latest_frame_without_holding_capture_lock():
 
     node._encode_frame = encode
     node._warn_throttled = Mock()
+    if passthrough:
+        node.latest_compressed = b'original camera JPEG'
+        UsbCameraNode._publish_latest_frame(node)
+        UsbCameraNode._publish_latest_frame(node)
+        assert not frames
+        assert publisher.publish.call_count == 1
+        assert bytes(publisher.publish.call_args.args[0].data) == node.latest_compressed
+        return
     UsbCameraNode._publish_latest_frame(node)
     UsbCameraNode._publish_latest_frame(node)
     UsbCameraNode._publish_latest_frame(node)
@@ -49,3 +59,32 @@ def test_publish_uses_latest_frame_without_holding_capture_lock():
     assert publisher.publish.call_count == 2
     assert publisher.publish.call_args_list[0].args[0].header.stamp.sec == 1
     assert publisher.publish.call_args_list[1].args[0].header.stamp.sec == 20
+
+
+def test_capture_preserves_camera_jpeg_and_raw_pixels():
+    import cv2
+
+    frame = np.full((12, 16, 3), 120, dtype=np.uint8)
+    _, jpeg = cv2.imencode('.jpg', frame)
+    stop = threading.Event()
+    capture = Mock()
+    capture.isOpened.return_value = True
+
+    def read():
+        stop.set()
+        return True, jpeg.reshape(1, -1)
+
+    capture.read.side_effect = read
+    node = SimpleNamespace(
+        shutdown_event=stop, capture_lock=threading.RLock(),
+        frame_lock=threading.RLock(), capture=capture, reconfigure_capture=False,
+        rotate=0, latest_frame_seq=0, frames_captured=0,
+        direct_video=False,
+        get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(to_msg=lambda: Time())),
+        _request_reopen=Mock(), _warn_throttled=Mock(),
+    )
+    UsbCameraNode._capture_loop(node)
+    assert node.latest_compressed == jpeg.tobytes()
+    assert node.latest_frame.shape == (12, 16, 3)
+    assert np.array_equal(node.latest_frame, cv2.imdecode(jpeg, cv2.IMREAD_COLOR))
+    assert node.frames_captured == 1

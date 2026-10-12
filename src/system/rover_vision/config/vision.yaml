@@ -1,10 +1,10 @@
 camera_detector_node:
   ros__parameters:
-    enabled: false
-    detect_objects: true
+    enabled: true
+    detect_objects: false
     model_name: yolo11n
     detect_aruco: false
-    detect_qr: false
+    detect_qr: true
     aruco_dictionary: DICT_4X4_50
     models_directory: package://rover_vision/models
     input_topic: /image_raw
@@ -13,7 +13,7 @@ camera_detector_node:
     frame_id: camera_optical_frame
     publish_raw: true
     publish_compressed: true
-    publish_detections: true
+    publish_detections: false
     detections_topic: /detections
     qr_detections_topic: /qr_detections
     confidence_threshold: 0.3

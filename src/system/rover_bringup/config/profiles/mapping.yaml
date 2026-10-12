@@ -11,6 +11,7 @@ components:
   lidar: true
   camera: false
   vision: false
+  path_clearance: false
   led_strip: false
   octoliner: false
   waveshare_audio: false

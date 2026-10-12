@@ -1583,6 +1583,37 @@ textarea {
   margin-bottom: 18px;
 }
 
+.diagnostic-qr-control {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.diagnostic-qr-control h2 {
+  margin: 0;
+}
+
+.diagnostic-qr-control .status-note {
+  margin: 5px 0 0;
+}
+
+.diagnostic-qr-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(190px, 1fr) auto;
+  gap: 10px 12px;
+  align-items: end;
+}
+
+.diagnostic-qr-form label {
+  min-width: 0;
+  margin: 0;
+}
+
+.diagnostic-qr-form button {
+  min-height: 46px;
+  white-space: nowrap;
+}
+
 .diagnostics-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1863,9 +1894,15 @@ textarea {
   }
 
   .form-grid,
+  .diagnostic-qr-form,
   .route-step-fields,
   .route-file-actions {
     grid-template-columns: 1fr;
+  }
+
+  .diagnostic-qr-form button {
+    width: 100%;
+    min-height: 50px;
   }
 
   .visualization-sidebar,
