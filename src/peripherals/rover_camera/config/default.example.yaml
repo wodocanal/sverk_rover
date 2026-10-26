@@ -5,11 +5,17 @@ usb_camera_node:
     compressed_image_topic: /image_raw/compressed
     frame_id: camera_optical_frame
     width: 1280
-    height: 720
+    height: 1024
     fps: 30.0
     use_mjpeg: true
-    publish_raw: true
-    publish_compressed: true
-    jpeg_quality: 85
+    publish_raw: false
+    publish_compressed: false
+    direct_video: true
+    media_host: 0.0.0.0
+    media_port: 8091
+    use_vision: true
+    vision_parameters_json: ''
+    jpeg_quality: 95
     reconnect_interval_sec: 2.0
     get_frame_service: get_frame
+    rotate: 0

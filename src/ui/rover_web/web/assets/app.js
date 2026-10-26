@@ -1474,16 +1474,10 @@ async function callSelectedService() {
 
 function renderCameraTopics() {
   const select = $('#camera-topic-select');
-  const topics = safeArray(state.rosGraph?.image_topics).slice().sort((left, right) => {
-    const leftType = safeArray(left.types)[0] || '';
-    const rightType = safeArray(right.types)[0] || '';
-    const leftCompressed = leftType.includes('CompressedImage') || left.name?.endsWith('/compressed');
-    const rightCompressed = rightType.includes('CompressedImage') || right.name?.endsWith('/compressed');
-    if (leftCompressed !== rightCompressed) {
-      return leftCompressed ? -1 : 1;
-    }
-    return String(left.name || '').localeCompare(String(right.name || ''));
-  });
+  const topics = [
+    { name: 'live', label: 'Камера · прямой поток', types: ['direct'] },
+    { name: 'processed', label: 'Обработка · кадр с детекциями', types: ['direct'] },
+  ];
   select.innerHTML = '';
   if (!topics.length) {
     const option = document.createElement('option');
@@ -1498,10 +1492,7 @@ function renderCameraTopics() {
   }
 
   if (!topics.some((item) => item.name === state.selectedCameraTopic)) {
-    const preferred = topics.find((item) => {
-      const type = safeArray(item.types)[0] || '';
-      return type.includes('CompressedImage') || item.name?.endsWith('/compressed');
-    }) || topics[0];
+    const preferred = topics.find((item) => item.name === 'processed') || topics[0];
     state.selectedCameraTopic = preferred.name;
     state.selectedCameraType = safeArray(preferred.types)[0] || '';
   }
@@ -1510,7 +1501,7 @@ function renderCameraTopics() {
     const option = document.createElement('option');
     option.value = item.name;
     option.dataset.type = safeArray(item.types)[0] || '';
-    option.textContent = `${item.name} (${safeArray(item.types)[0] || 'unknown'})`;
+    option.textContent = item.label;
     option.selected = item.name === state.selectedCameraTopic;
     select.append(option);
   });
@@ -1522,13 +1513,13 @@ function setCameraSettingsForm(parameters = {}) {
   $('#camera-setting-image-topic').value = parameters.image_topic || '/image_raw';
   $('#camera-setting-compressed-topic').value = parameters.compressed_image_topic || '/image_raw/compressed';
   $('#camera-setting-width').value = String(parameters.width ?? 1280);
-  $('#camera-setting-height').value = String(parameters.height ?? 720);
+  $('#camera-setting-height').value = String(parameters.height ?? 1024);
   $('#camera-setting-fps').value = String(parameters.fps ?? 30);
-  $('#camera-setting-jpeg-quality').value = String(parameters.jpeg_quality ?? 85);
+  $('#camera-setting-jpeg-quality').value = String(parameters.jpeg_quality ?? 95);
   $('#camera-setting-use-mjpeg').checked = Boolean(parameters.use_mjpeg ?? true);
   $('#camera-setting-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-setting-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
-  $('#camera-setting-rotate').value = String(parameters.rotate ?? 180);
+  $('#camera-setting-rotate').value = String(parameters.rotate ?? 0);
 }
 
 function renderCameraVisionModels(models = [], selectedModelName = '') {
@@ -1572,9 +1563,10 @@ function setCameraVisionRunning(enabled) {
   [
     '#camera-vision-model', '#camera-vision-input-topic', '#camera-vision-output-topic',
     '#camera-vision-output-compressed-topic', '#camera-vision-detections-topic',
+    '#camera-vision-qr-detections-topic',
     '#camera-vision-fps', '#camera-vision-confidence', '#camera-vision-nms',
     '#camera-vision-publish-raw', '#camera-vision-publish-compressed',
-    '#camera-vision-publish-detections', '#camera-vision-annotate-labels',
+    '#camera-vision-publish-detections', '#camera-vision-detect-objects', '#camera-vision-annotate-labels',
     '#camera-vision-annotate-confidence',
     '#camera-vision-detect-aruco', '#camera-vision-detect-qr', '#camera-vision-aruco-dictionary',
   ].forEach((selector) => { $(selector).disabled = enabled; });
@@ -1591,12 +1583,14 @@ function setCameraVisionSettingsForm(payload = {}) {
   $('#camera-vision-output-topic').value = parameters.processed_image_topic || '/image_processed';
   $('#camera-vision-output-compressed-topic').value = parameters.processed_compressed_image_topic || '/image_processed/compressed';
   $('#camera-vision-detections-topic').value = parameters.detections_topic || '/detections';
+  $('#camera-vision-qr-detections-topic').value = parameters.qr_detections_topic || '/qr_detections';
   $('#camera-vision-fps').value = String(parameters.max_processing_fps ?? 10.0);
   $('#camera-vision-confidence').value = String(parameters.confidence_threshold ?? 0.30);
   $('#camera-vision-nms').value = String(parameters.nms_threshold ?? 0.45);
   $('#camera-vision-publish-raw').checked = Boolean(parameters.publish_raw ?? true);
   $('#camera-vision-publish-compressed').checked = Boolean(parameters.publish_compressed ?? true);
   $('#camera-vision-publish-detections').checked = Boolean(parameters.publish_detections ?? true);
+  $('#camera-vision-detect-objects').checked = Boolean(parameters.detect_objects ?? true);
   $('#camera-vision-annotate-labels').checked = Boolean(parameters.annotate_labels ?? true);
   $('#camera-vision-annotate-confidence').checked = Boolean(parameters.annotate_confidence ?? true);
   $('#camera-vision-detect-aruco').checked = Boolean(parameters.detect_aruco ?? false);
@@ -1662,6 +1656,48 @@ async function refreshCameraVisionDetections() {
   }
 }
 
+function renderCameraVisionQrDetections(payload = {}) {
+  const list = $('#camera-vision-qr-detections-list');
+  const meta = $('#camera-vision-qr-detections-meta');
+  const result = payload.result;
+  if (payload.last_error) {
+    meta.textContent = 'Ошибка чтения';
+    list.textContent = payload.last_error;
+    return;
+  }
+  if (!result) {
+    meta.textContent = 'Ожидание QR';
+    list.textContent = 'Распознанные QR-строки появятся здесь.';
+    return;
+  }
+  const codes = safeArray(result.codes);
+  meta.textContent = `${result.count ?? codes.length} кодов · ${formatAge(payload.age_sec)}`;
+  list.innerHTML = '';
+  codes.forEach((code, index) => {
+    const item = document.createElement('div');
+    item.className = 'vision-detection-row';
+    const label = document.createElement('strong');
+    label.textContent = `QR ${index + 1}`;
+    const details = document.createElement('small');
+    // QR content can look like a URL or instruction; render it only as text.
+    details.textContent = String(code.data || '');
+    item.append(label, details);
+    list.append(item);
+  });
+  if (!codes.length) list.textContent = 'В последнем сообщении нет декодированных QR-кодов.';
+}
+
+async function refreshCameraVisionQrDetections() {
+  try {
+    const payload = await api('/api/vision/qr_detections');
+    renderCameraVisionQrDetections(payload);
+    return payload;
+  } catch (error) {
+    renderCameraVisionQrDetections({ last_error: String(error.message || error) });
+    return null;
+  }
+}
+
 function summarizeCameraVisionDetails(payload = {}) {
   const selected = payload.selected_model || null;
   return pretty({
@@ -1696,7 +1732,9 @@ async function refreshCameraVisionSettings() {
     setCameraVisionSettingsForm(payload);
     $('#camera-vision-details').textContent = summarizeCameraVisionDetails(payload);
     const selected = payload.selected_model;
-    if (payload.parameters?.enabled) {
+    if (payload.parameters?.enabled && !payload.parameters?.detect_objects) {
+      $('#camera-vision-status').textContent = 'Обработка запущена: QR/ArUco без модели объектов. Параметры заблокированы.';
+    } else if (payload.parameters?.enabled) {
       $('#camera-vision-status').textContent = selected?.valid
         ? `Обработка запущена: ${selected.name || selected.id}. Параметры заблокированы.`
         : 'Обработка включена, но модель ещё не готова.';
@@ -1704,6 +1742,7 @@ async function refreshCameraVisionSettings() {
       $('#camera-vision-status').textContent = 'Обработка выключена. Параметры можно изменить перед запуском.';
     }
     refreshCameraVisionDetections();
+    refreshCameraVisionQrDetections();
     return payload;
   } catch (error) {
     $('#camera-vision-status').textContent = String(error.message || error);
@@ -1716,8 +1755,8 @@ async function toggleCameraVision() {
   const enabled = !Boolean(state.cameraVisionSettings?.parameters?.enabled);
   try {
     $('#camera-vision-status').textContent = enabled
-      ? 'Включение обработки нейросетью...'
-      : 'Выключение обработки нейросетью...';
+      ? 'Включение обработки изображения...'
+      : 'Выключение обработки изображения...';
     const payload = await api('/api/vision/settings', {
       method: 'POST',
       body: JSON.stringify({ enabled }),
@@ -1726,7 +1765,7 @@ async function toggleCameraVision() {
     setCameraVisionSettingsForm(payload);
     $('#camera-vision-details').textContent = summarizeCameraVisionDetails(payload);
     $('#camera-vision-status').textContent = enabled
-      ? 'Обработка нейросетью запущена.'
+      ? 'Обработка изображения запущена.'
       : 'Обработка нейросетью остановлена. Параметры доступны.';
     await Promise.all([
       refreshRosGraph(),
@@ -1748,9 +1787,11 @@ function cameraVisionSettingsPayloadFromForm() {
     processed_image_topic: $('#camera-vision-output-topic').value.trim(),
     processed_compressed_image_topic: $('#camera-vision-output-compressed-topic').value.trim(),
     detections_topic: $('#camera-vision-detections-topic').value.trim(),
-    publish_raw: $('#camera-vision-publish-raw').checked,
-    publish_compressed: $('#camera-vision-publish-compressed').checked,
+    qr_detections_topic: $('#camera-vision-qr-detections-topic').value.trim(),
+    publish_raw: false,
+    publish_compressed: false,
     publish_detections: $('#camera-vision-publish-detections').checked,
+    detect_objects: $('#camera-vision-detect-objects').checked,
     confidence_threshold: Number($('#camera-vision-confidence').value || '0.25'),
     nms_threshold: Number($('#camera-vision-nms').value || '0.45'),
     max_processing_fps: Number($('#camera-vision-fps').value || '8'),
@@ -1786,27 +1827,11 @@ async function applyCameraVisionSettings() {
 }
 
 async function openProcessedCameraStream() {
-  const parameters = state.cameraVisionSettings?.parameters || cameraVisionSettingsPayloadFromForm();
-  const targetTopic = parameters.publish_compressed
-    ? parameters.processed_compressed_image_topic
-    : parameters.processed_image_topic;
-  if (!targetTopic) {
-    showToast('Не задан topic для обработанного потока', 'error');
-    return;
-  }
-  await refreshRosGraph();
-  const topic = safeArray(state.rosGraph?.image_topics).find((item) => item.name === targetTopic);
-  if (!topic) {
-    showToast('Обработанный поток пока не появился в ROS graph', 'error');
-    $('#camera-vision-status').textContent = 'Обработанный image topic пока недоступен.';
-    renderCameraTopics();
-    return;
-  }
-  state.selectedCameraTopic = topic.name;
-  state.selectedCameraType = safeArray(topic.types)[0] || null;
+  state.selectedCameraTopic = 'processed';
+  state.selectedCameraType = 'direct';
   renderCameraTopics();
-  $('#camera-topic-select').value = topic.name;
-  $('#camera-vision-status').textContent = `Открыт обработанный поток: ${topic.name}`;
+  $('#camera-topic-select').value = 'processed';
+  $('#camera-vision-status').textContent = 'Кадр и рамки соответствуют одной итерации распознавания.';
   await connectCamera();
 }
 
@@ -1933,13 +1958,13 @@ function cameraSettingsPayloadFromForm() {
     image_topic: $('#camera-setting-image-topic').value.trim(),
     compressed_image_topic: $('#camera-setting-compressed-topic').value.trim(),
     width: Number($('#camera-setting-width').value || '1280'),
-    height: Number($('#camera-setting-height').value || '720'),
+    height: Number($('#camera-setting-height').value || '1024'),
     fps: Number($('#camera-setting-fps').value || '30'),
-    jpeg_quality: Number($('#camera-setting-jpeg-quality').value || '85'),
+    jpeg_quality: Number($('#camera-setting-jpeg-quality').value || '95'),
     use_mjpeg: $('#camera-setting-use-mjpeg').checked,
-    publish_raw: $('#camera-setting-publish-raw').checked,
-    publish_compressed: $('#camera-setting-publish-compressed').checked,
-    rotate: Number($('#camera-setting-rotate').value || '180'),
+    publish_raw: false,
+    publish_compressed: false,
+    rotate: Number($('#camera-setting-rotate').value || '0'),
   };
 }
 
@@ -1971,7 +1996,7 @@ function applyCameraPreset(width, height, fps) {
 async function refreshCameraStatus() {
   if (!state.selectedCameraTopic || !state.selectedCameraType) return;
   try {
-    const info = await api(`/api/camera/status?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}`);
+    const info = await api(`/api/camera/media/status?mode=${encodeURIComponent(state.selectedCameraTopic)}`);
     return info;
   } catch (error) {
     return null;
@@ -1984,7 +2009,7 @@ function startCameraLoop() {
     return;
   }
   const generation = state.cameraGeneration;
-  const url = `/api/camera/frame?topic=${encodeURIComponent(state.selectedCameraTopic)}&type=${encodeURIComponent(state.selectedCameraType)}`;
+  let lastSequence = -1;
   const nextFrame = async () => {
     if (generation !== state.cameraGeneration) return;
     if (document.hidden) {
@@ -1996,15 +2021,28 @@ function startCameraLoop() {
     const timeout = window.setTimeout(() => controller.abort(), 1500);
     let frameUrl = null;
     try {
+      const url = `/api/camera/media/packet?mode=${encodeURIComponent(state.selectedCameraTopic)}&after=${lastSequence}`;
       const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
       if (!response.ok) throw new Error(`Camera HTTP ${response.status}`);
-      frameUrl = URL.createObjectURL(await response.blob());
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength < 4) throw new Error('Incomplete camera packet');
+      const metadataSize = new DataView(bytes).getUint32(0);
+      if (metadataSize > bytes.byteLength - 4) throw new Error('Invalid camera packet');
+      const metadata = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 4, metadataSize)));
+      if (Number(metadata.sequence) === lastSequence) return;
+      lastSequence = Number(metadata.sequence);
+      frameUrl = URL.createObjectURL(new Blob([bytes.slice(4 + metadataSize)], { type: 'image/jpeg' }));
       const decoded = new Image();
       decoded.src = frameUrl;
       await decoded.decode();
       if (generation !== state.cameraGeneration || controller.signal.aborted) return;
       const previous = state.cameraUrl;
-      $('#camera-frame').src = frameUrl;
+      const canvas = $('#camera-frame');
+      canvas.width = decoded.naturalWidth;
+      canvas.height = decoded.naturalHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(decoded, 0, 0);
+      drawCameraDetections(context, metadata.result);
       state.cameraUrl = frameUrl;
       frameUrl = null;
       if (previous) URL.revokeObjectURL(previous);
@@ -2017,11 +2055,32 @@ function startCameraLoop() {
       if (generation === state.cameraGeneration) {
         state.cameraRequest = null;
         // Request only after decoding the preceding frame: never queue video.
-        state.cameraTimer = window.setTimeout(nextFrame, 33);
+        state.cameraTimer = window.setTimeout(nextFrame, 10);
       }
     }
   };
   state.cameraTimer = window.setTimeout(nextFrame, 0);
+}
+
+function drawCameraDetections(context, result) {
+  const settings = state.cameraVisionSettings?.parameters || {};
+  context.lineWidth = Math.max(2, context.canvas.width / 450);
+  context.font = `${Math.max(16, context.canvas.width / 55)}px sans-serif`;
+  for (const detection of safeArray(result?.detections)) {
+    const box = detection.bbox;
+    if (!box) continue;
+    const candidate = detection.kind === 'qr' && !detection.decoded;
+    context.strokeStyle = context.fillStyle = candidate ? '#e9ae31' : '#00bbef';
+    context.setLineDash(candidate ? [8, 6] : []);
+    context.strokeRect(box.x, box.y, box.width, box.height);
+    if (settings.annotate_labels !== false) {
+      const label = candidate ? 'QR? (не расшифрован)' : String(detection.data || detection.label || detection.kind || '');
+      const score = settings.annotate_confidence !== false && detection.confidence != null
+        ? ` ${Math.round(detection.confidence * 100)}%` : '';
+      context.fillText(label.slice(0, 120) + score, box.x, Math.max(22, box.y - 7));
+    }
+  }
+  context.setLineDash([]);
 }
 
 function stopCameraLoop() {
@@ -2032,7 +2091,8 @@ function stopCameraLoop() {
     window.clearTimeout(state.cameraTimer);
     state.cameraTimer = null;
   }
-  $('#camera-frame').src = '';
+  const canvas = $('#camera-frame');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   if (state.cameraUrl) URL.revokeObjectURL(state.cameraUrl);
   state.cameraUrl = null;
 }
@@ -4235,15 +4295,10 @@ function bindCameraPage() {
   $('#camera-vision-refresh').addEventListener('click', refreshCameraVisionSettings);
   $('#camera-vision-apply').addEventListener('click', applyCameraVisionSettings);
   $('#camera-vision-open-processed').addEventListener('click', openProcessedCameraStream);
+  $('#camera-preset-native').addEventListener('click', () => applyCameraPreset(1280, 1024, 30));
   $('#camera-preset-720p').addEventListener('click', () => applyCameraPreset(1280, 720, 30));
   $('#camera-preset-1080p').addEventListener('click', () => applyCameraPreset(1920, 1080, 30));
   $('#camera-preset-vga').addEventListener('click', () => applyCameraPreset(640, 480, 30));
-  $('#camera-frame').addEventListener('load', () => {
-    $('#camera-empty').classList.add('hidden');
-  });
-  $('#camera-frame').addEventListener('error', () => {
-    $('#camera-empty').classList.remove('hidden');
-  });
 }
 
 function bindAudioPage() {
@@ -4795,6 +4850,7 @@ function refreshPeriodicData() {
   }
   if (state.page === 'camera') {
     refreshCameraVisionDetections();
+    refreshCameraVisionQrDetections();
   }
   if (state.page === 'lights' && state.selectedLedStripTopic && state.selectedLedStripType && !state.ledStripTimer) {
     connectLedStrip();

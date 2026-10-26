@@ -1,36 +1,63 @@
 # rover_camera
 
-USB/V4L2-камера на OpenCV. Публикует raw/JPEG и отдаёт кадр через ROS-сервис.
+Единый процесс USB/V4L2-камеры и распознавания. Видео идёт напрямую по HTTP,
+а ROS используется для параметров, результатов детекции и совместимого сервиса снимка.
 
 ## Запуск и параметры
 
 ```bash
 ros2 launch rover_camera camera.launch.py
-ros2 launch rover_camera camera.launch.py fps:=15.0 rotate:=180
+ros2 launch rover_camera camera.launch.py fps:=30.0 rotate:=0
 ```
 
 Рабочий файл [config/camera.yaml](config/camera.yaml): `/dev/video0`,
-1280x720, 30 FPS, MJPEG, JPEG quality 85, поворот 180 градусов.
+1280x1024, 30 FPS, MJPEG, JPEG quality 95, без программного поворота.
 Это запрошенные настройки, не гарантия поддержки камерой.
+При V4L2/MJPEG и rotate=0 HTTP передаёт исходный JPEG камеры без декодирования
+и повторного сжатия. jpeg_quality влияет только на резервное программное
+кодирование (например, при повороте или камере без MJPEG).
 Проверяйте доступ пользователя к /dev/video*, OpenCV и V4L2. Утилита
 `v4l2-ctl` из v4l-utils нужна для дополнительных сведений/настройки камеры в вебе.
 
 ## Интерфейсы
 
-- `/image_raw`: sensor_msgs/Image.
-- `/image_raw/compressed`: sensor_msgs/CompressedImage.
+- HTTP `http://<IP_РОВЕРА>:8091/frame?mode=live`: последний JPEG.
+- HTTP `/stream?mode=live`: MJPEG без очереди приложения.
+- HTTP `/packet?mode=processed`: согласованная пара исходного кадра и детекций.
+- HTTP `/status?mode=live`: номер, размеры, возраст и готовность кадра.
+- ROS `/detections`, `/qr_detections`: JSON результатов, форматы сохранены.
 - `/get_frame`: rover_interfaces/srv/GetFrame.
 - Frame ID: `camera_optical_frame`.
 
-Захват и JPEG-кодирование разделены; используется latest-frame и
-best-effort depth 1, чтобы медленный клиент не накапливал очередь.
-Веб запрашивает свежие кадры с ограничением числа запросов, пропуская старые.
-Это уменьшает задержку, но не гарантирует нулевой latency.
+В процессе остаются две ROS-ноды для совместимости parameter services:
+`/usb_camera_node` и `/camera_detector_node`. Между ними нет ROS image-сообщений:
+детектор декодирует только последний выбранный JPEG. Захват работает независимо
+от обработки и браузеров. `use_vision:=false` отключает встроенный детектор.
+`vision.yaml` загружается из rover_vision, в bringup передаются его overrides.
+
+Веб проксирует HTTP через `/api/camera/media/packet?mode=live|processed` и
+рисует рамки на canvas. Запрос следующего кадра начинается после декодирования
+предыдущего. Непрочитанный QR-кандидат обозначается пунктиром, а не успешным чтением.
+Кадры старше 2 секунд не выдаются. Обработка и просмотр могут иметь разный FPS.
+Формат packet: uint32 big-endian длины JSON, JSON UTF-8, затем оригинальный JPEG.
+HTTP-порт по умолчанию слушает все сетевые интерфейсы ровера (`media_host: 0.0.0.0`),
+поэтому в той же локальной сети прямой поток доступен по
+`http://<IP_РОВЕРА>:8091/stream?mode=live`. Для одного JPEG используйте `/frame`,
+а для кадра вместе с метаданными и детекциями -- `/packet`. Порт настраивается
+через `media_port`, соответствующий URL веба через `camera_media_url`.
+
+Этот HTTP-поток не требует аутентификации. Не пробрасывайте порт `8091` в интернет
+и при необходимости ограничьте доступ к нему правилами локальной сети.
+
+`direct_video: true` отключает создание image-паблишеров даже при старых
+publish_raw/publish_compressed. Устаревший режим ROS transport можно включить
+явно: direct_video:=false publish_raw:=true publish_compressed:=true.
 
 Не запускайте вторую ноду поверх уже работающей камеры. При изменении
 настроек через веб ROS-параметры не становятся автоматически постоянными:
 правьте camera.yaml для следующего старта и применяйте по
 [правилам обновления](../../../docs/operations.md).
 
-Распознавание выполняет отдельный [rover_vision](../../system/rover_vision/README.md),
-сама камера не запускает YOLO.
+Код распознавания остаётся в [rover_vision](../../system/rover_vision/README.md).
+Веса YOLO не загружаются, пока обработка/модель не включены. Не запускайте
+старый vision.launch.py одновременно: он предназначен для legacy ROS image-входа.

@@ -1,3 +1,4 @@
 # Install into the Python environment that executes rover_vision on the rover.
 # The .pt checkpoint is loaded through the Ultralytics Python API.
 ultralytics>=8.3,<9
+zxing-cpp>=2.2,<4

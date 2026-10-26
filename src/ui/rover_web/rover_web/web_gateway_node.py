@@ -24,6 +24,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.request import urlopen
 
 from ament_index_python.packages import get_package_share_directory
 from rover_configuration import config_path, node_parameters
@@ -144,9 +145,13 @@ CAMERA_PARAMETER_NAMES = [
     'jpeg_quality',
     'reconnect_interval_sec',
     'rotate',
+    'direct_video',
+    'media_host',
+    'media_port',
+    'use_vision',
 ]
 VISION_PARAMETER_NAMES = [
-    'detect_aruco', 'detect_qr', 'aruco_dictionary',
+    'detect_objects', 'detect_aruco', 'detect_qr', 'aruco_dictionary',
     'enabled',
     'model_name',
     'models_directory',
@@ -158,6 +163,7 @@ VISION_PARAMETER_NAMES = [
     'publish_compressed',
     'publish_detections',
     'detections_topic',
+    'qr_detections_topic',
     'confidence_threshold',
     'nms_threshold',
     'max_processing_fps',
@@ -167,7 +173,7 @@ VISION_PARAMETER_NAMES = [
     'jpeg_quality',
 ]
 VISION_RUNTIME_PARAMETER_NAMES = {
-    'detect_aruco', 'detect_qr', 'aruco_dictionary',
+    'detect_objects', 'detect_aruco', 'detect_qr', 'aruco_dictionary',
     'enabled',
     'model_name',
     'models_directory',
@@ -179,6 +185,7 @@ VISION_RUNTIME_PARAMETER_NAMES = {
     'publish_compressed',
     'publish_detections',
     'detections_topic',
+    'qr_detections_topic',
     'confidence_threshold',
     'nms_threshold',
     'max_processing_fps',
@@ -549,6 +556,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         self.declare_parameter('wheel_odometry_node_name', '/wheel_odometry_node')
         self.declare_parameter('drive_type_file', DEFAULT_DRIVE_TYPE_FILE)
         self.declare_parameter('camera_node_name', '/usb_camera_node')
+        self.declare_parameter('camera_media_url', 'http://127.0.0.1:8091')
         self.declare_parameter('vision_node_name', '/camera_detector_node')
         self.declare_parameter('lidar_node_name', '/sllidar_node')
         self.declare_parameter('led_strip_node_name', '/led_strip_node')
@@ -2537,10 +2545,10 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
             'aruco_dictionaries': list(ARUCO_DICTIONARIES),
             'runtime_parameters': sorted(VISION_RUNTIME_PARAMETER_NAMES),
             'notes': {
-                'input_topic': 'Для обработки должен поступать raw image topic.',
+                'input_topic': 'Последний кадр передаётся детектору напрямую в процессе камеры.',
                 'processed_topics': (
-                    'Новые image topics появятся в ROS graph, когда обработка включена '
-                    'и модель успешно загружена.'
+                    'Видео доступно по HTTP без image-топиков. В ROS передаются только '
+                    'структурированные detections и qr_detections.'
                 ),
                 'models_directory': (
                     'В директории models ожидаются manifest-файлы YAML и соответствующие веса.'
@@ -2566,6 +2574,37 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                     payload = candidate
                 else:
                     parse_error = 'Detection payload is not a JSON object'
+            except (TypeError, ValueError, AttributeError) as exc:
+                parse_error = f'{type(exc).__name__}: {exc}'
+        return {
+            'ok': True,
+            'topic': topic,
+            'message_count': message_count,
+            'age_sec': age_sec,
+            'last_error': last_error or parse_error,
+            'result': payload,
+        }
+
+    def vision_qr_detections(self) -> dict[str, Any]:
+        parameters = self._vision_parameter_values()
+        topic = normalize_topic_name(
+            str(parameters.get('qr_detections_topic') or '/qr_detections')
+        )
+        watch = self._ensure_topic_watch(topic, 'std_msgs/msg/String')
+        with self._lock:
+            raw_message = watch.raw_message
+            message_count = watch.message_count
+            age_sec = age_seconds(watch.last_updated_monotonic)
+            last_error = watch.last_error
+        payload = None
+        parse_error = None
+        if raw_message is not None:
+            try:
+                candidate = json.loads(str(raw_message.data))
+                if isinstance(candidate, dict):
+                    payload = candidate
+                else:
+                    parse_error = 'QR detection payload is not a JSON object'
             except (TypeError, ValueError, AttributeError) as exc:
                 parse_error = f'{type(exc).__name__}: {exc}'
         return {
@@ -2760,8 +2799,18 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                 updates.append(Parameter(name, value=int(value)))
             elif name in {'fps', 'reconnect_interval_sec'}:
                 updates.append(Parameter(name, value=float(value)))
-            elif name in {'use_mjpeg', 'publish_raw', 'publish_compressed'}:
+            elif name in {
+                'use_mjpeg',
+                'publish_raw',
+                'publish_compressed',
+                'direct_video',
+                'use_vision',
+            }:
                 updates.append(Parameter(name, value=bool(value)))
+            elif name == 'media_host':
+                updates.append(Parameter(name, value=str(value)))
+            elif name == 'media_port':
+                updates.append(Parameter(name, value=int(value)))
 
         if not updates:
             raise ValueError('No supported camera settings were provided')
@@ -2810,7 +2859,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                 continue
             value = payload[name]
             if name in {
-                'detect_aruco', 'detect_qr',
+                'detect_objects', 'detect_aruco', 'detect_qr',
                 'enabled',
                 'publish_raw',
                 'publish_compressed',
@@ -4304,6 +4353,9 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                     if path == '/api/vision/detections':
                         self._send_json(gateway.vision_detections(), HTTPStatus.OK)
                         return
+                    if path == '/api/vision/qr_detections':
+                        self._send_json(gateway.vision_qr_detections(), HTTPStatus.OK)
+                        return
                     if path == '/api/lidar/settings':
                         self._send_json(gateway.lidar_settings(), HTTPStatus.OK)
                         return
@@ -4315,6 +4367,36 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                         return
                     if path == '/api/camera/settings':
                         self._send_json(gateway.camera_settings(), HTTPStatus.OK)
+                        return
+                    if path.startswith('/api/camera/media/'):
+                        resource = path.rsplit('/', 1)[-1]
+                        mode = self._optional_query(query, 'mode') or 'processed'
+                        after = self._optional_query(query, 'after')
+                        if resource not in ('packet', 'frame', 'status'):
+                            raise ValueError('Invalid camera media resource')
+                        if mode not in ('live', 'processed'):
+                            raise ValueError('Invalid camera media mode')
+                        base = str(
+                            gateway.get_parameter('camera_media_url').value
+                        ).rstrip('/')
+                        suffix = f'?mode={quote(mode)}'
+                        if after is not None:
+                            try:
+                                after_sequence = int(after)
+                            except ValueError as exc:
+                                raise ValueError('Invalid frame sequence') from exc
+                            suffix += f'&after={after_sequence}'
+                        with urlopen(
+                            f'{base}/{resource}{suffix}', timeout=2.0
+                        ) as response:
+                            data = response.read(16 * 1024 * 1024 + 1)
+                            if len(data) > 16 * 1024 * 1024:
+                                raise ValueError('Camera frame is too large')
+                            self._send_bytes(
+                                data,
+                                response.headers.get_content_type(),
+                                HTTPStatus.OK,
+                            )
                         return
                     if path == '/api/camera/status':
                         topic = self._required_query(query, 'topic')

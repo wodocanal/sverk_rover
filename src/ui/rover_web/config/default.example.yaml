@@ -8,6 +8,7 @@ web_gateway_node:
     wheel_odometry_node_name: /wheel_odometry_node
     drive_type_file: ~/.config/sverk-rover/drive_type
     camera_node_name: /usb_camera_node
+    camera_media_url: http://127.0.0.1:8091
     vision_node_name: /camera_detector_node
     agent_input_topic: /agent/text_command
     agent_answer_topic: /agent/answer

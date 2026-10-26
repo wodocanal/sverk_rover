@@ -44,3 +44,25 @@ def test_vision_detections_reports_invalid_message():
     payload = RoverWebGateway.vision_detections(node)
     assert payload['result'] is None
     assert 'JSON' in payload['last_error']
+
+
+def test_vision_qr_detections_reads_dedicated_qr_topic():
+    message = String()
+    message.data = json.dumps({
+        'count': 1,
+        'codes': [{'data': 'rover://zone/kitchen', 'bbox': {'x': 1}}],
+    })
+    watch = SimpleNamespace(
+        raw_message=message,
+        message_count=2,
+        last_updated_monotonic=time.monotonic(),
+        last_error=None,
+    )
+    node = SimpleNamespace(
+        _lock=threading.RLock(),
+        _vision_parameter_values=lambda: {'qr_detections_topic': '/qr_detections'},
+        _ensure_topic_watch=lambda topic, type_name: watch,
+    )
+    payload = RoverWebGateway.vision_qr_detections(node)
+    assert payload['topic'] == '/qr_detections'
+    assert payload['result']['codes'][0]['data'] == 'rover://zone/kitchen'

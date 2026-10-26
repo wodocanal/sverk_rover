@@ -2,6 +2,11 @@
 import cv2
 import numpy as np
 
+try:
+    import zxingcpp
+except ImportError:  # Keep the camera node usable until the optional decoder is installed.
+    zxingcpp = None
+
 ARUCO_DICTIONARIES = tuple(f'DICT_{bits}X{bits}_{count}' for bits in (4, 5, 6, 7)
                            for count in (50, 100, 250, 1000)) + ('DICT_ARUCO_ORIGINAL',)
 
@@ -47,6 +52,23 @@ class MarkerDetector:
                 results.extend(self._result('aruco', points, marker_id=marker_id,
                     dictionary=self.dictionary_name) for points, marker_id in zip(corners, ids.flatten()))
         if self.qr_detector is not None:
+            decoded = zxingcpp.read_barcodes(
+                gray,
+                formats=zxingcpp.BarcodeFormat.QRCode,
+                try_rotate=True,
+                try_downscale=True,
+            ) if zxingcpp is not None else []
+            if decoded:
+                for code in decoded:
+                    position = code.position
+                    corners = [
+                        [position.top_left.x, position.top_left.y],
+                        [position.top_right.x, position.top_right.y],
+                        [position.bottom_right.x, position.bottom_right.y],
+                        [position.bottom_left.x, position.bottom_left.y],
+                    ]
+                    results.append(self._result('qr', corners, data=code.text))
+                return results
             try:
                 _, texts, points, _ = self.qr_detector.detectAndDecodeMulti(gray)
             except UnicodeError:

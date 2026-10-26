@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
@@ -213,6 +215,19 @@ def launch_setup(context):
             camera_params.get('frame_id', 'camera_optical_frame'),
         )
         camera_params['use_sim_time'] = use_sim_time
+        camera_params['direct_video'] = True
+        camera_params['use_vision'] = use_vision
+        vision_params['frame_id'] = camera_params['frame_id']
+        vision_params['detections_topic'] = topics.get(
+            'detections',
+            vision_params.get('detections_topic', '/detections'),
+        )
+        vision_params['qr_detections_topic'] = topics.get(
+            'qr_detections',
+            vision_params.get('qr_detections_topic', '/qr_detections'),
+        )
+        vision_params['use_sim_time'] = use_sim_time
+        camera_params['vision_parameters_json'] = json.dumps(vision_params)
         actions.append(Node(
             package='rover_camera',
             executable='usb_camera_node',
@@ -225,43 +240,6 @@ def launch_setup(context):
                 'PYTHONNOUSERSITE': '1',
             },
             parameters=[camera_params],
-        ))
-
-    if use_camera and use_vision:
-        vision_params['input_topic'] = topics.get(
-            'image_raw',
-            vision_params.get('input_topic', camera_params['image_topic']),
-        )
-        vision_params['frame_id'] = frames.get(
-            'camera',
-            vision_params.get('frame_id', camera_params['frame_id']),
-        )
-        vision_params['processed_image_topic'] = topics.get(
-            'image_processed',
-            vision_params.get('processed_image_topic', '/image_processed'),
-        )
-        vision_params['processed_compressed_image_topic'] = topics.get(
-            'image_processed_compressed',
-            vision_params.get(
-                'processed_compressed_image_topic',
-                '/image_processed/compressed',
-            ),
-        )
-        vision_params['detections_topic'] = topics.get(
-            'detections',
-            vision_params.get('detections_topic', '/detections'),
-        )
-        vision_params['use_sim_time'] = use_sim_time
-        actions.append(Node(
-            package='rover_vision',
-            executable='camera_detector_node',
-            name='camera_detector_node',
-            output='screen',
-            additional_env={
-                # Keep cv2 on the same NumPy ABI as the system package.
-                'PYTHONNOUSERSITE': '1',
-            },
-            parameters=[vision_params],
         ))
 
     if use_led_strip:

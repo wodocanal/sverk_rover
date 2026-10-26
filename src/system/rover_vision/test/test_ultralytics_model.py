@@ -50,7 +50,7 @@ def test_ultralytics_results_become_annotated_detections():
             return [SimpleNamespace(boxes=boxes, names=self.names)]
 
     node = SimpleNamespace(
-        _detector=Detector(), confidence_threshold=0.25, nms_threshold=0.45,
+        _detector=Detector(), _frame_source=None, confidence_threshold=0.25, nms_threshold=0.45,
         annotate_labels=True, annotate_confidence=True, line_thickness=2,
         _model_manifest=SimpleNamespace(input_height=320, input_width=320),
     )
