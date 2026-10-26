@@ -45,7 +45,7 @@ class UsbCameraNode(Node):
         self.declare_parameter('jpeg_quality', 95)
         self.declare_parameter('reconnect_interval_sec', 2.0)
         self.declare_parameter('get_frame_service', 'get_frame')
-        self.declare_parameter('rotate', 0)
+        self.declare_parameter('rotate', 180)
         self.declare_parameter('direct_video', True)
         # The camera stream is intended for operator devices on the rover LAN.
         self.declare_parameter('media_host', '0.0.0.0')

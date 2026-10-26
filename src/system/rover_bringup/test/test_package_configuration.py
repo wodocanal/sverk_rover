@@ -124,6 +124,7 @@ class PackageLaunchTests(unittest.TestCase):
         import yaml
 
         params = node_parameters(config_path('rover_camera', 'camera.yaml'), 'usb_camera_node')
+        self.assertEqual(params['rotate'], 180)
         params['fps'] = 12.0
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml') as stream:
             yaml.safe_dump({'usb_camera_node': {'ros__parameters': params}}, stream)

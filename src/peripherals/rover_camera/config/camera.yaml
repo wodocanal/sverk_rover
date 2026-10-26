@@ -18,4 +18,4 @@ usb_camera_node:
     jpeg_quality: 95
     reconnect_interval_sec: 2.0
     get_frame_service: get_frame
-    rotate: 0
+    rotate: 180

@@ -7,11 +7,11 @@
 
 ```bash
 ros2 launch rover_camera camera.launch.py
-ros2 launch rover_camera camera.launch.py fps:=30.0 rotate:=0
+ros2 launch rover_camera camera.launch.py fps:=30.0 rotate:=180
 ```
 
 Рабочий файл [config/camera.yaml](config/camera.yaml): `/dev/video0`,
-1280x1024, 30 FPS, MJPEG, JPEG quality 95, без программного поворота.
+1280x1024, 30 FPS, MJPEG, JPEG quality 95, с программным поворотом на 180°.
 Это запрошенные настройки, не гарантия поддержки камерой.
 При V4L2/MJPEG и rotate=0 HTTP передаёт исходный JPEG камеры без декодирования
 и повторного сжатия. jpeg_quality влияет только на резервное программное
