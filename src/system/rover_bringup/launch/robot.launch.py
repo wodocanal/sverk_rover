@@ -37,6 +37,7 @@ from rover_bringup.configuration import (
 )
 from rover_device_manager.discovery import DEFAULT_DEVICE_CONFIG, prepare_devices
 from rover_configuration import config_path
+from rover_agent_mcp.runtime_settings import apply_agent_runtime_settings
 
 
 def add_if_set(arguments: dict[str, str], key: str, value) -> None:
@@ -584,6 +585,9 @@ def launch_setup(context):
         set_if_blank(text_agent_params, 'text_command_topic', agent_command_topic)
         set_if_blank(text_agent_params, 'status_topic', agent_status_topic)
         set_if_blank(text_agent_params, 'answer_topic', agent_answer_topic)
+        text_agent_params, agent_environment = apply_agent_runtime_settings(
+            text_agent_params
+        )
 
         if use_agent:
             actions.append(Node(
@@ -599,6 +603,7 @@ def launch_setup(context):
                 name='rover_agent_text_node',
                 output='screen',
                 parameters=[text_agent_params],
+                additional_env=agent_environment,
             ))
 
         if use_fleet_bridge:
