@@ -150,8 +150,13 @@ class AgentSettingsMixin:
                     raise RuntimeError('AI provider response is too large')
                 return json.loads(raw.decode('utf-8'))
         except HTTPError as exc:
-            detail = exc.read(2048).decode('utf-8', errors='replace')
-            raise RuntimeError(f'AI provider returned HTTP {exc.code}: {detail}') from exc
+            # Provider diagnostics may echo a token fragment or token hash.
+            exc.read(2048)
+            if exc.code in (401, 403):
+                raise RuntimeError(
+                    f'AI provider authentication failed (HTTP {exc.code}). Check the API key.'
+                ) from exc
+            raise RuntimeError(f'AI provider returned HTTP {exc.code}') from exc
         except URLError as exc:
             raise RuntimeError(f'Cannot connect to AI provider: {exc.reason}') from exc
         except (TimeoutError, json.JSONDecodeError) as exc:

@@ -2,6 +2,7 @@ import json
 from unittest.mock import Mock
 
 import pytest
+from urllib.error import HTTPError
 
 from rover_web.agent_settings import AgentSettingsMixin, load_settings, save_settings, validate_settings
 
@@ -32,3 +33,15 @@ def test_models_are_sorted(tmp_path):
         'base_url':'http://provider/v1','model':'a','api_key':'key',
     }})
     assert models == {'ok':True, 'models':['a','z'], 'count':2}
+
+
+def test_provider_auth_error_does_not_echo_response(monkeypatch):
+    error = HTTPError('http://provider/v1/models', 401, 'Unauthorized', {}, None)
+    error.read = Mock(return_value=b'API Key = sk-secret; token hash=secret-hash')
+    monkeypatch.setattr('rover_web.agent_settings.urlopen', Mock(side_effect=error))
+    with pytest.raises(RuntimeError) as caught:
+        AgentSettingsMixin._provider_json(
+            {'base_url':'http://provider/v1','api_key':'sk-secret'}, 'models'
+        )
+    assert 'sk-secret' not in str(caught.value)
+    assert 'secret-hash' not in str(caught.value)
