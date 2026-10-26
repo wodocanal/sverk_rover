@@ -1061,6 +1061,28 @@ angular.z: 0.00</pre>
             <p class="status-note">Пароль не отображается обратно и хранится на ровере в файле с правами 600. Используйте веб-интерфейс только в доверенной сети: HTTP и обычный MQTT не шифруют данные.</p>
             <p class="maintenance-error" id="server-settings-error" role="alert"></p>
           </article>
+          <article class="panel" id="agent-settings-panel">
+            <div class="panel-heading-row"><h2>ИИ-агент</h2><button class="secondary" id="agent-settings-refresh">Перечитать</button></div>
+            <p class="status-note">OpenAI-совместимый API. Сохранённые значения применяются после перезапуска rover-bringup.</p>
+            <form id="agent-settings-form">
+              <fieldset id="agent-settings-fields" disabled>
+                <label>URL провайдера<input id="agent-provider-url" type="url" placeholder="https://provider.example/v1" required autocomplete="off"></label>
+                <label>API-ключ<input id="agent-provider-key" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></label>
+                <label class="check-label"><input id="agent-provider-clear-key" type="checkbox"> Удалить сохранённый API-ключ</label>
+                <label>Модель<input id="agent-provider-model" type="text" list="agent-provider-models" required autocomplete="off"></label>
+                <datalist id="agent-provider-models"></datalist>
+                <div class="button-row agent-provider-actions">
+                  <button class="secondary" type="button" id="agent-provider-load-models">Получить модели</button>
+                  <button class="secondary" type="button" id="agent-provider-check">Проверить подключение</button>
+                  <button type="submit" id="agent-settings-save">Сохранить</button>
+                </div>
+              </fieldset>
+            </form>
+            <p class="status-note" id="agent-provider-key-status"></p>
+            <p class="status-note" id="agent-settings-status" role="status">Загрузка настроек…</p>
+            <p class="status-note maintenance-path" id="agent-settings-file"></p>
+            <p class="maintenance-error" id="agent-settings-error" role="alert"></p>
+          </article>
           <article class="panel camera-settings-panel">
             <div class="panel-heading-row">
               <div>
@@ -1194,5 +1216,6 @@ angular.z: 0.00</pre>
   <script src="/assets/agent-chat.js"></script>
   <script src="/assets/navigation-settings.js"></script>
   <script src="/assets/server-settings.js"></script>
+  <script src="/assets/agent-settings.js"></script>
 </body>
 </html>

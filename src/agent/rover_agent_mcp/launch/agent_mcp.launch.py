@@ -1,3 +1,7 @@
+import json
+import os
+from pathlib import Path
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
@@ -40,11 +44,28 @@ def launch_setup(context):
         'timeout_s': ('LLM_TIMEOUT_SEC', float),
         'max_tool_rounds': ('LLM_MAX_TOOL_ROUNDS', int),
     })
+    settings_path = Path(os.getenv(
+        'AGENT_SETTINGS_FILE', '~/.config/sverk-rover/agent_connection.json'
+    )).expanduser()
+    runtime_settings = {}
+    try:
+        runtime_settings = json.loads(settings_path.read_text(encoding='utf-8'))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    if isinstance(runtime_settings, dict):
+        if str(runtime_settings.get('base_url') or '').strip():
+            agent['llm_base_url'] = str(runtime_settings['base_url']).strip().rstrip('/')
+        if str(runtime_settings.get('model') or '').strip():
+            agent['llm_model'] = str(runtime_settings['model']).strip()
+    agent_environment = {}
+    if isinstance(runtime_settings, dict) and str(runtime_settings.get('api_key') or '').strip():
+        agent_environment['OPENAI_API_KEY'] = str(runtime_settings['api_key']).strip()
     return [
         Node(package='rover_agent_mcp', executable='rover_mcp_server',
              name='rover_mcp_server', output='screen', parameters=[mcp]),
         Node(package='rover_agent_mcp', executable='agent_text_node',
-             name='rover_agent_text_node', output='screen', parameters=[agent]),
+             name='rover_agent_text_node', output='screen', parameters=[agent],
+             additional_env=agent_environment),
     ]
 
 

@@ -30,6 +30,7 @@ from ament_index_python.packages import get_package_share_directory
 from rover_configuration import config_path, node_parameters
 from .maintenance import MaintenanceMixin
 from .agent_chat import AgentChatMixin
+from .agent_settings import AgentSettingsMixin
 from .navigation_settings import NavigationSettingsMixin
 from .named_places import NamedPlacesMixin
 from .server_settings import ServerSettingsMixin
@@ -500,7 +501,7 @@ class ServiceHandle:
     client: Any
 
 
-class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin, Node):
+class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, AgentSettingsMixin, NavigationSettingsMixin, AgentChatMixin, MaintenanceMixin, Node):
     def __init__(self) -> None:
         super().__init__('web_gateway_node')
 
@@ -775,6 +776,7 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
         self._navigation_control_lock = threading.RLock()
         self.init_maintenance()
         self.init_agent_chat()
+        self.init_agent_settings()
         self.init_server_settings()
         self.init_navigation_settings()
         self._topic_watches: dict[tuple[str, str], TopicWatch] = {}
@@ -4249,6 +4251,9 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                     if path == '/api/agent':
                         self._send_json(gateway.agent_chat_state(), HTTPStatus.OK)
                         return
+                    if path == '/api/agent/settings':
+                        self._send_json(gateway.agent_settings_payload(), HTTPStatus.OK)
+                        return
                     if path == '/api/server/settings':
                         self._send_json(gateway.server_settings_payload(), HTTPStatus.OK)
                         return
@@ -4480,6 +4485,15 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, NavigationSettingsM
                         return
                     if parsed.path == '/api/agent/send':
                         self._send_json(gateway.agent_chat_send(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/agent/settings':
+                        self._send_json(gateway.update_agent_settings(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/agent/models':
+                        self._send_json(gateway.agent_provider_models(payload), HTTPStatus.OK)
+                        return
+                    if parsed.path == '/api/agent/check':
+                        self._send_json(gateway.agent_provider_check(payload), HTTPStatus.OK)
                         return
                     if parsed.path == '/api/server/settings':
                         self._send_json(gateway.update_server_settings(payload), HTTPStatus.OK)

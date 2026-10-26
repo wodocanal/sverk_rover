@@ -74,6 +74,11 @@ Standalone launch объявляет **только `config_file`**. Произ�
 
 Для base URL/model есть алиасы OPENROUTER_* и SVERK_*; OPENAI_* имеют
 приоритет. Ключ храните в переменной, которую реально читает llm_api_key_env.
+
+Веб-интерфейс также сохраняет URL, модель и API-ключ в
+`~/.config/sverk-rover/agent_connection.json` с правами `0600`. Эти значения
+имеют приоритет над YAML и переменными окружения после перезапуска
+`rover-bringup`. Сохранённый ключ никогда не возвращается через HTTP API.
 Не путайте имя переменной с URL или самим ключом.
 
 Для systemd окружение задаётся в /etc/default/rover-bringup, не в .bashrc.
