@@ -2,6 +2,7 @@
 set -eo pipefail
 
 ROVER_WS="${ROVER_WS:-/home/pi/sverk_rover}"
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}"
 
 cd "${ROVER_WS}"
 source /opt/ros/jazzy/setup.bash

@@ -47,14 +47,20 @@ Systemd-остановка bringup сама по себе не является 
 
 В `/etc/default/rover-bringup` задаются `ROVER_PROFILE`,
 `ROVER_DISCOVERY_MODE`, `ROVER_LAUNCH_ARGS`, `ROS_DOMAIN_ID`,
-`RMW_IMPLEMENTATION` и окружение агента/моста. Пример для ровера без экрана:
+`ROS_AUTOMATIC_DISCOVERY_RANGE`, `RMW_IMPLEMENTATION` и окружение агента/моста. Пример для
+ровера без экрана:
 
 ```ini
 ROVER_PROFILE=full
 ROVER_DISCOVERY_MODE=configured
 ROS_DOMAIN_ID=0
+ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 ROVER_LAUNCH_ARGS="use_display:=false"
 ```
+
+`LOCALHOST` не выпускает DDS discovery в локальную сеть: роверы с одинаковым
+`ROS_DOMAIN_ID` не видят друг друга. Для прямой ROS-диагностики с ноутбука временно
+задайте `SUBNET` и перезапустите оба сервиса. Веб-интерфейс от `LOCALHOST` не страдает.
 
 В `/etc/default/rover-web`: `ROVER_WEB_PORT`, `ROVER_WEB_BIND_ADDRESS`,
 `ROVER_WEB_USE_ROSBOARD`, `ROVER_WEB_LAUNCH_ARGS`. Этот сервис сначала читает

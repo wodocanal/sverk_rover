@@ -106,11 +106,14 @@ MCP слушает `127.0.0.1:8766`. Не выставляйте интерфе�
 ROVER_PROFILE=full
 ROVER_DISCOVERY_MODE=configured
 ROS_DOMAIN_ID=0
+ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 ROVER_LAUNCH_ARGS="use_display:=false"
 ```
 
 Порт, bind-адрес и rosboard задаются в `/etc/default/rover-web`. Веб также читает
-окружение bringup, поэтому ROS domain обычно общий. После правки используйте
+окружение bringup, поэтому ROS domain и discovery range у них общие. `LOCALHOST`
+изолирует DDS-трафик каждого ровера и позволяет использовать одинаковый `ROS_DOMAIN_ID`
+в одной сети. После правки используйте
 `restart`: `start` работающего сервиса ничего не перечитывает. `.bashrc` не
 является источником окружения systemd.
 
