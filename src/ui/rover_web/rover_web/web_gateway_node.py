@@ -3379,27 +3379,27 @@ class RoverWebGateway(NamedPlacesMixin, ServerSettingsMixin, AgentSettingsMixin,
             ]
             summary.update({'forward': forward, 'left': left, 'speed': speed})
         elif kind == 'turn':
-            degrees = float(request.get('degrees', 0.0))
+            angle_rad = float(request.get('angle_rad', math.radians(float(request.get('degrees', 0.0)))))
             speed = float(request.get('speed', 0.25))
-            tolerance = float(request.get('tolerance_deg', 3.0))
-            if abs(degrees) > 720.0:
-                raise ValueError('Turn is limited to 720 degrees per command')
+            tolerance_rad = float(request.get('tolerance_rad', math.radians(float(request.get('tolerance_deg', 3.0)))))
+            if abs(angle_rad) > 4.0 * math.pi:
+                raise ValueError('Turn is limited to 4*pi radians per command')
             if not 0.10 <= speed <= 1.0:
                 raise ValueError('Angular speed must be between 0.10 and 1.0 rad/s')
-            if not 1.0 <= tolerance <= 15.0:
-                raise ValueError('Tolerance must be between 1 and 15 degrees')
+            if not math.radians(1.0) <= tolerance_rad <= math.radians(15.0):
+                raise ValueError('Tolerance must be between 0.017 and 0.262 radians')
             command += [
                 'turn',
-                str(degrees),
+                str(angle_rad),
                 '--speed',
                 str(speed),
-                '--tolerance-deg',
-                str(tolerance),
+                '--tolerance-rad',
+                str(tolerance_rad),
             ]
             summary.update({
-                'degrees': degrees,
+                'angle_rad': angle_rad,
                 'speed': speed,
-                'tolerance_deg': tolerance,
+                'tolerance_rad': tolerance_rad,
             })
         else:
             raise ValueError('Unknown motion kind')

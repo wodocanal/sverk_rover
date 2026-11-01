@@ -5,8 +5,16 @@
     'angular_acceleration', 'angular_deceleration', 'position_tolerance', 'yaw_tolerance'];
   const flags = new Set(['allow_reverse', 'allow_lateral']);
   let loaded = false, busy = false, dirty = false, snapshot = null;
-  const factor = key => key === 'yaw_tolerance' ? 180 / Math.PI
+  const factor = key => key === 'yaw_tolerance' && angleUnit() === 'deg' ? 180 / Math.PI
     : ['resolution', 'position_tolerance'].includes(key) ? 100 : 1;
+  function configureAngleInput() {
+    const input = $('#nav-setting-yaw_tolerance');
+    if (!input) return;
+    const degrees = angleUnit() === 'deg';
+    input.min = degrees ? '0.57' : '0.01';
+    input.max = degrees ? '180' : String(Math.PI);
+    input.step = degrees ? '0.1' : '0.01';
+  }
   function lock() {
     const runtime = state.status?.navigation;
     const locked = snapshot?.locked || runtime?.running || runtime?.external?.slam || runtime?.external?.navigation;
@@ -19,7 +27,7 @@
   }
   async function refresh(overwrite = false) {
     if (busy) return;
-    busy = true; lock();
+    busy = true; configureAngleInput(); lock();
     try {
       const data = await api('/api/navigation/settings', {signal: AbortSignal.timeout(8000)});
       snapshot = data;
@@ -64,6 +72,10 @@
   });
   $('#navigation-settings-refresh').addEventListener('click', () => {
     if (!dirty || confirm('Заменить несохранённые изменения сохранёнными настройками?')) refresh(true);
+  });
+  document.addEventListener('angle-unit-changed', () => {
+    configureAngleInput();
+    if (state.page === 'settings') refresh(true);
   });
   new MutationObserver(() => { if (state.page === 'settings') refresh(); })
     .observe($('#page-settings'), {attributes:true, attributeFilter:['class']});

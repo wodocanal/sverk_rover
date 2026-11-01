@@ -55,9 +55,9 @@ class MotionDefaults:
     position_tolerance: float = 0.07
     angular_speed: float = 0.32
     minimum_angular_speed: float = 0.10
-    angle_tolerance_deg: float = 3.0
+    angle_tolerance_rad: float = math.radians(3.0)
     turn_braking_decel_radps2: float = 0.60
-    turn_brake_margin_deg: float = 1.0
+    turn_brake_margin_rad: float = math.radians(1.0)
     turn_correction_speed: float = 0.14
     turn_settle_rate_radps: float = 0.03
     turn_settle_time: float = 0.40
@@ -146,7 +146,7 @@ class MotionController(Node):
             "Начальная точка: "
             f"x={self.origin.x:+.3f} м, "
             f"y={self.origin.y:+.3f} м, "
-            f"yaw={math.degrees(self.origin.yaw):+.2f}°"
+            f"yaw={self.origin.yaw:+.4f} рад"
         )
 
     def current_pose(self) -> Pose2D:
@@ -254,7 +254,7 @@ class MotionController(Node):
                 print(
                     f"\rТорможение перемещения: "
                     f"ошибка {distance:.3f} м, "
-                    f"курс {math.degrees(yaw_error):+.1f}°, "
+                    f"курс {yaw_error:+.4f} рад, "
                     f"v={linear_speed:.3f} м/с, "
                     f"ω={angular_rate:+.3f}",
                     end="",
@@ -322,7 +322,7 @@ class MotionController(Node):
         print(
             f"{label}: цель x={target.x:+.3f}, "
             f"y={target.y:+.3f}, "
-            f"yaw={math.degrees(target.yaw):+.2f}°"
+            f"yaw={target.yaw:+.4f} рад"
         )
 
         for correction_index in range(
@@ -472,7 +472,7 @@ class MotionController(Node):
                         f"\r{phase_name}: осталось "
                         f"{distance:.3f} м, "
                         f"курс "
-                        f"{math.degrees(yaw_error):+.1f}°, "
+                        f"{yaw_error:+.4f} рад, "
                         f"v={linear_speed_now:.3f}, "
                         f"стоп≈{stopping_distance:.3f} м, "
                         f"cmd x={command_x:+.2f}, "
@@ -494,7 +494,7 @@ class MotionController(Node):
                 f"\nПосле полной остановки: "
                 f"ошибка позиции {settled_distance:.3f} м, "
                 f"курс "
-                f"{math.degrees(settled_yaw_error):+.2f}°, "
+                f"{settled_yaw_error:+.4f} рад, "
                 f"v={settled_speed:.3f} м/с, "
                 f"ω={settled_rate:+.3f}"
             )
@@ -503,9 +503,7 @@ class MotionController(Node):
             if (
                 settled_distance <= tolerance
                 and abs(settled_yaw_error)
-                > math.radians(
-                    self.defaults.angle_tolerance_deg
-                )
+                > self.defaults.angle_tolerance_rad
             ):
                 remaining_time = max(
                     3.0,
@@ -513,7 +511,7 @@ class MotionController(Node):
                     - (time.monotonic() - total_start_time),
                 )
                 self.turn_relative(
-                    degrees=math.degrees(settled_yaw_error),
+                    angle_rad=settled_yaw_error,
                     angular_speed=min(
                         self.defaults.angular_speed,
                         self.defaults.turn_correction_speed,
@@ -522,9 +520,7 @@ class MotionController(Node):
                         self.defaults.minimum_angular_speed,
                         self.defaults.turn_correction_speed,
                     ),
-                    angle_tolerance_deg=(
-                        self.defaults.angle_tolerance_deg
-                    ),
+                    angle_tolerance_rad=self.defaults.angle_tolerance_rad,
                     maximum_time=remaining_time,
                 )
                 (
@@ -538,15 +534,13 @@ class MotionController(Node):
                     f"ошибка позиции "
                     f"{settled_distance:.3f} м, "
                     f"курс "
-                    f"{math.degrees(settled_yaw_error):+.2f}°"
+                    f"{settled_yaw_error:+.4f} рад"
                 )
 
             if (
                 settled_distance <= tolerance
                 and abs(settled_yaw_error)
-                <= math.radians(
-                    self.defaults.angle_tolerance_deg
-                )
+                <= self.defaults.angle_tolerance_rad
                 and settled_speed
                 <= self.defaults.move_settle_speed_mps
                 and abs(settled_rate)
@@ -557,7 +551,7 @@ class MotionController(Node):
                     f"  итоговая ошибка позиции: "
                     f"{settled_distance:.3f} м\n"
                     f"  итоговая ошибка курса: "
-                    f"{math.degrees(settled_yaw_error):+.2f}°\n"
+                    f"{settled_yaw_error:+.4f} рад\n"
                     f"  итоговая скорость: "
                     f"{settled_speed:.3f} м/с"
                 )
@@ -571,7 +565,7 @@ class MotionController(Node):
             f"{self.defaults.move_max_corrections} коррекций; "
             f"ошибка позиции {final_distance:.3f} м, "
             f"ошибка курса "
-            f"{math.degrees(final_yaw_error):+.2f}°"
+            f"{final_yaw_error:+.4f} рад"
         )
 
     def move_relative(
@@ -639,7 +633,7 @@ class MotionController(Node):
             if now - last_report >= 0.20:
                 print(
                     f"\rТорможение: ошибка "
-                    f"{math.degrees(error):+.2f}°, "
+                    f"{error:+.4f} рад, "
                     f"ω={angular_velocity:+.3f} рад/с",
                     end="",
                     flush=True,
@@ -655,11 +649,11 @@ class MotionController(Node):
 
     def turn_relative(
         self,
-        degrees: float,
+        angle_rad: float,
         *,
         angular_speed: float | None = None,
         minimum_angular_speed: float | None = None,
-        angle_tolerance_deg: float | None = None,
+        angle_tolerance_rad: float | None = None,
         maximum_time: float | None = None,
     ) -> None:
         requested_max_speed = (
@@ -672,10 +666,10 @@ class MotionController(Node):
             if minimum_angular_speed is None
             else abs(float(minimum_angular_speed))
         )
-        tolerance_deg = (
-            self.defaults.angle_tolerance_deg
-            if angle_tolerance_deg is None
-            else abs(float(angle_tolerance_deg))
+        tolerance_rad = (
+            self.defaults.angle_tolerance_rad
+            if angle_tolerance_rad is None
+            else abs(float(angle_tolerance_rad))
         )
         time_limit = (
             self.defaults.maximum_step_time
@@ -690,14 +684,13 @@ class MotionController(Node):
             )
 
         start = self.current_pose()
-        target_yaw = start.yaw + math.radians(degrees)
-        tolerance_rad = math.radians(tolerance_deg)
+        target_yaw = start.yaw + float(angle_rad)
         total_start_time = time.monotonic()
         period = 1.0 / self.defaults.command_rate_hz
 
         print(
-            f"Поворот на {degrees:+.2f}°: "
-            f"цель yaw={math.degrees(target_yaw):+.2f}°"
+            f"Поворот на {angle_rad:+.4f} рад: "
+            f"цель yaw={target_yaw:+.4f} рад"
         )
 
         for correction_index in range(
@@ -721,9 +714,9 @@ class MotionController(Node):
                     print(
                         "Поворот завершён после полной остановки:\n"
                         f"  итоговая ошибка: "
-                        f"{math.degrees(settled_error):+.2f}°\n"
+                        f"{settled_error:+.4f} рад\n"
                         f"  фактический угол по /odom: "
-                        f"{math.degrees(actual_turn):+.2f}°\n"
+                        f"{actual_turn:+.4f} рад\n"
                         f"  итоговая ω: "
                         f"{settled_rate:+.3f} рад/с"
                     )
@@ -748,7 +741,7 @@ class MotionController(Node):
                 )
                 print(
                     f"\n{phase_name}: остаточная ошибка "
-                    f"{math.degrees(initial_error):+.2f}°"
+                    f"{initial_error:+.4f} рад"
                 )
 
             best_error = abs(initial_error)
@@ -775,7 +768,7 @@ class MotionController(Node):
                 braking_threshold = (
                     stopping_angle
                     + math.radians(
-                        self.defaults.turn_brake_margin_deg
+                        self.defaults.turn_brake_margin_rad
                     )
                 )
 
@@ -830,10 +823,10 @@ class MotionController(Node):
                 if now - last_report >= 0.15:
                     print(
                         f"\r{phase_name}: осталось "
-                        f"{math.degrees(error):+.2f}°, "
+                        f"{error:+.4f} рад, "
                         f"ω={angular_velocity:+.3f}, "
                         f"стоп≈"
-                        f"{math.degrees(stopping_angle):.1f}°",
+                        f"{stopping_angle:.4f} рад",
                         end="",
                         flush=True,
                     )
@@ -847,7 +840,7 @@ class MotionController(Node):
             )
             print(
                 f"\nПосле торможения: ошибка "
-                f"{math.degrees(settled_error):+.2f}°, "
+                f"{settled_error:+.4f} рад, "
                 f"ω={settled_rate:+.3f} рад/с"
             )
 
@@ -861,9 +854,9 @@ class MotionController(Node):
                 print(
                     "Поворот завершён после полной остановки:\n"
                     f"  итоговая ошибка: "
-                    f"{math.degrees(settled_error):+.2f}°\n"
+                    f"{settled_error:+.4f} рад\n"
                     f"  фактический угол по /odom: "
-                    f"{math.degrees(actual_turn):+.2f}°\n"
+                    f"{actual_turn:+.4f} рад\n"
                     f"  итоговая ω: "
                     f"{settled_rate:+.3f} рад/с"
                 )
@@ -875,7 +868,7 @@ class MotionController(Node):
             "Не удалось стабилизировать поворот после "
             f"{self.defaults.turn_max_corrections} коррекций; "
             f"остаточная ошибка "
-            f"{math.degrees(final_error):+.2f}°"
+            f"{final_error:+.4f} рад"
         )
 
     def return_to_origin(
@@ -918,7 +911,7 @@ class MotionController(Node):
             f"  dx: {dx:+.3f} м\n"
             f"  dy: {dy:+.3f} м\n"
             f"  расстояние: {distance:.3f} м\n"
-            f"  yaw: {math.degrees(yaw_error):+.2f}°"
+            f"  yaw: {yaw_error:+.4f} рад"
         )
 
 
@@ -934,14 +927,20 @@ def load_defaults(plan: dict[str, Any]) -> MotionDefaults:
         minimum_angular_speed=float(
             values.get("minimum_angular_speed", 0.12)
         ),
-        angle_tolerance_deg=float(
-            values.get("angle_tolerance_deg", 3.0)
+        angle_tolerance_rad=float(
+            values.get(
+                "angle_tolerance_rad",
+                math.radians(float(values.get("angle_tolerance_deg", 3.0))),
+            )
         ),
         turn_braking_decel_radps2=float(
             values.get("turn_braking_decel_radps2", 0.60)
         ),
-        turn_brake_margin_deg=float(
-            values.get("turn_brake_margin_deg", 1.0)
+        turn_brake_margin_rad=float(
+            values.get(
+                "turn_brake_margin_rad",
+                math.radians(float(values.get("turn_brake_margin_deg", 1.0))),
+            )
         ),
         turn_correction_speed=float(
             values.get("turn_correction_speed", 0.14)
@@ -1030,9 +1029,10 @@ def execute_plan(
 
         elif step_type == "move_polar":
             distance = float(step["distance"])
-            direction = math.radians(
-                float(step.get("direction_deg", 0.0))
-            )
+            direction = float(step.get(
+                "direction_rad",
+                math.radians(float(step.get("direction_deg", 0.0))),
+            ))
             controller.move_relative(
                 forward=distance * math.cos(direction),
                 left=distance * math.sin(direction),
@@ -1041,7 +1041,10 @@ def execute_plan(
 
         elif step_type == "turn":
             controller.turn_relative(
-                degrees=float(step["degrees"]),
+                angle_rad=float(step.get(
+                    "angle_rad",
+                    math.radians(float(step.get("degrees", 0.0))),
+                )),
                 angular_speed=(
                     float(step["angular_speed"])
                     if "angular_speed" in step
@@ -1052,10 +1055,11 @@ def execute_plan(
                     if "minimum_angular_speed" in step
                     else None
                 ),
-                angle_tolerance_deg=(
-                    float(step["angle_tolerance_deg"])
-                    if "angle_tolerance_deg" in step
-                    else None
+                angle_tolerance_rad=(
+                    float(step["angle_tolerance_rad"])
+                    if "angle_tolerance_rad" in step
+                    else (math.radians(float(step["angle_tolerance_deg"]))
+                          if "angle_tolerance_deg" in step else None)
                 ),
                 maximum_time=(
                     float(step["maximum_time"])
@@ -1116,14 +1120,14 @@ def create_parser() -> argparse.ArgumentParser:
 
     turn = subparsers.add_parser(
         "turn",
-        help="повернуться на заданное число градусов",
+        help="повернуться на заданное число радиан",
     )
-    turn.add_argument("degrees", type=float)
+    turn.add_argument("angle_rad", type=float)
     turn.add_argument("--speed", type=float, default=0.32)
     turn.add_argument(
-        "--tolerance-deg",
+        "--tolerance-rad",
         type=float,
-        default=3.0,
+        default=math.radians(3.0),
     )
 
     run = subparsers.add_parser(
@@ -1169,9 +1173,9 @@ def main() -> None:
 
         elif args.command == "turn":
             controller.turn_relative(
-                degrees=args.degrees,
+                angle_rad=args.angle_rad,
                 angular_speed=args.speed,
-                angle_tolerance_deg=args.tolerance_deg,
+                angle_tolerance_rad=args.tolerance_rad,
             )
 
         elif args.command == "run":

@@ -54,15 +54,15 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
         self.declare_parameter('default_forward_distance_m', 0.30)
         self.declare_parameter('default_forward_speed_mps', 0.12)
         self.declare_parameter('default_lateral_speed_mps', 0.10)
-        self.declare_parameter('default_angular_speed_degps', 45.0)
+        self.declare_parameter('default_angular_speed_radps', math.radians(45.0))
         self.declare_parameter('max_relative_distance_m', 3.0)
-        self.declare_parameter('max_relative_turn_deg', 720.0)
+        self.declare_parameter('max_relative_turn_rad', math.radians(720.0))
         self.declare_parameter('max_drive_duration_s', 40.0)
         self.declare_parameter('motion_position_tolerance_m', 0.025)
-        self.declare_parameter('motion_yaw_tolerance_deg', 3.0)
+        self.declare_parameter('motion_yaw_tolerance_rad', math.radians(3.0))
         self.declare_parameter('motion_command_rate_hz', 20.0)
-        # If the physical lidar is mounted backwards, set scan_front_angle_deg:=180.0.
-        self.declare_parameter('scan_front_angle_deg', 0.0)
+        # If the physical lidar is mounted backwards, set scan_front_angle_rad:=pi.
+        self.declare_parameter('scan_front_angle_rad', 0.0)
 
         self.led_set_state_service = str(self.get_parameter('led_set_state_service').value)
         self.led_state_topic = str(self.get_parameter('led_state_topic').value)
@@ -199,7 +199,7 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
                     'frame_id': getattr(getattr(current_pose, 'header', None), 'frame_id', ''),
                     'x': float(pose.position.x),
                     'y': float(pose.position.y),
-                    'yaw_deg': math.degrees(yaw),
+                    'yaw_rad': yaw,
                 }
         self._last_nav_feedback = {
             'distance_remaining_m': float(getattr(feedback, 'distance_remaining', 0.0)),
@@ -466,24 +466,35 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
 
     def turn_relative(
         self,
-        angle_deg: float,
-        angular_speed_degps: float | None = None,
+        angle_rad: float | None = None,
+        angular_speed_radps: float | None = None,
         timeout_s: float | None = None,
+        angle_deg: float | None = None,
+        angular_speed_degps: float | None = None,
     ) -> dict[str, Any]:
+        if angle_rad is None:
+            if angle_deg is None:
+                return {'success': False, 'error': 'Specify angle_rad or angle_deg.'}
+            angle_rad = math.radians(float(angle_deg))
+        if angular_speed_radps is None:
+            angular_speed_radps = (
+                math.radians(float(angular_speed_degps))
+                if angular_speed_degps is not None
+                else None
+            )
         if not self._wait_for_odom(timeout_s=2.0):
             return {'success': False, 'error': f'No odometry received on {self.odom_topic}; cannot do odom-based relative turn.'}
 
-        max_turn = float(self.get_parameter('max_relative_turn_deg').value)
-        target = math.radians(float(clamp(float(angle_deg), -max_turn, max_turn)))
+        max_turn = float(self.get_parameter('max_relative_turn_rad').value)
+        target = float(clamp(float(angle_rad), -max_turn, max_turn))
         if abs(target) < math.radians(0.5):
             self._publish_stop()
-            return {'success': True, 'message': 'Turn target is zero; no movement needed.', 'angle_deg': 0.0}
+            return {'success': True, 'message': 'Turn target is zero; no movement needed.', 'angle_rad': 0.0}
 
-        default_speed = float(self.get_parameter('default_angular_speed_degps').value)
-        speed_deg_abs = abs(float(angular_speed_degps if angular_speed_degps is not None else default_speed))
-        speed_deg_abs = float(clamp(speed_deg_abs, 5.0, 180.0))
-        speed_rad_abs = math.radians(speed_deg_abs)
-        tolerance_rad = math.radians(float(clamp(float(self.get_parameter('motion_yaw_tolerance_deg').value), 0.5, 15.0)))
+        default_speed = float(self.get_parameter('default_angular_speed_radps').value)
+        speed_rad_abs = abs(float(angular_speed_radps if angular_speed_radps is not None else default_speed))
+        speed_rad_abs = float(clamp(speed_rad_abs, math.radians(5.0), math.radians(180.0)))
+        tolerance_rad = float(clamp(float(self.get_parameter('motion_yaw_tolerance_rad').value), math.radians(0.5), math.radians(15.0)))
         rate_hz = float(clamp(float(self.get_parameter('motion_command_rate_hz').value), 5.0, 50.0))
         sleep_s = 1.0 / rate_hz
         computed_timeout = abs(target) / max(speed_rad_abs, 1e-3) + 3.0
@@ -519,11 +530,11 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
         return {
             'success': success,
             'message': 'Completed odom-based relative turn.' if success else 'Relative turn stopped before reaching target tolerance.',
-            'target_angle_deg': math.degrees(target),
-            'measured_angle_deg': math.degrees(traveled),
-            'remaining_deg': math.degrees(remaining),
-            'angular_speed_degps': speed_deg_abs,
-            'tolerance_deg': math.degrees(tolerance_rad),
+            'target_angle_rad': target,
+            'measured_angle_rad': traveled,
+            'remaining_rad': remaining,
+            'angular_speed_radps': speed_rad_abs,
+            'tolerance_rad': tolerance_rad,
             'timeout_s': timeout,
             'cmd_vel_topic': self.cmd_vel_topic,
             'odom_topic': self.odom_topic,
@@ -628,11 +639,14 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
         self,
         x: float,
         y: float,
-        yaw_deg: float = 0.0,
+        yaw_rad: float | None = None,
         frame_id: str = 'map',
         wait_until_done: bool = False,
         timeout_s: float = 60.0,
+        yaw_deg: float | None = None,
     ) -> dict[str, Any]:
+        if yaw_rad is None:
+            yaw_rad = math.radians(float(yaw_deg)) if yaw_deg is not None else 0.0
         if self._named_navigation_token is not None:
             status = self.named_navigation_status()
             if not status.get('success') or status.get('active'):
@@ -647,7 +661,7 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
         goal.pose.pose.position.x = float(x)
         goal.pose.pose.position.y = float(y)
         goal.pose.pose.position.z = 0.0
-        qx, qy, qz, qw = yaw_to_quaternion(math.radians(float(yaw_deg)))
+        qx, qy, qz, qw = yaw_to_quaternion(float(yaw_rad))
         goal.pose.pose.orientation.x = qx
         goal.pose.pose.orientation.y = qy
         goal.pose.pose.orientation.z = qz
@@ -663,7 +677,7 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
 
         self._current_goal_handle = goal_handle
         self._last_nav_feedback = None
-        self._last_nav_goal = {'x': float(x), 'y': float(y), 'yaw_deg': float(yaw_deg), 'frame_id': str(frame_id or 'map')}
+        self._last_nav_goal = {'x': float(x), 'y': float(y), 'yaw_rad': float(yaw_rad), 'frame_id': str(frame_id or 'map')}
         self._nav_status = {
             'active': True,
             'status': 'accepted',
@@ -736,7 +750,7 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
                 'frame': self._amcl_pose.header.frame_id or 'map',
                 'x': pose.position.x,
                 'y': pose.position.y,
-                'yaw_deg': math.degrees(yaw),
+                'yaw_rad': yaw,
                 'age_s': now - self._last_amcl_time,
             }
         if self._odom is not None:
@@ -748,7 +762,7 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
                 'frame': self._odom.header.frame_id or 'odom',
                 'x': pose.position.x,
                 'y': pose.position.y,
-                'yaw_deg': math.degrees(yaw),
+                'yaw_rad': yaw,
                 'age_s': now - self._last_odom_time,
             }
         return {'success': False, 'error': 'No AMCL pose or odometry received yet.'}
@@ -761,9 +775,9 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
         ranges = list(scan.ranges)
         now = time.monotonic()
 
-        def sector_min(center_deg: float, width_deg: float) -> float | None:
-            center = math.radians(center_deg)
-            half = math.radians(width_deg) * 0.5
+        def sector_min(center_rad: float, width_rad: float) -> float | None:
+            center = center_rad
+            half = width_rad * 0.5
             values: list[float] = []
             for idx, value in enumerate(ranges):
                 if not math.isfinite(value):
@@ -778,15 +792,17 @@ class RoverRosBridge(DetectionObserverMixin, NamedNavigationMixin, Node):
                 return None
             return min(values)
 
-        front_angle = float(self.get_parameter('scan_front_angle_deg').value)
+        front_angle = float(self.get_parameter('scan_front_angle_rad').value)
+        sector_width = math.radians(40.0)
+        side_width = math.radians(60.0)
         return {
             'success': True,
             'source': self.scan_topic,
-            'front_angle_deg': front_angle,
-            'front_min_m': sector_min(front_angle, 40.0),
-            'left_min_m': sector_min(front_angle + 90.0, 60.0),
-            'right_min_m': sector_min(front_angle - 90.0, 60.0),
-            'back_min_m': sector_min(front_angle + 180.0, 60.0),
+            'front_angle_rad': front_angle,
+            'front_min_m': sector_min(front_angle, sector_width),
+            'left_min_m': sector_min(front_angle + math.pi / 2.0, side_width),
+            'right_min_m': sector_min(front_angle - math.pi / 2.0, side_width),
+            'back_min_m': sector_min(front_angle + math.pi, side_width),
             'age_s': now - self._last_scan_time,
             'range_min': scan.range_min,
             'range_max': scan.range_max,

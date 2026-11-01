@@ -222,14 +222,14 @@ left_m < 0     вправо боком
 {"forward_m": 0.30, "left_m": 0.30}
 ```
 
-#### `turn_relative(angle_deg, angular_speed_degps, timeout_s)`
+#### `turn_relative(angle_rad, angular_speed_radps, timeout_s)`
 
 Odom-based поворот:
 
-```text
-+90 = налево
--90 = направо
-```
+`+1.5708` рад = налево, `-1.5708` рад = направо.
+
+Для совместимости принимаются `angle_deg` и `angular_speed_degps`, но новые
+клиенты должны использовать радианы.
 
 #### `run_motion_sequence(steps, stop_on_error)`
 
@@ -250,7 +250,7 @@ set_led_strip, set_led_preset, blink_led_strip, wait, stop_motion
 {
   "steps": [
     {"type": "drive_relative", "forward_m": 0.30, "left_m": 0.0, "speed_mps": 0.12},
-    {"type": "turn_relative", "angle_deg": -90},
+    {"type": "turn_relative", "angle_rad": -1.5708},
     {"type": "drive_relative", "forward_m": 0.0, "left_m": 0.20, "speed_mps": 0.10},
     {"type": "blink_led_strip", "color": "#16B8F3", "times": 3}
   ],
@@ -267,7 +267,7 @@ run_relative_sequence(steps) -> run_motion_sequence(steps)
 
 ### Nav2
 
-#### `navigate_to_pose(x, y, yaw_deg, frame_id, wait_until_done, timeout_s)`
+#### `navigate_to_pose(x, y, yaw_rad, frame_id, wait_until_done, timeout_s)`
 
 Отправляет абсолютную цель в Nav2 action:
 
@@ -291,7 +291,7 @@ run_relative_sequence(steps) -> run_motion_sequence(steps)
 
 #### `get_robot_pose()`
 
-Возвращает текущие координаты. Приоритет источников:
+Возвращает текущие координаты в метрах и `yaw_rad` в радианах. Приоритет источников:
 
 ```text
 /amcl_pose, затем /odom

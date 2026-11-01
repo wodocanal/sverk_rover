@@ -4,12 +4,12 @@ defaults:
   position_tolerance: 0.015
   angular_speed: 0.32
   minimum_angular_speed: 0.1
-  angle_tolerance_deg: 3.0
+  angle_tolerance_rad: 0.0523598776
   odom_timeout: 0.5
   command_rate_hz: 50.0
   maximum_step_time: 45.0
   turn_braking_decel_radps2: 0.6
-  turn_brake_margin_deg: 1.0
+  turn_brake_margin_rad: 0.0174532925
   turn_correction_speed: 0.14
   turn_settle_rate_radps: 0.03
   turn_settle_time: 0.4
@@ -23,7 +23,7 @@ steps:
   left: 0.3
 - type: move_polar
   distance: 0.3
-  direction_deg: -45.0
+  direction_rad: -0.7853981634
 - type: pause
   seconds: 1.0
 - type: return_to_start

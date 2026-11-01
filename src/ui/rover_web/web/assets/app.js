@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   audioEnabled: 'rover_web.audio_enabled',
   octolinerEnabled: 'rover_web.octoliner_enabled',
   manualDriveSpeeds: 'rover_web.manual_drive_speeds',
+  angleUnit: 'rover_web.angle_unit',
 };
 
 const PAGE_GROUPS = {
@@ -77,17 +78,17 @@ const ROUTE_STEP_FIELDS = {
   ],
   move_polar: [
     { key: 'distance', label: 'Дистанция, м', type: 'number', required: true, step: '0.01', defaultValue: 0.50 },
-    { key: 'direction_deg', label: 'Направление, °', type: 'number', required: true, step: '1', defaultValue: 0 },
+    { key: 'direction_rad', label: 'Направление', angle: true, type: 'number', required: true, defaultValue: 0 },
     { key: 'linear_speed', label: 'Скорость, м/с', type: 'number', step: '0.01', placeholder: 'по умолчанию' },
     { key: 'approach_speed', label: 'Скорость подхода, м/с', type: 'number', step: '0.01', placeholder: 'по умолчанию' },
     { key: 'position_tolerance', label: 'Допуск, м', type: 'number', step: '0.01', placeholder: 'по умолчанию' },
     { key: 'maximum_time', label: 'Лимит, с', type: 'number', step: '1', placeholder: 'по умолчанию' },
   ],
   turn: [
-    { key: 'degrees', label: 'Угол, °', type: 'number', required: true, step: '1', defaultValue: 90 },
+    { key: 'angle_rad', label: 'Угол', angle: true, type: 'number', required: true, defaultValue: Math.PI / 2 },
     { key: 'angular_speed', label: 'Угловая скорость, рад/с', type: 'number', step: '0.01', placeholder: 'по умолчанию' },
     { key: 'minimum_angular_speed', label: 'Мин. скорость, рад/с', type: 'number', step: '0.01', placeholder: 'по умолчанию' },
-    { key: 'angle_tolerance_deg', label: 'Допуск, °', type: 'number', step: '1', placeholder: 'по умолчанию' },
+    { key: 'angle_tolerance_rad', label: 'Допуск', angle: true, type: 'number', placeholder: 'по умолчанию' },
     { key: 'maximum_time', label: 'Лимит, с', type: 'number', step: '1', placeholder: 'по умолчанию' },
   ],
   pause: [
@@ -383,8 +384,74 @@ function renderMarkdownDocument(text) {
   return parts.join('\n') || '<p>Файл пустой.</p>';
 }
 
-function formatAngleRad(rad) {
-  return Number.isFinite(Number(rad)) ? `${(Number(rad) * 180 / Math.PI).toFixed(1)}°` : '—';
+function angleUnit() {
+  return localStorage.getItem(STORAGE_KEYS.angleUnit) === 'rad' ? 'rad' : 'deg';
+}
+
+function angleUnitSuffix() {
+  return angleUnit() === 'rad' ? 'рад' : '°';
+}
+
+function angleToDisplay(rad, digits = 1) {
+  const value = Number(rad);
+  if (!Number.isFinite(value)) return '';
+  return (angleUnit() === 'rad' ? value : value * 180 / Math.PI).toFixed(digits);
+}
+
+function displayAngleToRad(value) {
+  return angleValueToRad(value, angleUnit());
+}
+
+function angleValueToRad(value, unit) {
+  const number = Number(value);
+  return unit === 'rad' ? number : number * Math.PI / 180;
+}
+
+function formatAngleRad(rad, digits = 1) {
+  const value = angleToDisplay(rad, digits);
+  return value === '' ? '—' : `${value}${angleUnitSuffix()}`;
+}
+
+function refreshAngleUnitLabels() {
+  const suffix = angleUnitSuffix();
+  $$('[data-angle-unit-label]').forEach((element) => { element.textContent = suffix; });
+  const metricUnit = $('#metric-yaw-unit');
+  if (metricUnit) metricUnit.textContent = suffix;
+  const selector = $('#angle-display-unit');
+  if (selector) selector.value = angleUnit();
+  renderRouteSteps();
+  renderVisualization();
+}
+
+function setAngleUnit(unit) {
+  const next = unit === 'rad' ? 'rad' : 'deg';
+  const previous = angleUnit();
+  if (previous !== next) {
+    const defaultsInput = $('#route-default-angle-tolerance');
+    if (defaultsInput?.value) {
+      const radians = angleValueToRad(defaultsInput.value, previous);
+      defaultsInput.dataset.radians = String(radians);
+    }
+    ['nav-place', 'nav-initial', 'nav-goal'].forEach((prefix) => {
+      const input = $(`#${prefix}-yaw`);
+      if (input?.value) input.dataset.radians = String(angleValueToRad(input.value, previous));
+    });
+    $$('#route-step-list input[data-field]').forEach((input) => {
+      const index = Number(input.dataset.index);
+      const step = currentDraftPlan().steps[index];
+      const spec = safeArray(ROUTE_STEP_FIELDS[step?.type]).find((item) => item.key === input.dataset.field);
+      if (spec?.angle && input.value !== '') step[spec.key] = angleValueToRad(input.value, previous);
+    });
+  }
+  localStorage.setItem(STORAGE_KEYS.angleUnit, next);
+  const defaultsInput = $('#route-default-angle-tolerance');
+  if (defaultsInput?.dataset.radians) defaultsInput.value = angleToDisplay(defaultsInput.dataset.radians, next === 'rad' ? 4 : 1);
+  ['nav-place', 'nav-initial', 'nav-goal'].forEach((prefix) => {
+    const input = $(`#${prefix}-yaw`);
+    if (input?.dataset.radians) input.value = angleToDisplay(input.dataset.radians, next === 'rad' ? 4 : 1);
+  });
+  refreshAngleUnitLabels();
+  document.dispatchEvent(new Event('angle-unit-changed'));
 }
 
 function formatAge(seconds) {
@@ -817,7 +884,7 @@ function renderOverview() {
 
   $('#metric-x').textContent = pose ? formatFloat(pose.x, 2) : '—';
   $('#metric-y').textContent = pose ? formatFloat(pose.y, 2) : '—';
-  $('#metric-yaw').textContent = pose ? formatFloat(pose.yaw * 180 / Math.PI, 1) : '—';
+  $('#metric-yaw').textContent = pose ? angleToDisplay(pose.yaw, 1) : '—';
   $('#metric-speed').textContent = Number.isFinite(speed) ? formatFloat(speed, 2) : '—';
   $('#metric-cpu').textContent = Number.isFinite(system.cpu_percent) ? formatFloat(system.cpu_percent, 0) : '—';
   $('#metric-temp').textContent = Number.isFinite(system.temperature_c) ? formatFloat(system.temperature_c, 1) : '—';
@@ -3355,7 +3422,7 @@ function applyRouteDefaults(config) {
   $('#route-default-approach').value = String(Math.min(recommended.manual_linear_speed_mps ?? 0.18, 0.10));
   $('#route-default-position-tolerance').value = '0.07';
   $('#route-default-angular').value = String(Math.min(angular, limits.angular_z ?? angular));
-  $('#route-default-angle-tolerance').value = '3';
+  $('#route-default-angle-tolerance').value = angleToDisplay(3 * Math.PI / 180, angleUnit() === 'rad' ? 4 : 1);
   $('#route-default-time').value = '45';
 
   if (!state.route.draft) {
@@ -3372,7 +3439,7 @@ function currentRouteDefaults() {
     position_tolerance: Number($('#route-default-position-tolerance').value || '0.07'),
     angular_speed: Number($('#route-default-angular').value || '0.32'),
     minimum_angular_speed: 0.10,
-    angle_tolerance_deg: Number($('#route-default-angle-tolerance').value || '3'),
+    angle_tolerance_rad: displayAngleToRad($('#route-default-angle-tolerance').value || (angleUnit() === 'rad' ? '0.05236' : '3')),
     maximum_step_time: Number($('#route-default-time').value || '45'),
   };
 }
@@ -3382,7 +3449,10 @@ function applyDefaultsToInputs(defaults = {}) {
   $('#route-default-approach').value = String(defaults.approach_speed ?? 0.10);
   $('#route-default-position-tolerance').value = String(defaults.position_tolerance ?? 0.07);
   $('#route-default-angular').value = String(defaults.angular_speed ?? 0.32);
-  $('#route-default-angle-tolerance').value = String(defaults.angle_tolerance_deg ?? 3);
+  const tolerance = defaults.angle_tolerance_rad ?? (
+    defaults.angle_tolerance_deg !== undefined ? Number(defaults.angle_tolerance_deg) * Math.PI / 180 : 3 * Math.PI / 180
+  );
+  $('#route-default-angle-tolerance').value = angleToDisplay(tolerance, angleUnit() === 'rad' ? 4 : 1);
   $('#route-default-time').value = String(defaults.maximum_step_time ?? 45);
 }
 
@@ -3397,6 +3467,32 @@ function createBlankPlan() {
     defaults: currentRouteDefaults(),
     steps: [],
   };
+}
+
+function normalizePlanAngles(plan) {
+  const normalized = deepClone(plan || createBlankPlan());
+  normalized.defaults = normalized.defaults || {};
+  if (normalized.defaults.angle_tolerance_rad === undefined && normalized.defaults.angle_tolerance_deg !== undefined) {
+    normalized.defaults.angle_tolerance_rad = Number(normalized.defaults.angle_tolerance_deg) * Math.PI / 180;
+  }
+  delete normalized.defaults.angle_tolerance_deg;
+  normalized.steps = safeArray(normalized.steps).map((source) => {
+    const step = { ...source };
+    if (step.direction_rad === undefined && step.direction_deg !== undefined) {
+      step.direction_rad = Number(step.direction_deg) * Math.PI / 180;
+    }
+    if (step.angle_rad === undefined && step.degrees !== undefined) {
+      step.angle_rad = Number(step.degrees) * Math.PI / 180;
+    }
+    if (step.angle_tolerance_rad === undefined && step.angle_tolerance_deg !== undefined) {
+      step.angle_tolerance_rad = Number(step.angle_tolerance_deg) * Math.PI / 180;
+    }
+    delete step.direction_deg;
+    delete step.degrees;
+    delete step.angle_tolerance_deg;
+    return step;
+  });
+  return normalized;
 }
 
 function createStep(type) {
@@ -3464,7 +3560,7 @@ function renderRouteSteps() {
     fieldsWrap.className = 'route-step-fields';
     safeArray(ROUTE_STEP_FIELDS[step.type]).forEach((field) => {
       const labelEl = document.createElement('label');
-      labelEl.textContent = field.label;
+      labelEl.textContent = field.angle ? `${field.label}, ${angleUnitSuffix()}` : field.label;
       const input = document.createElement('input');
       input.dataset.field = field.key;
       input.dataset.index = String(index);
@@ -3473,10 +3569,11 @@ function renderRouteSteps() {
         input.checked = step[field.key] !== undefined ? Boolean(step[field.key]) : Boolean(field.defaultValue);
       } else {
         if (field.step) input.step = field.step;
+        if (field.angle) input.step = angleUnit() === 'rad' ? '0.01' : '1';
         if (field.required) input.required = true;
         if (field.placeholder) input.placeholder = field.placeholder;
         input.value = step[field.key] !== undefined && step[field.key] !== null
-          ? String(step[field.key])
+          ? (field.angle ? angleToDisplay(step[field.key], angleUnit() === 'rad' ? 4 : 1) : String(step[field.key]))
           : '';
       }
       labelEl.append(input);
@@ -3527,7 +3624,7 @@ async function loadPlan(name) {
   try {
     const payload = await api(`/api/plans/${encodeURIComponent(normalized)}`);
     state.route.selectedName = payload.name || normalized;
-    state.route.draft = payload.plan || createBlankPlan();
+    state.route.draft = normalizePlanAngles(payload.plan || createBlankPlan());
     $('#plan-name').value = state.route.selectedName;
     applyDefaultsToInputs(state.route.draft.defaults || {});
     renderPlanList();
@@ -3671,11 +3768,11 @@ function simulatePlan(plan) {
       points.push({ ...pose });
     } else if (type === 'move_polar') {
       const distance = Number(step.distance || 0);
-      const directionRad = Number(step.direction_deg || 0) * Math.PI / 180;
+      const directionRad = Number(step.direction_rad || 0);
       applyRelativeMove(pose, distance * Math.cos(directionRad), distance * Math.sin(directionRad));
       points.push({ ...pose });
     } else if (type === 'turn') {
-      pose.yaw += Number(step.degrees || 0) * Math.PI / 180;
+      pose.yaw += Number(step.angle_rad || 0);
       points.push({ ...pose });
     } else if (type === 'return_to_start') {
       pose.x = 0;
@@ -3891,7 +3988,7 @@ function readNavigationPose(prefix) {
   return {
     x: values[0],
     y: values[1],
-    yaw: values[2] * Math.PI / 180,
+    yaw: displayAngleToRad(values[2]),
   };
 }
 
@@ -3899,7 +3996,7 @@ function writeNavigationPose(prefix, pose) {
   if (!pose) return;
   $(`#${prefix}-x`).value = Number(pose.x).toFixed(2);
   $(`#${prefix}-y`).value = Number(pose.y).toFixed(2);
-  $(`#${prefix}-yaw`).value = (Number(pose.yaw || 0) * 180 / Math.PI).toFixed(1);
+  $(`#${prefix}-yaw`).value = angleToDisplay(Number(pose.yaw || 0), angleUnit() === 'rad' ? 4 : 1);
   renderNavigationRuntime(state.viz.navigation);
   renderVisualization();
 }
@@ -3951,7 +4048,7 @@ function renderNavigationRuntime(runtime) {
       if (!pose) continue;
       $(`#${prefix}-x`).value = pose.x;
       $(`#${prefix}-y`).value = pose.y;
-      $(`#${prefix}-yaw`).value = (pose.yaw * 180 / Math.PI).toFixed(1);
+      $(`#${prefix}-yaw`).value = angleToDisplay(pose.yaw, angleUnit() === 'rad' ? 4 : 1);
     }
   }
   const external = Boolean(runtime?.external?.slam || runtime?.external?.navigation);
@@ -4437,7 +4534,7 @@ function bindRoutesPage() {
           delete step[field];
         }
       } else {
-        step[field] = Number(valueText);
+        step[field] = fieldSpec.angle ? displayAngleToRad(valueText) : Number(valueText);
       }
     }
     renderRoutePreview();
@@ -4466,7 +4563,7 @@ function bindVisualizationPage() {
   state.viz.cancelGesture = RoverMapView.bindMapViewport($('#odom-canvas'), state.viz.view,
     renderVisualization, {
       mode: () => state.viz.pickMode,
-      yaw: mode => Number($(`#nav-${mode}-yaw`).value) * Math.PI / 180,
+      yaw: mode => displayAngleToRad($(`#nav-${mode}-yaw`).value),
       preview: value => { state.viz.posePreview = value; },
       commit: (mode, pose) => {
         writeNavigationPose(`nav-${mode}`, pose);
@@ -4828,6 +4925,12 @@ function bindDiagnosticsPage() {
 function bindSettingsPage() {
   bindCompactMode();
   bindServoUsage();
+  $('#angle-display-unit').value = angleUnit();
+  if (angleUnit() === 'rad') {
+    $('#route-default-angle-tolerance').value = (3 * Math.PI / 180).toFixed(4);
+  }
+  refreshAngleUnitLabels();
+  $('#angle-display-unit').addEventListener('change', (event) => setAngleUnit(event.target.value));
   $('#drive-type-apply').addEventListener('click', applyDriveSettings);
   $('#drive-type-refresh').addEventListener('click', refreshDriveSettings);
 }
